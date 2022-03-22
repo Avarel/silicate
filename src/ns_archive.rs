@@ -9,28 +9,32 @@ use thiserror::Error;
 pub enum NsArchiveError {
     #[error("i/o error")]
     Io(#[from] std::io::Error),
+    #[error("plist error")]
+    PlistError(#[from] plist::Error),
+    #[error("zip error")]
+    ZipError(#[from] zip::result::ZipError),
     #[error("type mismatch")]
     TypeMismatch,
     #[error("missing key")]
     MissingKey,
     #[error("bad index")]
-    BadIndex
+    BadIndex,
 }
 
 #[derive(Deserialize)]
 pub struct NsKeyedArchive {
-    // #[serde(rename = "$version")]
-    // version: usize,
-    // #[serde(rename = "$archiver")]
-    // archiver: String,
+    #[serde(rename = "$version")]
+    version: usize,
+    #[serde(rename = "$archiver")]
+    archiver: String,
     #[serde(rename = "$top")]
-    pub top: Dictionary,
+    top: Dictionary,
     #[serde(rename = "$objects")]
     objects: Vec<Value>,
 }
 
-impl NsKeyedArchive {
-    pub fn resolve_index<'a>(&'a self, idx: usize) -> Result<Option<&'a Value>, NsArchiveError> {
+impl<'a> NsKeyedArchive {
+    pub fn resolve_index(&'a self, idx: usize) -> Result<Option<&'a Value>, NsArchiveError> {
         if idx == 0 {
             Ok(None)
         } else {
@@ -41,7 +45,7 @@ impl NsKeyedArchive {
         }
     }
 
-    pub fn decode_value<'a>(
+    pub fn decode_value(
         &'a self,
         coder: &'a Dictionary,
         key: &str,
@@ -52,12 +56,16 @@ impl NsKeyedArchive {
         };
     }
 
-    pub fn decode<'a, T: NsDecode<'a>>(
+    pub fn decode<T: NsDecode<'a>>(
         &'a self,
         coder: &'a Dictionary,
         key: &str,
     ) -> Result<T, NsArchiveError> {
         T::decode(self, self.decode_value(coder, key)?)
+    }
+
+    pub fn root(&self) -> Result<&'_ Dictionary, NsArchiveError> {
+        self.decode::<&'_ Dictionary>(&self.top, "root")
     }
 }
 
@@ -230,7 +238,9 @@ pub struct WrappedRawArray {
 impl NsDecode<'_> for WrappedRawArray {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
-        Ok(Self { inner: nka.decode::<Vec<Uid>>(coder, "NS.objects")? })
+        Ok(Self {
+            inner: nka.decode::<Vec<Uid>>(coder, "NS.objects")?,
+        })
     }
 }
 
