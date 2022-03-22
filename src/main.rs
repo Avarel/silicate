@@ -16,7 +16,7 @@ use zip::read::ZipArchive;
 
 use crate::{
     error::NsArchiveError,
-    ns_archive::{Size, WrappedArray, NsClass},
+    ns_archive::{NsClass, Size, WrappedArray},
 };
 
 type Rgba8 = Rgba<u8>;
@@ -40,33 +40,63 @@ fn main() -> Result<(), Box<dyn Error>> {
     let nka: NsKeyedArchive = plist::from_reader(Cursor::new(buf))?;
 
     let mut art = ProcreateFile::from_ns(archive, nka)?;
-
     let mut composite = RgbaImage::new(art.size.width, art.size.height);
 
-    for (layer_i, layer) in art.layers.iter_mut().enumerate() {
-        if layer.hidden {
-            eprintln!("its hidden {layer_i} {:?}", layer.name);
-            continue;
-        }
-
-        composite::layer_blend(
-            &mut composite,
-            &layer.image.as_ref().unwrap(),
-            layer.opacity,
-            match layer.blend {
-                1 => composite::multiply,
-                2 => composite::screen,
-                11 => composite::overlay,
-                0 | _ => composite::normal,
-            },
-        );
-        eprintln!("Done {layer_i}: {:?} {}", layer.name, layer.blend);
-    }
+    render(&mut composite, &mut art.layers);
 
     composite.save("./out/final.png")?;
 
     art.composite.image.unwrap().save("./out/reference.png")?;
     Ok(())
+}
+
+fn render(composite: &mut RgbaImage, layers: &mut SilicaGroup) {
+    let mut mask = None;
+    
+    for layer in &mut layers.children {
+        match layer {
+            SilicaLayers::Group(group) => {
+                if group.hidden {
+                    eprintln!("Hidden group {:?}", group.name);
+                    continue;
+                }
+                render(composite, group);
+                eprintln!("Finished group {}", group.name);
+            }
+            SilicaLayers::Layer(layer) => {
+                if layer.hidden {
+                    eprintln!("Hidden layer {:?}", layer.name);
+                    continue;
+                }
+
+                let mut layer_image = layer.image.take().unwrap();
+
+                if layer.clipped {
+                    if let Some(mask) = &mask {
+                        composite::layer_clip(&mut layer_image, &mask, layer.opacity);
+                    }
+                }
+
+                composite::layer_blend(
+                    composite,
+                    &layer_image,
+                    layer.opacity,
+                    match layer.blend {
+                        1 => composite::multiply,
+                        2 => composite::screen,
+                        11 => composite::overlay,
+                        0 | _ => composite::normal,
+                    },
+                );
+
+                if !layer.clipped {
+                    mask = Some(layer_image);
+                }
+
+                eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
+            }
+        }
+    }
 }
 
 struct TilingMeta {
@@ -116,7 +146,7 @@ struct ProcreateFile {
     //     videoDuration: String? = "Calculating..."
     composite: SilicaLayer,
     size: Size,
-    layers: Vec<SilicaLayer>,
+    layers: SilicaGroup,
 }
 
 impl ProcreateFile {
@@ -127,20 +157,9 @@ impl ProcreateFile {
         let root = nka.decode::<&'_ Dictionary>(&nka.top, "root")?;
 
         println!("{root:#?}");
-        let ul = nka
-            .decode::<WrappedArray<&'_ Dictionary>>(root, "unwrappedLayers")?
+        let mut layers = nka
+            .decode::<WrappedArray<SilicaLayers>>(root, "unwrappedLayers")?
             .objects;
-
-        // println!("UNWRAPPEDLAYERS {ul:#?}");
-        for z in ul {
-            let class = nka.decode::<NsClass>(z, "$class");
-            let value = nka.decode_value(z, "children");
-            println!("UNWRAP {class:?} {z:#?} {value:#?}");
-        }
-
-        let ns_layers = nka.decode::<&'_ Dictionary>(root, "layers")?;
-
-        println!("LAYERS {ns_layers:#?}");
 
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
@@ -163,18 +182,18 @@ impl ProcreateFile {
         let mut composite = nka.decode::<SilicaLayer>(root, "composite")?;
         composite.load_image(&meta, &mut archive, &file_names);
 
-        let mut layers = nka
-            .decode::<WrappedArray<SilicaLayer>>(root, "layers")?
-            .objects;
-
-        for layer in layers.iter_mut() {
-            layer.load_image(&meta, &mut archive, &file_names);
-        }
+        layers.iter_mut().for_each(|v| {
+            v.apply(&mut (|layer| layer.load_image(&meta, &mut archive, &file_names)))
+        });
 
         Ok(Self {
             size,
             composite,
-            layers,
+            layers: SilicaGroup {
+                hidden: false,
+                name: "ROOT".to_owned(),
+                children: layers,
+            },
         })
     }
 }
@@ -207,6 +226,23 @@ struct SilicaLayer {
     uuid: String,
     version: u64,
     image: Option<RgbaImage>,
+}
+
+impl std::fmt::Debug for SilicaLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SilicaLayer")
+            .field("blend", &self.blend)
+            .field("clipped", &self.clipped)
+            .field("hidden", &self.hidden)
+            .field("mask", &self.mask)
+            .field("name", &self.name)
+            .field("opacity", &self.opacity)
+            .field("size_width", &self.size_width)
+            .field("size_height", &self.size_height)
+            .field("uuid", &self.uuid)
+            .field("version", &self.version)
+            .finish()
+    }
 }
 
 impl SilicaLayer {
@@ -287,67 +323,49 @@ impl NsCoding<'_> for SilicaLayer {
     }
 }
 
-// struct SilicaGroup {
-//     pub hidden: bool,
-//     pub children: Vec<SilicaNest>,
-//     pub name: String,
-// }
+#[derive(Debug)]
+struct SilicaGroup {
+    pub hidden: bool,
+    pub children: Vec<SilicaLayers>,
+    pub name: String,
+}
 
-// impl NsCoding<'_> for SilicaGroup {
-//     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-//         let coder = <&'_ Dictionary>::decode(nka, val)?;
-//         Ok(Self {
-//             hidden: nka.decode::<bool>(coder, "isHidden")?,
-//             name: nka.decode::<String>(coder, "name")?,
-//             children: nka.decode::<WrappedArray<SilicaNest>>(coder, "children")?.objects
-//         })
-//     }
-// }
+impl NsCoding<'_> for SilicaGroup {
+    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+        let coder = <&'_ Dictionary>::decode(nka, val)?;
+        Ok(Self {
+            hidden: nka.decode::<bool>(coder, "isHidden")?,
+            name: nka.decode::<String>(coder, "name")?,
+            children: nka
+                .decode::<WrappedArray<SilicaLayers>>(coder, "children")?
+                .objects,
+        })
+    }
+}
 
-// enum SilicaNest {
-//     Layer(SilicaLayer),
-//     Group(SilicaGroup)
-// }
+#[derive(Debug)]
+enum SilicaLayers {
+    Layer(SilicaLayer),
+    Group(SilicaGroup),
+}
 
-// impl NsCoding<'_> for SilicaNest {
-//     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-//         let coder = <&'_ Dictionary>::decode(nka, val)?;
-//         let class = nka.decode::<NsClass>(coder, "$class")?;
-//         if class.class_name == "SilicaGroup" {
-//             Ok(Self::Group(SilicaGroup::decode(nka, val)?))
-//         } else {
-//             Ok(Self::Layer(SilicaLayer::decode(nka, val)?))
-//         }
-//     }
-// }
+impl SilicaLayers {
+    pub fn apply(&mut self, f: &mut impl FnMut(&mut SilicaLayer)) {
+        match self {
+            Self::Layer(layer) => f(layer),
+            Self::Group(group) => group.children.iter_mut().for_each(|child| child.apply(f)),
+        }
+    }
+}
 
-//     "isHidden": Boolean(
-//         true,
-//     ),
-//     "$class": Uid(
-//         53,
-//     ),
-//     "isLocked": Boolean(
-//         false,
-//     ),
-//     "children": Uid(
-//         160,
-//     ),
-//     "document": Uid(
-//         1,
-//     ),
-//     "isClipped": Boolean(
-//         false,
-//     ),
-//     "isCollapsed": Boolean(
-//         false,
-//     ),
-//     "animationHeldLength": Integer(
-//         0,
-//     ),
-//     "opacity": Real(
-//         1.0,
-//     ),
-//     "name": Uid(
-       
-// }
+impl NsCoding<'_> for SilicaLayers {
+    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+        let coder = <&'_ Dictionary>::decode(nka, val)?;
+        let class = nka.decode::<NsClass>(coder, "$class")?;
+        if class.class_name == "SilicaGroup" {
+            Ok(Self::Group(SilicaGroup::decode(nka, val)?))
+        } else {
+            Ok(Self::Layer(SilicaLayer::decode(nka, val)?))
+        }
+    }
+}

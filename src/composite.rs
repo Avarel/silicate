@@ -4,6 +4,31 @@ use rayon::slice::{ParallelSlice, ParallelSliceMut};
 
 use crate::Rgba8;
 
+pub fn layer_clip(layer: &mut RgbaImage, mask: &RgbaImage, layer_opacity: f32) {
+    assert_eq!(layer.dimensions(), mask.dimensions());
+
+    let layer_iter = layer
+        .par_chunks_exact_mut(usize::from(Rgba8::CHANNEL_COUNT))
+        .map(Rgba8::from_slice_mut);
+
+    let mask_iter = mask
+        .par_chunks_exact(usize::from(Rgba8::CHANNEL_COUNT))
+        .map(Rgba8::from_slice);
+
+    layer_iter
+        .zip_eq(mask_iter)
+        .for_each(|(layer, mask)| *layer = mask_pixel(*mask, *layer, layer_opacity));
+}
+
+pub fn mask_pixel(mask_rgb: Rgba8, mut fg_rgb: Rgba8, fg_opacity: f32) -> Rgba8 {
+    let max_t = f32::from(u8::MAX);
+    let mask_a = f32::from(mask_rgb.0[3]) / max_t;
+    let fg_a = (f32::from(fg_rgb.0[3]) / max_t * fg_opacity).min(mask_a);
+
+    fg_rgb.0[3] = (fg_a * max_t) as u8;
+    fg_rgb
+}
+
 pub fn layer_blend(
     bottom: &mut RgbaImage,
     top: &RgbaImage,
@@ -53,19 +78,24 @@ pub fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
 
 type BlendingFunction = fn(f32, f32, f32, f32) -> f32;
 
-pub fn blend_pixel(a: Rgba8, b: Rgba8, fa: f32, blender: BlendingFunction) -> Rgba8 {
+pub fn blend_pixel(
+    bg_rgb: Rgba8,
+    fg_rgb: Rgba8,
+    fg_opacity: f32,
+    blender: BlendingFunction,
+) -> Rgba8 {
     // http://stackoverflow.com/questions/7438263/alpha-compositing-algorithm-blend-modes#answer-11163848
 
     // First, as we don't know what type our pixel is, we have to convert to floats between 0.0 and 1.0
     let max_t = f32::from(u8::MAX);
-    let [bg @ .., bg_a] = a.0.map(|v| f32::from(v) / max_t);
-    let [fg @ .., mut fg_a] = b.0.map(|v| f32::from(v) / max_t);
-    fg_a *= fa;
+    let [bg @ .., bg_a] = bg_rgb.0.map(|v| f32::from(v) / max_t);
+    let [fg @ .., mut fg_a] = fg_rgb.0.map(|v| f32::from(v) / max_t);
+    fg_a *= fg_opacity;
 
     // Work out what the final alpha level will be
     let alpha_final = bg_a + fg_a - bg_a * fg_a;
     if alpha_final == 0.0 {
-        return a;
+        return bg_rgb;
     }
 
     // We premultiply our channels by their alpha, as this makes it easier to calculate
