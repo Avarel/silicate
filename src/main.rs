@@ -4,7 +4,8 @@ mod ns_archive;
 
 use image::{imageops, Pixel, Rgba, RgbaImage};
 use lzokay::decompress::decompress;
-use ns_archive::{NsCoding, NsKeyedArchive};
+use ns_archive::{NsDecode, NsKeyedArchive};
+use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
 use regex::Regex;
 use std::{
@@ -14,10 +15,7 @@ use std::{
 };
 use zip::read::ZipArchive;
 
-use crate::{
-    error::NsArchiveError,
-    ns_archive::{NsClass, Size, WrappedArray},
-};
+use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 
 type Rgba8 = Rgba<u8>;
 
@@ -50,10 +48,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn render(composite: &mut RgbaImage, layers: &mut SilicaGroup) {
-    let mut mask = None;
-    
-    for layer in &mut layers.children {
+fn render(composite: &mut RgbaImage, layers: &SilicaGroup) {
+    let mut mask: Option<RgbaImage> = None;
+
+    for layer in layers.children.iter().rev() {
         match layer {
             SilicaLayers::Group(group) => {
                 if group.hidden {
@@ -69,7 +67,7 @@ fn render(composite: &mut RgbaImage, layers: &mut SilicaGroup) {
                     continue;
                 }
 
-                let mut layer_image = layer.image.take().unwrap();
+                let mut layer_image = layer.image.clone().unwrap();
 
                 if layer.clipped {
                     if let Some(mask) = &mask {
@@ -108,7 +106,7 @@ struct TilingMeta {
 
 struct ProcreateFile {
     // animation:ValkyrieDocumentAnimation?
-    // authorName: Option<String>
+    author_name: Option<String>,
     //     backgroundColor:Data?
     // backgroundHidden:Bool?
     //     backgroundColorHSBA:Data?
@@ -187,6 +185,7 @@ impl ProcreateFile {
         });
 
         Ok(Self {
+            author_name: nka.decode::<Option<String>>(root, "authorName")?,
             size,
             composite,
             layers: SilicaGroup {
@@ -252,7 +251,8 @@ impl SilicaLayer {
         archive: &mut ZipArchive<File>,
         file_names: &[String],
     ) {
-        let indexr = Regex::new("(\\d+)~(\\d+)").unwrap();
+        static INSTANCE: OnceCell<Regex> = OnceCell::new();
+        let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         let mut image_layer = RgbaImage::new(self.size_width, self.size_height);
 
@@ -262,7 +262,7 @@ impl SilicaLayer {
             }
 
             let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
-            let captures = indexr.captures(&chunk_str).unwrap();
+            let captures = index_regex.captures(&chunk_str).unwrap();
             let col = u32::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
             let row = u32::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
 
@@ -304,7 +304,7 @@ impl SilicaLayer {
     }
 }
 
-impl NsCoding<'_> for SilicaLayer {
+impl NsDecode<'_> for SilicaLayer {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
         Ok(Self {
@@ -330,7 +330,7 @@ struct SilicaGroup {
     pub name: String,
 }
 
-impl NsCoding<'_> for SilicaGroup {
+impl NsDecode<'_> for SilicaGroup {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
         Ok(Self {
@@ -358,14 +358,15 @@ impl SilicaLayers {
     }
 }
 
-impl NsCoding<'_> for SilicaLayers {
+impl NsDecode<'_> for SilicaLayers {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
         let class = nka.decode::<NsClass>(coder, "$class")?;
-        if class.class_name == "SilicaGroup" {
-            Ok(Self::Group(SilicaGroup::decode(nka, val)?))
-        } else {
-            Ok(Self::Layer(SilicaLayer::decode(nka, val)?))
+
+        match class.class_name.as_str() {
+            "SilicaGroup" => Ok(Self::Group(SilicaGroup::decode(nka, val)?)),
+            "SilicaLayer" => Ok(Self::Layer(SilicaLayer::decode(nka, val)?)),
+            _ => Err(NsArchiveError::TypeMismatch),
         }
     }
 }

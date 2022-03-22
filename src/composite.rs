@@ -30,24 +30,24 @@ pub fn mask_pixel(mask_rgb: Rgba8, mut fg_rgb: Rgba8, fg_opacity: f32) -> Rgba8 
 }
 
 pub fn layer_blend(
-    bottom: &mut RgbaImage,
-    top: &RgbaImage,
-    top_opacity: f32,
+    bg: &mut RgbaImage,
+    fg: &RgbaImage,
+    fg_opacity: f32,
     blender: BlendingFunction,
 ) {
-    assert_eq!(bottom.dimensions(), top.dimensions());
+    assert_eq!(bg.dimensions(), fg.dimensions());
 
-    let bottom_iter = bottom
+    let bottom_iter = bg
         .par_chunks_exact_mut(usize::from(Rgba8::CHANNEL_COUNT))
         .map(Rgba8::from_slice_mut);
 
-    let top_iter = top
+    let top_iter = fg
         .par_chunks_exact(usize::from(Rgba8::CHANNEL_COUNT))
         .map(Rgba8::from_slice);
 
     bottom_iter
         .zip_eq(top_iter)
-        .for_each(|(bottom, top)| *bottom = blend_pixel(*bottom, *top, top_opacity, blender));
+        .for_each(|(bottom, top)| *bottom = blend_pixel(*bottom, *top, fg_opacity, blender));
 }
 
 pub fn comp(cv: f32, alpha: f32) -> f32 {
@@ -79,8 +79,8 @@ pub fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
 type BlendingFunction = fn(f32, f32, f32, f32) -> f32;
 
 pub fn blend_pixel(
-    bg_rgb: Rgba8,
-    fg_rgb: Rgba8,
+    bg_rgba: Rgba8,
+    fg_rgba: Rgba8,
     fg_opacity: f32,
     blender: BlendingFunction,
 ) -> Rgba8 {
@@ -88,14 +88,14 @@ pub fn blend_pixel(
 
     // First, as we don't know what type our pixel is, we have to convert to floats between 0.0 and 1.0
     let max_t = f32::from(u8::MAX);
-    let [bg @ .., bg_a] = bg_rgb.0.map(|v| f32::from(v) / max_t);
-    let [fg @ .., mut fg_a] = fg_rgb.0.map(|v| f32::from(v) / max_t);
+    let [bg @ .., bg_a] = bg_rgba.0.map(|v| f32::from(v) / max_t);
+    let [fg @ .., mut fg_a] = fg_rgba.0.map(|v| f32::from(v) / max_t);
     fg_a *= fg_opacity;
 
     // Work out what the final alpha level will be
     let alpha_final = bg_a + fg_a - bg_a * fg_a;
     if alpha_final == 0.0 {
-        return bg_rgb;
+        return bg_rgba;
     }
 
     // We premultiply our channels by their alpha, as this makes it easier to calculate
