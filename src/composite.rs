@@ -4,7 +4,6 @@ use rayon::slice::{ParallelSlice, ParallelSliceMut};
 
 use crate::Rgba8;
 
-
 pub fn replace(bottom: &mut RgbaImage, top: &RgbaImage, x: usize, y: usize) {
     iter_region_mut(bottom, x, y, top.width() as usize, top.height() as usize).for_each(
         |((x, y), pixel)| {
@@ -20,7 +19,7 @@ pub fn row_range_mut<'a>(
 ) -> impl 'a + ParallelIterator<Item = (usize, &'a mut [u8])> {
     let width = image.width() as usize;
     image
-        .par_chunks_exact_mut(width)
+        .par_chunks_exact_mut(width * usize::from(Rgba8::CHANNEL_COUNT))
         .skip(y)
         .take(height)
         .enumerate()
@@ -35,7 +34,7 @@ pub fn iter_region_mut<'a>(
     h: usize,
 ) -> impl 'a + ParallelIterator<Item = ((usize, usize), &'a mut Rgba8)> {
     row_range_mut(image, y, h).flat_map(move |(iy, row)| {
-        row.par_chunks_mut(Rgba8::CHANNEL_COUNT as usize)
+        row.par_chunks_mut(usize::from(Rgba8::CHANNEL_COUNT))
             .skip(x)
             .take(w)
             .map(Rgba::from_slice_mut)
@@ -69,12 +68,7 @@ pub fn mask_pixel(mask_rgb: Rgba8, mut fg_rgb: Rgba8, fg_opacity: f32) -> Rgba8 
     fg_rgb
 }
 
-pub fn layer_blend(
-    bg: &mut RgbaImage,
-    fg: &RgbaImage,
-    fg_opacity: f32,
-    blender: BlendingFunction,
-) {
+pub fn layer_blend(bg: &mut RgbaImage, fg: &RgbaImage, fg_opacity: f32, blender: BlendingFunction) {
     assert_eq!(bg.dimensions(), fg.dimensions());
 
     let bottom_iter = bg
