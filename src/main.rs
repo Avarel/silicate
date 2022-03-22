@@ -1,15 +1,12 @@
+mod composite;
 mod error;
+mod ns_archive;
 
 use image::{imageops, Pixel, Rgba, RgbaImage};
 use lzokay::decompress::decompress;
-use once_cell::sync::OnceCell;
-use plist::{Dictionary, Uid, Value};
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    slice::{ParallelSlice, ParallelSliceMut},
-};
+use ns_archive::{NsCoding, NsKeyedArchive};
+use plist::{Dictionary, Value};
 use regex::Regex;
-use serde::Deserialize;
 use std::{
     error::Error,
     fs::{File, OpenOptions},
@@ -17,7 +14,10 @@ use std::{
 };
 use zip::read::ZipArchive;
 
-use crate::error::NsArchiveError;
+use crate::{
+    error::NsArchiveError,
+    ns_archive::{Size, WrappedArray, NsClass},
+};
 
 type Rgba8 = Rgba<u8>;
 
@@ -49,15 +49,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
 
-        layer_blend(
+        composite::layer_blend(
             &mut composite,
             &layer.image.as_ref().unwrap(),
             layer.opacity,
             match layer.blend {
-                1 => multiply,
-                2 => screen,
-                11 => overlay,
-                0 | _ => normal
+                1 => composite::multiply,
+                2 => composite::screen,
+                11 => composite::overlay,
+                0 | _ => composite::normal,
             },
         );
         eprintln!("Done {layer_i}: {:?} {}", layer.name, layer.blend);
@@ -67,93 +67,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     art.composite.image.unwrap().save("./out/reference.png")?;
     Ok(())
-}
-
-pub fn layer_blend(
-    bottom: &mut RgbaImage,
-    top: &RgbaImage,
-    top_opacity: f32,
-    blender: BlendingFunction,
-) {
-    assert_eq!(bottom.dimensions(), top.dimensions());
-
-    let bottom_iter = bottom
-        .par_chunks_exact_mut(usize::from(Rgba8::CHANNEL_COUNT))
-        .map(Rgba8::from_slice_mut);
-
-    let top_iter = top
-        .par_chunks_exact(usize::from(Rgba8::CHANNEL_COUNT))
-        .map(Rgba8::from_slice);
-
-    bottom_iter
-        .zip_eq(top_iter)
-        .for_each(|(bottom, top)| *bottom = blend_pixel(*bottom, *top, top_opacity, blender));
-}
-
-pub fn comp(cv: f32, alpha: f32) -> f32 {
-    cv * (1.0 - alpha)
-}
-
-pub fn normal(c1: f32, c2: f32, _: f32, a2: f32) -> f32 {
-    c2 + comp(c1, a2)
-}
-
-pub fn multiply(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
-    c2 * c1 + comp(c2, a1) + comp(c1, a2)
-}
-
-// works great!
-pub fn screen(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
-    c2 + c1 - c2 * c1
-}
-
-// works great!
-pub fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
-    if c1 * 2.0 <= a1 {
-        c2 * c1 * 2.0 + comp(c2, a1) + comp(c1, a2)
-    } else {
-        comp(c2, a1) + comp(c1, a2) - 2.0 * (a1 - c1) * (a2 - c2) +  a2 * a1
-    }
-}
-
-type BlendingFunction = fn(f32, f32, f32, f32) -> f32;
-
-pub fn blend_pixel(a: Rgba8, b: Rgba8, fa: f32, blender: BlendingFunction) -> Rgba8 {
-    // http://stackoverflow.com/questions/7438263/alpha-compositing-algorithm-blend-modes#answer-11163848
-
-    // First, as we don't know what type our pixel is, we have to convert to floats between 0.0 and 1.0
-    let max_t = f32::from(u8::MAX);
-    let [bg @ .., bg_a] = a.0.map(|v| f32::from(v) / max_t);
-    let [fg @ .., mut fg_a] = b.0.map(|v| f32::from(v) / max_t);
-    fg_a *= fa;
-
-    // Work out what the final alpha level will be
-    let alpha_final = bg_a + fg_a - bg_a * fg_a;
-    if alpha_final == 0.0 {
-        return a;
-    }
-
-    // We premultiply our channels by their alpha, as this makes it easier to calculate
-    let bga = bg.map(|v| v * bg_a);
-    let fga = fg.map(|v| v * fg_a);
-
-    // Standard formula for src-over alpha compositing
-    let outa = [
-        blender(bga[0], fga[0], bg_a, fg_a),
-        blender(bga[1], fga[1], bg_a, fg_a),
-        blender(bga[2], fga[2], bg_a, fg_a),
-    ];
-
-    // Unmultiply the channels by our resultant alpha channel
-    let out = outa.map(|v| v / alpha_final);
-
-    // Cast back to our initial type on return
-    Rgba([
-        (max_t * out[0]) as u8,
-        (max_t * out[1]) as u8,
-        (max_t * out[2]) as u8,
-        (max_t * alpha_final) as u8,
-    ])
 }
 
 struct TilingMeta {
@@ -202,9 +115,7 @@ struct ProcreateFile {
     //     videoResolutionKey: String?
     //     videoDuration: String? = "Calculating..."
     composite: SilicaLayer,
-    archive: ZipArchive<File>,
     size: Size,
-    meta: TilingMeta,
     layers: Vec<SilicaLayer>,
 }
 
@@ -216,11 +127,15 @@ impl ProcreateFile {
         let root = nka.decode::<&'_ Dictionary>(&nka.top, "root")?;
 
         println!("{root:#?}");
-        let ul = nka.decode::<WrappedArray<&'_ Value>>(root, "unwrappedLayers")?.objects;
+        let ul = nka
+            .decode::<WrappedArray<&'_ Dictionary>>(root, "unwrappedLayers")?
+            .objects;
 
         // println!("UNWRAPPEDLAYERS {ul:#?}");
         for z in ul {
-            println!("UNWRAP {:#?}", z)
+            let class = nka.decode::<NsClass>(z, "$class");
+            let value = nka.decode_value(z, "children");
+            println!("UNWRAP {class:?} {z:#?} {value:#?}");
         }
 
         let ns_layers = nka.decode::<&'_ Dictionary>(root, "layers")?;
@@ -244,7 +159,8 @@ impl ProcreateFile {
             tile_size,
         };
 
-        let mut composite = SilicaLayer::from_ns(&nka, nka.decode(root, "composite")?)?;
+        // let mut composite = SilicaLayer::from_ns(&nka, nka.decode(root, "composite")?)?;
+        let mut composite = nka.decode::<SilicaLayer>(root, "composite")?;
         composite.load_image(&meta, &mut archive, &file_names);
 
         let mut layers = nka
@@ -256,10 +172,8 @@ impl ProcreateFile {
         }
 
         Ok(Self {
-            archive,
             size,
             composite,
-            meta,
             layers,
         })
     }
@@ -296,25 +210,6 @@ struct SilicaLayer {
 }
 
 impl SilicaLayer {
-    fn from_ns(nka: &NsKeyedArchive, coder: &Dictionary) -> Result<Self, NsArchiveError> {
-        // let transform = nka.decode_value(coder, "transform")?;
-        // dbg!(transform);
-
-        Ok(Self {
-            blend: nka.decode::<u32>(coder, "blend")?,
-            clipped: nka.decode::<bool>(coder, "clipped")?,
-            hidden: nka.decode::<bool>(coder, "hidden")?,
-            mask: None,
-            name: nka.decode::<Option<String>>(coder, "name")?,
-            opacity: nka.decode::<f32>(coder, "opacity")?,
-            uuid: nka.decode::<String>(coder, "UUID")?,
-            version: nka.decode::<u64>(coder, "version")?,
-            size_width: nka.decode::<u32>(coder, "sizeWidth")?,
-            size_height: nka.decode::<u32>(coder, "sizeHeight")?,
-            image: None,
-        })
-    }
-
     fn load_image(
         &mut self,
         meta: &TilingMeta,
@@ -373,231 +268,86 @@ impl SilicaLayer {
     }
 }
 
-#[derive(Deserialize)]
-struct NsKeyedArchive {
-    // #[serde(rename = "$version")]
-    // version: usize,
-    // #[serde(rename = "$archiver")]
-    // archiver: String,
-    #[serde(rename = "$top")]
-    top: Dictionary,
-    #[serde(rename = "$objects")]
-    objects: Vec<Value>,
-}
-
-impl NsKeyedArchive {
-    fn resolve_index<'a>(&'a self, idx: usize) -> Result<Option<&'a Value>, NsArchiveError> {
-        if idx == 0 {
-            Ok(None)
-        } else {
-            self.objects
-                .get(idx)
-                .ok_or(NsArchiveError::BadIndex)
-                .map(Some)
-        }
-    }
-
-    fn decode_value<'a>(
-        &'a self,
-        coder: &'a Dictionary,
-        key: &str,
-    ) -> Result<Option<&'a Value>, NsArchiveError> {
-        return match coder.get(key) {
-            Some(Value::Uid(uid)) => self.resolve_index(uid.get() as usize),
-            value @ _ => Ok(value),
-        };
-    }
-
-    fn decode<'a, T: NsCoding<'a>>(
-        &'a self,
-        coder: &'a Dictionary,
-        key: &str,
-    ) -> Result<T, NsArchiveError> {
-        T::decode(self, self.decode_value(coder, key)?)
-    }
-}
-
-trait NsCoding<'a>: Sized {
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError>;
-}
-
-impl NsCoding<'_> for bool {
-    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_boolean()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for u64 {
-    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_unsigned_integer()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for i64 {
-    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_signed_integer()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for f64 {
-    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_real()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for u32 {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        u32::try_from(u64::decode(nka, val)?).map_err(|_| NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for i32 {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        i32::try_from(i64::decode(nka, val)?).map_err(|_| NsArchiveError::TypeMismatch)
-    }
-}
-
-impl NsCoding<'_> for f32 {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        f64::decode(nka, val).map(|v| v as f32)
-    }
-}
-
-impl<'a> NsCoding<'a> for &'a Dictionary {
-    fn decode(_: &NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_dictionary()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl<'a> NsCoding<'a> for &'a Value {
-    fn decode(_: &NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)
-    }
-}
-
-impl NsCoding<'_> for Uid {
-    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_uid()
-            .copied()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl<'a> NsCoding<'a> for &'a str {
-    fn decode(_: &NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        val.ok_or(NsArchiveError::MissingKey)?
-            .as_string()
-            .ok_or(NsArchiveError::TypeMismatch)
-    }
-}
-
-impl<'a> NsCoding<'a> for String {
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        Ok(<&'_ str>::decode(nka, val)?.to_owned())
-    }
-}
-impl<'a, T> NsCoding<'a> for Option<T>
-where
-    T: NsCoding<'a>,
-{
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        val.map_or(Ok(None), |a| Some(T::decode(nka, Some(a))).transpose())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Size {
-    width: u32,
-    height: u32,
-}
-
-impl NsCoding<'_> for Size {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        let string = <&'_ str>::decode(nka, val)?;
-
-        static INSTANCE: OnceCell<Regex> = OnceCell::new();
-        let size_regex = INSTANCE.get_or_init(|| Regex::new("\\{(\\d+), ?(\\d+)\\}").unwrap());
-        let captures = size_regex
-            .captures(string)
-            .ok_or(NsArchiveError::TypeMismatch)?;
-
-        let width = u32::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
-        let height = u32::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
-        Ok(Size { width, height })
-    }
-}
-
-impl<'a, T> NsCoding<'a> for Vec<T>
-where
-    T: NsCoding<'a>,
-{
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        let array = val
-            .ok_or(NsArchiveError::MissingKey)?
-            .as_array()
-            .ok_or(NsArchiveError::TypeMismatch)?;
-
-        let mut vec = Vec::with_capacity(array.len());
-
-        for val in array {
-            vec.push(T::decode(nka, Some(val))?);
-        }
-
-        Ok(vec)
-    }
-}
-
-#[derive(Debug)]
-struct WrappedArray<T> {
-    objects: Vec<T>,
-}
-
-impl<'a, T> NsCoding<'a> for WrappedArray<T>
-where
-    T: NsCoding<'a>,
-{
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
-        let array = WrappedRawArray::decode(nka, val)?.inner;
-
-        let mut objects = Vec::with_capacity(array.len());
-        for uid in array.iter().rev() {
-            let val = nka
-                .resolve_index(uid.get() as usize)?
-                .ok_or(NsArchiveError::BadIndex)?;
-
-            objects.push(T::decode(nka, Some(val))?);
-        }
-        Ok(WrappedArray { objects })
-    }
-}
-
-#[derive(Debug)]
-struct WrappedRawArray {
-    inner: Vec<Uid>,
-}
-
-impl NsCoding<'_> for WrappedRawArray {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        let coder = <&'_ Dictionary>::decode(nka, val)?;
-        let objects = nka.decode::<Vec<Uid>>(coder, "NS.objects")?;
-        Ok(WrappedRawArray { inner: objects })
-    }
-}
-
 impl NsCoding<'_> for SilicaLayer {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
-        SilicaLayer::from_ns(nka, coder)
+        Ok(Self {
+            blend: nka.decode::<u32>(coder, "blend")?,
+            clipped: nka.decode::<bool>(coder, "clipped")?,
+            hidden: nka.decode::<bool>(coder, "hidden")?,
+            mask: None,
+            name: nka.decode::<Option<String>>(coder, "name")?,
+            opacity: nka.decode::<f32>(coder, "opacity")?,
+            uuid: nka.decode::<String>(coder, "UUID")?,
+            version: nka.decode::<u64>(coder, "version")?,
+            size_width: nka.decode::<u32>(coder, "sizeWidth")?,
+            size_height: nka.decode::<u32>(coder, "sizeHeight")?,
+            image: None,
+        })
     }
 }
+
+// struct SilicaGroup {
+//     pub hidden: bool,
+//     pub children: Vec<SilicaNest>,
+//     pub name: String,
+// }
+
+// impl NsCoding<'_> for SilicaGroup {
+//     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+//         let coder = <&'_ Dictionary>::decode(nka, val)?;
+//         Ok(Self {
+//             hidden: nka.decode::<bool>(coder, "isHidden")?,
+//             name: nka.decode::<String>(coder, "name")?,
+//             children: nka.decode::<WrappedArray<SilicaNest>>(coder, "children")?.objects
+//         })
+//     }
+// }
+
+// enum SilicaNest {
+//     Layer(SilicaLayer),
+//     Group(SilicaGroup)
+// }
+
+// impl NsCoding<'_> for SilicaNest {
+//     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+//         let coder = <&'_ Dictionary>::decode(nka, val)?;
+//         let class = nka.decode::<NsClass>(coder, "$class")?;
+//         if class.class_name == "SilicaGroup" {
+//             Ok(Self::Group(SilicaGroup::decode(nka, val)?))
+//         } else {
+//             Ok(Self::Layer(SilicaLayer::decode(nka, val)?))
+//         }
+//     }
+// }
+
+//     "isHidden": Boolean(
+//         true,
+//     ),
+//     "$class": Uid(
+//         53,
+//     ),
+//     "isLocked": Boolean(
+//         false,
+//     ),
+//     "children": Uid(
+//         160,
+//     ),
+//     "document": Uid(
+//         1,
+//     ),
+//     "isClipped": Boolean(
+//         false,
+//     ),
+//     "isCollapsed": Boolean(
+//         false,
+//     ),
+//     "animationHeldLength": Integer(
+//         0,
+//     ),
+//     "opacity": Real(
+//         1.0,
+//     ),
+//     "name": Uid(
+       
+// }

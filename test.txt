@@ -138,480 +138,582 @@
         207,
     ),
 }
-UNWRAP Dictionary(
-    {
-        "isHidden": Boolean(
-            true,
+UNWRAP Ok(NsClass { class_name: "SilicaGroup", classes: ["SilicaGroup", "ValkyrieGroup", "NSObject"] }) {
+    "isHidden": Boolean(
+        true,
+    ),
+    "$class": Uid(
+        53,
+    ),
+    "isLocked": Boolean(
+        false,
+    ),
+    "children": Uid(
+        160,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "isClipped": Boolean(
+        false,
+    ),
+    "isCollapsed": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "name": Uid(
+        194,
+    ),
+    "isPrivate": Boolean(
+        false,
+    ),
+} Ok(
+    Some(
+        Dictionary(
+            {
+                "NS.objects": Array(
+                    [
+                        Uid(
+                            161,
+                        ),
+                        Uid(
+                            167,
+                        ),
+                        Uid(
+                            173,
+                        ),
+                    ],
+                ),
+                "$class": Uid(
+                    51,
+                ),
+            },
         ),
-        "$class": Uid(
-            53,
-        ),
-        "isLocked": Boolean(
-            false,
-        ),
-        "children": Uid(
-            160,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "isClipped": Boolean(
-            false,
-        ),
-        "isCollapsed": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "name": Uid(
-            194,
-        ),
-        "isPrivate": Boolean(
-            false,
-        ),
-    },
+    ),
 )
-UNWRAP Dictionary(
-    {
-        "isHidden": Boolean(
-            false,
+UNWRAP Ok(NsClass { class_name: "SilicaGroup", classes: ["SilicaGroup", "ValkyrieGroup", "NSObject"] }) {
+    "isHidden": Boolean(
+        false,
+    ),
+    "$class": Uid(
+        53,
+    ),
+    "isLocked": Boolean(
+        false,
+    ),
+    "children": Uid(
+        55,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "isClipped": Boolean(
+        false,
+    ),
+    "isCollapsed": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "name": Uid(
+        158,
+    ),
+    "isPrivate": Boolean(
+        false,
+    ),
+} Ok(
+    Some(
+        Dictionary(
+            {
+                "NS.objects": Array(
+                    [
+                        Uid(
+                            56,
+                        ),
+                        Uid(
+                            62,
+                        ),
+                        Uid(
+                            68,
+                        ),
+                        Uid(
+                            74,
+                        ),
+                        Uid(
+                            80,
+                        ),
+                        Uid(
+                            86,
+                        ),
+                        Uid(
+                            92,
+                        ),
+                        Uid(
+                            98,
+                        ),
+                        Uid(
+                            104,
+                        ),
+                        Uid(
+                            110,
+                        ),
+                        Uid(
+                            116,
+                        ),
+                        Uid(
+                            122,
+                        ),
+                        Uid(
+                            128,
+                        ),
+                        Uid(
+                            134,
+                        ),
+                        Uid(
+                            140,
+                        ),
+                        Uid(
+                            146,
+                        ),
+                        Uid(
+                            152,
+                        ),
+                    ],
+                ),
+                "$class": Uid(
+                    51,
+                ),
+            },
         ),
-        "$class": Uid(
-            53,
-        ),
-        "isLocked": Boolean(
-            false,
-        ),
-        "children": Uid(
-            55,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "isClipped": Boolean(
-            false,
-        ),
-        "isCollapsed": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "name": Uid(
-            158,
-        ),
-        "isPrivate": Boolean(
-            false,
-        ),
-    },
+    ),
 )
-UNWRAP Dictionary(
-    {
-        "isHidden": Boolean(
-            false,
+UNWRAP Ok(NsClass { class_name: "SilicaGroup", classes: ["SilicaGroup", "ValkyrieGroup", "NSObject"] }) {
+    "isHidden": Boolean(
+        false,
+    ),
+    "$class": Uid(
+        53,
+    ),
+    "isLocked": Boolean(
+        false,
+    ),
+    "children": Uid(
+        38,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "isClipped": Boolean(
+        false,
+    ),
+    "isCollapsed": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "name": Uid(
+        52,
+    ),
+    "isPrivate": Boolean(
+        false,
+    ),
+} Ok(
+    Some(
+        Dictionary(
+            {
+                "NS.objects": Array(
+                    [
+                        Uid(
+                            39,
+                        ),
+                        Uid(
+                            45,
+                        ),
+                    ],
+                ),
+                "$class": Uid(
+                    51,
+                ),
+            },
         ),
-        "$class": Uid(
-            53,
-        ),
-        "isLocked": Boolean(
-            false,
-        ),
-        "children": Uid(
-            38,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "isClipped": Boolean(
-            false,
-        ),
-        "isCollapsed": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "name": Uid(
-            52,
-        ),
-        "isPrivate": Boolean(
-            false,
-        ),
-    },
+    ),
 )
-UNWRAP Dictionary(
-    {
-        "contentsRectValid": Boolean(
-            true,
-        ),
-        "locked": Boolean(
-            false,
-        ),
-        "blend": Integer(
-            11,
-        ),
-        "preserve": Boolean(
-            false,
-        ),
-        "textureSet": Uid(
-            0,
-        ),
-        "hidden": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "$class": Uid(
-            18,
-        ),
-        "bundledVideoPath": Uid(
-            0,
-        ),
-        "private": Boolean(
-            false,
-        ),
-        "textPDF": Uid(
-            0,
-        ),
-        "transform": Uid(
-            36,
-        ),
-        "mask": Uid(
-            0,
-        ),
-        "version": Integer(
-            3,
-        ),
-        "bundledMaskPath": Uid(
-            0,
-        ),
-        "type": Integer(
-            0,
-        ),
-        "name": Uid(
-            33,
-        ),
-        "clipped": Boolean(
-            false,
-        ),
-        "UUID": Uid(
-            32,
-        ),
-        "videoTime": Uid(
-            35,
-        ),
-        "contentsRect": Uid(
-            34,
-        ),
-        "extendedBlend": Integer(
-            11,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "sizeWidth": Integer(
-            5000,
-        ),
-        "sizeHeight": Integer(
-            5000,
-        ),
-        "text": Uid(
-            0,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "bundledImagePath": Uid(
-            0,
-        ),
-        "perspectiveAssisted": Boolean(
-            false,
-        ),
-    },
+UNWRAP Ok(NsClass { class_name: "SilicaLayer", classes: ["SilicaLayer", "ValkyrieLayer", "NSObject"] }) {
+    "contentsRectValid": Boolean(
+        true,
+    ),
+    "locked": Boolean(
+        false,
+    ),
+    "blend": Integer(
+        11,
+    ),
+    "preserve": Boolean(
+        false,
+    ),
+    "textureSet": Uid(
+        0,
+    ),
+    "hidden": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "$class": Uid(
+        18,
+    ),
+    "bundledVideoPath": Uid(
+        0,
+    ),
+    "private": Boolean(
+        false,
+    ),
+    "textPDF": Uid(
+        0,
+    ),
+    "transform": Uid(
+        36,
+    ),
+    "mask": Uid(
+        0,
+    ),
+    "version": Integer(
+        3,
+    ),
+    "bundledMaskPath": Uid(
+        0,
+    ),
+    "type": Integer(
+        0,
+    ),
+    "name": Uid(
+        33,
+    ),
+    "clipped": Boolean(
+        false,
+    ),
+    "UUID": Uid(
+        32,
+    ),
+    "videoTime": Uid(
+        35,
+    ),
+    "contentsRect": Uid(
+        34,
+    ),
+    "extendedBlend": Integer(
+        11,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "sizeWidth": Integer(
+        5000,
+    ),
+    "sizeHeight": Integer(
+        5000,
+    ),
+    "text": Uid(
+        0,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "bundledImagePath": Uid(
+        0,
+    ),
+    "perspectiveAssisted": Boolean(
+        false,
+    ),
+} Ok(
+    None,
 )
-UNWRAP Dictionary(
-    {
-        "contentsRectValid": Boolean(
-            true,
-        ),
-        "locked": Boolean(
-            false,
-        ),
-        "blend": Integer(
-            2,
-        ),
-        "preserve": Boolean(
-            false,
-        ),
-        "textureSet": Uid(
-            0,
-        ),
-        "hidden": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "$class": Uid(
-            18,
-        ),
-        "bundledVideoPath": Uid(
-            0,
-        ),
-        "private": Boolean(
-            false,
-        ),
-        "textPDF": Uid(
-            0,
-        ),
-        "transform": Uid(
-            30,
-        ),
-        "mask": Uid(
-            0,
-        ),
-        "version": Integer(
-            3,
-        ),
-        "bundledMaskPath": Uid(
-            0,
-        ),
-        "type": Integer(
-            0,
-        ),
-        "name": Uid(
-            27,
-        ),
-        "clipped": Boolean(
-            false,
-        ),
-        "UUID": Uid(
-            26,
-        ),
-        "videoTime": Uid(
-            29,
-        ),
-        "contentsRect": Uid(
-            28,
-        ),
-        "extendedBlend": Integer(
-            2,
-        ),
-        "opacity": Real(
-            0.756404459476471,
-        ),
-        "sizeWidth": Integer(
-            5000,
-        ),
-        "sizeHeight": Integer(
-            5000,
-        ),
-        "text": Uid(
-            0,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "bundledImagePath": Uid(
-            0,
-        ),
-        "perspectiveAssisted": Boolean(
-            false,
-        ),
-    },
+UNWRAP Ok(NsClass { class_name: "SilicaLayer", classes: ["SilicaLayer", "ValkyrieLayer", "NSObject"] }) {
+    "contentsRectValid": Boolean(
+        true,
+    ),
+    "locked": Boolean(
+        false,
+    ),
+    "blend": Integer(
+        2,
+    ),
+    "preserve": Boolean(
+        false,
+    ),
+    "textureSet": Uid(
+        0,
+    ),
+    "hidden": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "$class": Uid(
+        18,
+    ),
+    "bundledVideoPath": Uid(
+        0,
+    ),
+    "private": Boolean(
+        false,
+    ),
+    "textPDF": Uid(
+        0,
+    ),
+    "transform": Uid(
+        30,
+    ),
+    "mask": Uid(
+        0,
+    ),
+    "version": Integer(
+        3,
+    ),
+    "bundledMaskPath": Uid(
+        0,
+    ),
+    "type": Integer(
+        0,
+    ),
+    "name": Uid(
+        27,
+    ),
+    "clipped": Boolean(
+        false,
+    ),
+    "UUID": Uid(
+        26,
+    ),
+    "videoTime": Uid(
+        29,
+    ),
+    "contentsRect": Uid(
+        28,
+    ),
+    "extendedBlend": Integer(
+        2,
+    ),
+    "opacity": Real(
+        0.756404459476471,
+    ),
+    "sizeWidth": Integer(
+        5000,
+    ),
+    "sizeHeight": Integer(
+        5000,
+    ),
+    "text": Uid(
+        0,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "bundledImagePath": Uid(
+        0,
+    ),
+    "perspectiveAssisted": Boolean(
+        false,
+    ),
+} Ok(
+    None,
 )
-UNWRAP Dictionary(
-    {
-        "contentsRectValid": Boolean(
-            true,
-        ),
-        "locked": Boolean(
-            false,
-        ),
-        "blend": Integer(
-            0,
-        ),
-        "preserve": Boolean(
-            false,
-        ),
-        "textureSet": Uid(
-            0,
-        ),
-        "hidden": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "$class": Uid(
-            18,
-        ),
-        "bundledVideoPath": Uid(
-            0,
-        ),
-        "private": Boolean(
-            false,
-        ),
-        "textPDF": Uid(
-            0,
-        ),
-        "transform": Uid(
-            24,
-        ),
-        "mask": Uid(
-            0,
-        ),
-        "version": Integer(
-            3,
-        ),
-        "bundledMaskPath": Uid(
-            0,
-        ),
-        "type": Integer(
-            0,
-        ),
-        "name": Uid(
-            21,
-        ),
-        "clipped": Boolean(
-            false,
-        ),
-        "UUID": Uid(
-            20,
-        ),
-        "videoTime": Uid(
-            23,
-        ),
-        "contentsRect": Uid(
-            22,
-        ),
-        "extendedBlend": Integer(
-            0,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "sizeWidth": Integer(
-            5000,
-        ),
-        "sizeHeight": Integer(
-            5000,
-        ),
-        "text": Uid(
-            0,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "bundledImagePath": Uid(
-            0,
-        ),
-        "perspectiveAssisted": Boolean(
-            false,
-        ),
-    },
+UNWRAP Ok(NsClass { class_name: "SilicaLayer", classes: ["SilicaLayer", "ValkyrieLayer", "NSObject"] }) {
+    "contentsRectValid": Boolean(
+        true,
+    ),
+    "locked": Boolean(
+        false,
+    ),
+    "blend": Integer(
+        0,
+    ),
+    "preserve": Boolean(
+        false,
+    ),
+    "textureSet": Uid(
+        0,
+    ),
+    "hidden": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "$class": Uid(
+        18,
+    ),
+    "bundledVideoPath": Uid(
+        0,
+    ),
+    "private": Boolean(
+        false,
+    ),
+    "textPDF": Uid(
+        0,
+    ),
+    "transform": Uid(
+        24,
+    ),
+    "mask": Uid(
+        0,
+    ),
+    "version": Integer(
+        3,
+    ),
+    "bundledMaskPath": Uid(
+        0,
+    ),
+    "type": Integer(
+        0,
+    ),
+    "name": Uid(
+        21,
+    ),
+    "clipped": Boolean(
+        false,
+    ),
+    "UUID": Uid(
+        20,
+    ),
+    "videoTime": Uid(
+        23,
+    ),
+    "contentsRect": Uid(
+        22,
+    ),
+    "extendedBlend": Integer(
+        0,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "sizeWidth": Integer(
+        5000,
+    ),
+    "sizeHeight": Integer(
+        5000,
+    ),
+    "text": Uid(
+        0,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "bundledImagePath": Uid(
+        0,
+    ),
+    "perspectiveAssisted": Boolean(
+        false,
+    ),
+} Ok(
+    None,
 )
-UNWRAP Dictionary(
-    {
-        "contentsRectValid": Boolean(
-            true,
-        ),
-        "locked": Boolean(
-            false,
-        ),
-        "blend": Integer(
-            0,
-        ),
-        "preserve": Boolean(
-            true,
-        ),
-        "textureSet": Uid(
-            0,
-        ),
-        "hidden": Boolean(
-            false,
-        ),
-        "animationHeldLength": Integer(
-            0,
-        ),
-        "$class": Uid(
-            18,
-        ),
-        "bundledVideoPath": Uid(
-            0,
-        ),
-        "private": Boolean(
-            false,
-        ),
-        "textPDF": Uid(
-            0,
-        ),
-        "transform": Uid(
-            17,
-        ),
-        "mask": Uid(
-            0,
-        ),
-        "version": Integer(
-            3,
-        ),
-        "bundledMaskPath": Uid(
-            0,
-        ),
-        "type": Integer(
-            0,
-        ),
-        "name": Uid(
-            7,
-        ),
-        "clipped": Boolean(
-            false,
-        ),
-        "UUID": Uid(
-            6,
-        ),
-        "videoTime": Uid(
-            9,
-        ),
-        "contentsRect": Uid(
-            8,
-        ),
-        "extendedBlend": Integer(
-            0,
-        ),
-        "opacity": Real(
-            1.0,
-        ),
-        "sizeWidth": Integer(
-            5000,
-        ),
-        "sizeHeight": Integer(
-            5000,
-        ),
-        "text": Uid(
-            0,
-        ),
-        "document": Uid(
-            1,
-        ),
-        "bundledImagePath": Uid(
-            0,
-        ),
-        "perspectiveAssisted": Boolean(
-            false,
-        ),
-    },
+UNWRAP Ok(NsClass { class_name: "SilicaLayer", classes: ["SilicaLayer", "ValkyrieLayer", "NSObject"] }) {
+    "contentsRectValid": Boolean(
+        true,
+    ),
+    "locked": Boolean(
+        false,
+    ),
+    "blend": Integer(
+        0,
+    ),
+    "preserve": Boolean(
+        true,
+    ),
+    "textureSet": Uid(
+        0,
+    ),
+    "hidden": Boolean(
+        false,
+    ),
+    "animationHeldLength": Integer(
+        0,
+    ),
+    "$class": Uid(
+        18,
+    ),
+    "bundledVideoPath": Uid(
+        0,
+    ),
+    "private": Boolean(
+        false,
+    ),
+    "textPDF": Uid(
+        0,
+    ),
+    "transform": Uid(
+        17,
+    ),
+    "mask": Uid(
+        0,
+    ),
+    "version": Integer(
+        3,
+    ),
+    "bundledMaskPath": Uid(
+        0,
+    ),
+    "type": Integer(
+        0,
+    ),
+    "name": Uid(
+        7,
+    ),
+    "clipped": Boolean(
+        false,
+    ),
+    "UUID": Uid(
+        6,
+    ),
+    "videoTime": Uid(
+        9,
+    ),
+    "contentsRect": Uid(
+        8,
+    ),
+    "extendedBlend": Integer(
+        0,
+    ),
+    "opacity": Real(
+        1.0,
+    ),
+    "sizeWidth": Integer(
+        5000,
+    ),
+    "sizeHeight": Integer(
+        5000,
+    ),
+    "text": Uid(
+        0,
+    ),
+    "document": Uid(
+        1,
+    ),
+    "bundledImagePath": Uid(
+        0,
+    ),
+    "perspectiveAssisted": Boolean(
+        false,
+    ),
+} Ok(
+    None,
 )
 LAYERS {
     "NS.objects": Array(
