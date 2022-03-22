@@ -2,7 +2,7 @@ mod composite;
 mod error;
 mod ns_archive;
 
-use image::{imageops, Pixel, Rgba, RgbaImage};
+use image::{Pixel, Rgba, RgbaImage};
 use lzokay::decompress::decompress;
 use ns_archive::{NsDecode, NsKeyedArchive};
 use once_cell::sync::OnceCell;
@@ -53,7 +53,7 @@ fn render(composite: &mut RgbaImage, layers: &SilicaGroup) {
 
     for layer in layers.children.iter().rev() {
         match layer {
-            SilicaLayers::Group(group) => {
+            SilicaHierarchy::Group(group) => {
                 if group.hidden {
                     eprintln!("Hidden group {:?}", group.name);
                     continue;
@@ -61,7 +61,7 @@ fn render(composite: &mut RgbaImage, layers: &SilicaGroup) {
                 render(composite, group);
                 eprintln!("Finished group {}", group.name);
             }
-            SilicaLayers::Layer(layer) => {
+            SilicaHierarchy::Layer(layer) => {
                 if layer.hidden {
                     eprintln!("Hidden layer {:?}", layer.name);
                     continue;
@@ -156,7 +156,7 @@ impl ProcreateFile {
 
         println!("{root:#?}");
         let mut layers = nka
-            .decode::<WrappedArray<SilicaLayers>>(root, "unwrappedLayers")?
+            .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
@@ -180,9 +180,9 @@ impl ProcreateFile {
         let mut composite = nka.decode::<SilicaLayer>(root, "composite")?;
         composite.load_image(&meta, &mut archive, &file_names);
 
-        layers.iter_mut().for_each(|v| {
-            v.apply(&mut (|layer| layer.load_image(&meta, &mut archive, &file_names)))
-        });
+        layers
+            .iter_mut()
+            .for_each(|v| v.apply(&mut |layer| layer.load_image(&meta, &mut archive, &file_names)));
 
         Ok(Self {
             author_name: nka.decode::<Option<String>>(root, "authorName")?,
@@ -287,18 +287,19 @@ impl SilicaLayer {
                 vec![0; (tile_width * tile_height * u32::from(Rgba8::CHANNEL_COUNT)) as usize];
             decompress(&buf, &mut dst).unwrap();
             let chunked_image = RgbaImage::from_vec(tile_width, tile_height, dst).unwrap();
-            imageops::replace(
+            // imageops::replace(
+            //     &mut image_layer,
+            //     &chunked_image,
+            //     (col * meta.tile_size) as i64,
+            //     (row * meta.tile_size) as i64,
+            // );
+            composite::replace(
                 &mut image_layer,
                 &chunked_image,
-                (col * meta.tile_size) as i64,
-                (row * meta.tile_size) as i64,
+                (col * meta.tile_size) as usize,
+                (row * meta.tile_size) as usize,
             );
         }
-
-        // image_layer
-        //     .par_chunks_exact_mut(usize::from(Rgba8::CHANNEL_COUNT))
-        //     .map(Rgba8::from_slice_mut)
-        //     .for_each(|pixel| pixel[3] = (f32::from(pixel[3]) * self.opacity) as u8);
 
         self.image = Some(image_layer);
     }
@@ -326,7 +327,7 @@ impl NsDecode<'_> for SilicaLayer {
 #[derive(Debug)]
 struct SilicaGroup {
     pub hidden: bool,
-    pub children: Vec<SilicaLayers>,
+    pub children: Vec<SilicaHierarchy>,
     pub name: String,
 }
 
@@ -337,19 +338,19 @@ impl NsDecode<'_> for SilicaGroup {
             hidden: nka.decode::<bool>(coder, "isHidden")?,
             name: nka.decode::<String>(coder, "name")?,
             children: nka
-                .decode::<WrappedArray<SilicaLayers>>(coder, "children")?
+                .decode::<WrappedArray<SilicaHierarchy>>(coder, "children")?
                 .objects,
         })
     }
 }
 
 #[derive(Debug)]
-enum SilicaLayers {
+enum SilicaHierarchy {
     Layer(SilicaLayer),
     Group(SilicaGroup),
 }
 
-impl SilicaLayers {
+impl SilicaHierarchy {
     pub fn apply(&mut self, f: &mut impl FnMut(&mut SilicaLayer)) {
         match self {
             Self::Layer(layer) => f(layer),
@@ -358,7 +359,7 @@ impl SilicaLayers {
     }
 }
 
-impl NsDecode<'_> for SilicaLayers {
+impl NsDecode<'_> for SilicaHierarchy {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
         let class = nka.decode::<NsClass>(coder, "$class")?;

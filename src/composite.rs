@@ -4,6 +4,46 @@ use rayon::slice::{ParallelSlice, ParallelSliceMut};
 
 use crate::Rgba8;
 
+
+pub fn replace(bottom: &mut RgbaImage, top: &RgbaImage, x: usize, y: usize) {
+    iter_region_mut(bottom, x, y, top.width() as usize, top.height() as usize).for_each(
+        |((x, y), pixel)| {
+            *pixel = *top.get_pixel(x as u32, y as u32);
+        },
+    );
+}
+
+pub fn row_range_mut<'a>(
+    image: &'a mut RgbaImage,
+    y: usize,
+    height: usize,
+) -> impl 'a + ParallelIterator<Item = (usize, &'a mut [u8])> {
+    let width = image.width() as usize;
+    image
+        .par_chunks_exact_mut(width)
+        .skip(y)
+        .take(height)
+        .enumerate()
+        .map(move |(i, d)| (i, d))
+}
+
+pub fn iter_region_mut<'a>(
+    image: &'a mut RgbaImage,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+) -> impl 'a + ParallelIterator<Item = ((usize, usize), &'a mut Rgba8)> {
+    row_range_mut(image, y, h).flat_map(move |(iy, row)| {
+        row.par_chunks_mut(Rgba8::CHANNEL_COUNT as usize)
+            .skip(x)
+            .take(w)
+            .map(Rgba::from_slice_mut)
+            .enumerate()
+            .map(move |(ix, d)| ((ix, iy), d))
+    })
+}
+
 pub fn layer_clip(layer: &mut RgbaImage, mask: &RgbaImage, layer_opacity: f32) {
     assert_eq!(layer.dimensions(), mask.dimensions());
 
