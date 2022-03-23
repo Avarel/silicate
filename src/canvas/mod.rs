@@ -14,8 +14,8 @@ pub type RgbaFCanvas = Canvas<RgbaF>;
 
 #[derive(Clone)]
 pub struct Canvas<P: Pixel> {
-    width: usize,
-    height: usize,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
     pub(crate) data: Box<[P::DATA]>,
 }
 
@@ -148,16 +148,35 @@ impl Rgba8Canvas {
     pub fn to_f32(&self) -> RgbaFCanvas {
         let data = self
             .data
-            .par_chunks_exact(Rgba8::CHANNELS)
+            .chunks_exact(Rgba8::CHANNELS)
             .map(Rgba8::from_slice)
-            .copied()
-            .flat_map(|v| RgbaF::from(v).0)
-            .collect::<Vec<_>>().into_boxed_slice();
+            .flat_map(|v| RgbaF::from(*v).0)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         RgbaFCanvas {
             width: self.width,
             height: self.height,
-            data
+            data,
+        }
+    }
+}
+
+impl RgbaFCanvas {
+    pub fn to_u8(&self) -> Rgba8Canvas {
+        let data = self
+            .data
+            .chunks_exact(RgbaF::CHANNELS)
+            .map(RgbaF::from_slice)
+            .copied()
+            .flat_map(|v| Rgba8::from(v).0)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Rgba8Canvas {
+            width: self.width,
+            height: self.height,
+            data,
         }
     }
 }
