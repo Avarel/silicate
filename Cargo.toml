@@ -15,4 +15,4 @@ rayon = "1.5"
 once_cell = "1"
 wgpu = { version = "0.12", features = ["glsl"] }
 futures = "0.3"
-naga = "0.8"
+bytemuck = { version = "1.4", features = [ "derive" ] }
