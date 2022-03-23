@@ -1,8 +1,6 @@
-use crate::canvas::Rgba8Canvas;
-use crate::composite;
+use crate::canvas::{Rgba8Canvas, pixel::{Rgba8, Pixel}};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
-use image::{Pixel, Rgba, RgbaImage};
 use lzokay::decompress::decompress;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
@@ -13,13 +11,11 @@ use std::path::Path;
 use std::{fs::File, io::Read};
 use zip::read::ZipArchive;
 
-type Rgba8 = Rgba<u8>;
-
 struct TilingMeta {
-    columns: u32,
-    rows: u32,
+    columns: usize,
+    rows: usize,
     diff: Size,
-    tile_size: u32,
+    tile_size: usize,
 }
 
 #[derive(Debug)]
@@ -61,7 +57,7 @@ pub struct ProcreateFile {
     //     videoQualityKey: String?
     //     videoResolutionKey: String?
     //     videoDuration: String? = "Calculating..."
-    pub tile_size: u32,
+    pub tile_size: usize,
     pub composite: SilicaLayer,
     pub size: Size,
 }
@@ -94,7 +90,7 @@ impl ProcreateFile {
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
         let size = nka.decode::<Size>(root, "size")?;
-        let tile_size = nka.decode::<u32>(root, "tileSize")?;
+        let tile_size = nka.decode::<usize>(root, "tileSize")?;
         let columns = size.width / tile_size + if size.width % tile_size == 0 { 0 } else { 1 };
         let rows = size.height / tile_size + if size.height % tile_size == 0 { 0 } else { 1 };
 
@@ -162,7 +158,7 @@ pub struct SilicaLayer {
     pub size_height: u32,
     pub uuid: String,
     pub version: u64,
-    pub image: Option<RgbaImage>,
+    pub image: Option<Rgba8Canvas>,
 }
 
 impl std::fmt::Debug for SilicaLayer {
@@ -202,8 +198,8 @@ impl SilicaLayer {
 
             let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
             let captures = index_regex.captures(&chunk_str).unwrap();
-            let col = u32::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
-            let row = u32::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
+            let col = usize::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
+            let row = usize::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
 
             let tile_width = meta.tile_size
                 - if col != meta.columns - 1 {
@@ -222,8 +218,7 @@ impl SilicaLayer {
             let mut buf = Vec::new();
             chunk.read_to_end(&mut buf).unwrap();
             // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-            let mut dst =
-                vec![0; (tile_width * tile_height * u32::from(Rgba8::CHANNEL_COUNT)) as usize];
+            let mut dst = vec![0; tile_width * tile_height * Rgba8::CHANNELS];
             decompress(&buf, &mut dst).unwrap();
             let chunked_image =
                 Rgba8Canvas::from_vec(tile_width as usize, tile_height as usize, dst);
@@ -247,7 +242,7 @@ impl SilicaLayer {
         }
 
         // Note: the adapter is considerably slow since it checks if the image fits
-        self.image = Some(crate::canvas::adapter::adapt(image_layer));
+        self.image = Some(image_layer);
     }
 }
 

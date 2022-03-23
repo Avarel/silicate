@@ -1,28 +1,30 @@
+mod canvas;
 mod composite;
 mod error;
 mod ns_archive;
 mod silica;
-mod canvas;
 
-use image::{Rgba, RgbaImage};
+use canvas::Rgba8Canvas;
 use silica::{ProcreateFile, SilicaGroup, SilicaHierarchy};
 use std::error::Error;
-
-type Rgba8 = Rgba<u8>;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut procreate = ProcreateFile::open("./Gilvana.procreate")?;
 
-    let mut composite = RgbaImage::new(procreate.size.width, procreate.size.height);
+    let mut composite = Rgba8Canvas::new(
+        procreate.size.width as usize,
+        procreate.size.height as usize,
+    );
+    //RgbaImage::new(procreate.size.width, procreate.size.height);
     render(&mut composite, &mut procreate.layers);
-    composite.save("./out/final.png")?;
+    canvas::adapter::adapt(composite).save("./out/final.png")?;
 
-    procreate.composite.image.unwrap().save("./out/reference.png")?;
+    canvas::adapter::adapt(procreate.composite.image.unwrap()).save("./out/reference.png")?;
     Ok(())
 }
 
-fn render(composite: &mut RgbaImage, layers: &SilicaGroup) {
-    let mut mask: Option<RgbaImage> = None;
+fn render(composite: &mut Rgba8Canvas, layers: &SilicaGroup) {
+    let mut mask: Option<Rgba8Canvas> = None;
 
     for layer in layers.children.iter().rev() {
         match layer {
@@ -45,12 +47,11 @@ fn render(composite: &mut RgbaImage, layers: &SilicaGroup) {
 
                 if layer.clipped {
                     if let Some(mask) = &mask {
-                        composite::layer_clip(&mut layer_image, &mask, layer.opacity);
+                        layer_image.layer_clip(&mask, layer.opacity);
                     }
                 }
 
-                composite::layer_blend(
-                    composite,
+                composite.layer_blend(
                     &layer_image,
                     layer.opacity,
                     match layer.blend {

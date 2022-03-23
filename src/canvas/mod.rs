@@ -1,42 +1,18 @@
+pub mod pixel;
+
 use std::ops::Range;
 
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
-    slice::ParallelSliceMut,
+    slice::{ParallelSlice, ParallelSliceMut},
 };
 
-pub trait Pixel: Sync + Send + Copy {
-    type DATA: Default + Copy + Sync + Send;
-    const CHANNELS: usize;
+use self::pixel::{Compositable, Pixel, Rgba8, RgbaF};
 
-    fn from_slice(slice: &[Self::DATA]) -> &Self;
-    fn from_slice_mut(slice: &mut [Self::DATA]) -> &mut Self;
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Rgba<T, const C: usize>([T; C]);
-
-impl<T: Default + Copy + Sync + Send, const C: usize> Pixel for Rgba<T, C> {
-    type DATA = T;
-    const CHANNELS: usize = C;
-
-    fn from_slice(slice: &[T]) -> &Self {
-        assert_eq!(slice.len(), C);
-        unsafe { &*(slice.as_ptr() as *const Self) }
-    }
-
-    fn from_slice_mut(slice: &mut [T]) -> &mut Self {
-        assert_eq!(slice.len(), C);
-        unsafe { &mut *(slice.as_mut_ptr() as *mut Self) }
-    }
-}
-
-pub type Rgba8 = Rgba<u8, 4>;
-pub type RgbaF = Rgba<f32, 4>;
 pub type Rgba8Canvas = Canvas<Rgba8>;
 pub type RgbaFCanvas = Canvas<RgbaF>;
 
+#[derive(Clone)]
 pub struct Canvas<P: Pixel> {
     width: usize,
     height: usize,
@@ -60,9 +36,11 @@ impl<P: Pixel> Canvas<P> {
             data: data.into_boxed_slice(),
         }
     }
-}
 
-impl<P: Pixel> Canvas<P> {
+    pub fn dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
     #[inline(always)]
     fn pixel_indices(&self, x: usize, y: usize) -> Option<Range<usize>> {
         if x >= self.width || y >= self.height {
@@ -91,7 +69,7 @@ impl<P: Pixel> Canvas<P> {
         }
     }
 
-    pub fn replace(&mut self, top: &Canvas<P>, x: usize, y: usize) {
+    pub fn replace(&mut self, top: &Self, x: usize, y: usize) {
         self.iter_region_mut(x, y, top.width, top.height)
             .for_each(|((x, y), pixel)| {
                 *pixel = *top.get_pixel(x, y);
@@ -119,13 +97,68 @@ impl<P: Pixel> Canvas<P> {
         h: usize,
     ) -> impl 'a + ParallelIterator<Item = ((usize, usize), &'a mut P)> {
         self.row_range_mut(y, h).flat_map(move |(iy, row)| {
-            row.par_chunks_mut(Rgba8::CHANNELS)
+            row.par_chunks_mut(P::CHANNELS)
                 .skip(x)
                 .take(w)
                 .map(P::from_slice_mut)
                 .enumerate()
                 .map(move |(ix, d)| ((ix, iy), d))
         })
+    }
+}
+
+impl<P: Pixel + Compositable> Canvas<P> {
+    pub fn layer_clip(&mut self, mask: &Self, target_opacity: f32) {
+        assert_eq!(self.dimensions(), mask.dimensions());
+
+        let layer_iter = self
+            .data
+            .par_chunks_exact_mut(P::CHANNELS)
+            .map(P::from_slice_mut);
+
+        let mask_iter = mask.data.par_chunks_exact(P::CHANNELS).map(P::from_slice);
+
+        layer_iter
+            .zip_eq(mask_iter)
+            .for_each(|(target, mask)| *target = mask.mask(*target, target_opacity));
+    }
+
+    pub fn layer_blend(
+        &mut self,
+        fg: &Self,
+        fg_opacity: f32,
+        blender: crate::composite::BlendingFunction,
+    ) {
+        assert_eq!(self.dimensions(), fg.dimensions());
+
+        let bottom_iter = self
+            .data
+            .par_chunks_exact_mut(P::CHANNELS)
+            .map(P::from_slice_mut);
+
+        let top_iter = fg.data.par_chunks_exact(P::CHANNELS).map(P::from_slice);
+
+        bottom_iter
+            .zip_eq(top_iter)
+            .for_each(|(bottom, top)| *bottom = bottom.blend(*top, fg_opacity, blender));
+    }
+}
+
+impl Rgba8Canvas {
+    pub fn to_f32(&self) -> RgbaFCanvas {
+        let data = self
+            .data
+            .par_chunks_exact(Rgba8::CHANNELS)
+            .map(Rgba8::from_slice)
+            .copied()
+            .flat_map(|v| RgbaF::from(v).0)
+            .collect::<Vec<_>>().into_boxed_slice();
+
+        RgbaFCanvas {
+            width: self.width,
+            height: self.height,
+            data
+        }
     }
 }
 

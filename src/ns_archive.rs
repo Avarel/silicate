@@ -81,6 +81,24 @@ impl NsDecode<'_> for bool {
     }
 }
 
+impl NsDecode<'_> for usize {
+    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+        val.ok_or(NsArchiveError::MissingKey)?
+            .as_unsigned_integer()
+            .ok_or(NsArchiveError::TypeMismatch)
+            .map(|n| n as Self)
+    }
+}
+
+impl NsDecode<'_> for isize {
+    fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
+        val.ok_or(NsArchiveError::MissingKey)?
+            .as_signed_integer()
+            .ok_or(NsArchiveError::TypeMismatch)
+            .map(|n| n as Self)
+    }
+}
+
 impl NsDecode<'_> for u64 {
     fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         val.ok_or(NsArchiveError::MissingKey)?
@@ -119,7 +137,7 @@ impl NsDecode<'_> for i32 {
 
 impl NsDecode<'_> for f32 {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        f64::decode(nka, val).map(|v| v as f32)
+        f64::decode(nka, val).map(|v| v as Self)
     }
 }
 
@@ -170,8 +188,8 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub struct Size {
-    pub width: u32,
-    pub height: u32,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl NsDecode<'_> for Size {
@@ -184,8 +202,8 @@ impl NsDecode<'_> for Size {
             .captures(string)
             .ok_or(NsArchiveError::TypeMismatch)?;
 
-        let width = u32::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
-        let height = u32::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
+        let width = usize::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
+        let height = usize::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
         Ok(Size { width, height })
     }
 }
