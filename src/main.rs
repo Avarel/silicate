@@ -2,6 +2,7 @@ mod composite;
 mod error;
 mod ns_archive;
 mod silica;
+mod canvas;
 
 use image::{Rgba, RgbaImage};
 use silica::{ProcreateFile, SilicaGroup, SilicaHierarchy};

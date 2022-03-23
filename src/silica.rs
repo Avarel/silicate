@@ -1,3 +1,4 @@
+use crate::canvas::Rgba8Canvas;
 use crate::composite;
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
@@ -111,7 +112,6 @@ impl ProcreateFile {
         let mut composite = nka.decode::<SilicaLayer>(root, "composite")?;
         composite.load_image(&meta, &mut archive, &file_names);
 
-
         let mut layers = nka
             .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
@@ -192,7 +192,8 @@ impl SilicaLayer {
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
-        let mut image_layer = RgbaImage::new(self.size_width, self.size_height);
+        let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
+        //RgbaImage::new(self.size_width, self.size_height);
 
         for path in file_names {
             if !path.starts_with(&self.uuid) {
@@ -224,22 +225,29 @@ impl SilicaLayer {
             let mut dst =
                 vec![0; (tile_width * tile_height * u32::from(Rgba8::CHANNEL_COUNT)) as usize];
             decompress(&buf, &mut dst).unwrap();
-            let chunked_image = RgbaImage::from_vec(tile_width, tile_height, dst).unwrap();
+            let chunked_image =
+                Rgba8Canvas::from_vec(tile_width as usize, tile_height as usize, dst);
             // imageops::replace(
             //     &mut image_layer,
             //     &chunked_image,
             //     (col * meta.tile_size) as i64,
             //     (row * meta.tile_size) as i64,
             // );
-            composite::replace(
-                &mut image_layer,
+            // composite::replace(
+            //     &mut image_layer,
+            //     &chunked_image,
+            //     (col * meta.tile_size) as usize,
+            //     (row * meta.tile_size) as usize,
+            // );
+            image_layer.replace(
                 &chunked_image,
                 (col * meta.tile_size) as usize,
                 (row * meta.tile_size) as usize,
             );
         }
 
-        self.image = Some(image_layer);
+        // Note: the adapter is considerably slow since it checks if the image fits
+        self.image = Some(crate::canvas::adapter::adapt(image_layer));
     }
 }
 
