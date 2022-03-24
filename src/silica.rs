@@ -1,4 +1,4 @@
-use crate::canvas::{Rgba8Canvas, pixel::{Rgba8, Pixel}};
+use crate::canvas::{Rgba8Canvas, Rgba8};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use lzokay::decompress::decompress;

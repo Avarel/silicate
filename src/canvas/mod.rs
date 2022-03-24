@@ -1,35 +1,46 @@
-pub mod pixel;
-
 use std::ops::Range;
 
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
-    slice::{ParallelSlice, ParallelSliceMut},
+    slice::ParallelSliceMut,
 };
 
-use self::pixel::{Compositable, Pixel, Rgba8, RgbaF};
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Rgba8(pub [u8; 4]);
 
-pub type Rgba8Canvas = Canvas<Rgba8>;
-pub type RgbaFCanvas = Canvas<RgbaF>;
+impl Rgba8 {
+    pub const CHANNELS: usize = 4;
 
-#[derive(Clone)]
-pub struct Canvas<P: Pixel> {
-    pub(crate) width: usize,
-    pub(crate) height: usize,
-    pub(crate) data: Box<[P::DATA]>,
+    fn from_slice(slice: &[u8]) -> &Self {
+        assert_eq!(slice.len(), Self::CHANNELS);
+        unsafe { &*(slice.as_ptr() as *const Self) }
+    }
+
+    fn from_slice_mut(slice: &mut [u8]) -> &mut Self {
+        assert_eq!(slice.len(), Self::CHANNELS);
+        unsafe { &mut *(slice.as_mut_ptr() as *mut Self) }
+    }
 }
 
-impl<P: Pixel> Canvas<P> {
+#[derive(Clone)]
+pub struct Rgba8Canvas {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) data: Box<[u8]>,
+}
+
+impl Rgba8Canvas {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
             height,
-            data: vec![P::DATA::default(); width * height * P::CHANNELS].into_boxed_slice(),
+            data: vec![0; width * height * Rgba8::CHANNELS].into_boxed_slice(),
         }
     }
 
-    pub fn from_vec(width: usize, height: usize, data: Vec<P::DATA>) -> Self {
-        assert_eq!(width * height * P::CHANNELS, data.len());
+    pub fn from_vec(width: usize, height: usize, data: Vec<u8>) -> Self {
+        assert_eq!(width * height * Rgba8::CHANNELS, data.len());
         Self {
             width,
             height,
@@ -37,6 +48,7 @@ impl<P: Pixel> Canvas<P> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }
@@ -52,20 +64,20 @@ impl<P: Pixel> Canvas<P> {
 
     #[inline(always)]
     fn pixel_indices_unchecked(&self, x: usize, y: usize) -> Range<usize> {
-        let no_channels = P::CHANNELS;
+        let no_channels = Rgba8::CHANNELS;
         // If in bounds, this can't overflow as we have tested that at construction!
         let min_index = (y * self.width + x) * no_channels;
         min_index..min_index + no_channels
     }
 
-    pub fn get_pixel(&self, x: usize, y: usize) -> &P {
+    pub fn get_pixel(&self, x: usize, y: usize) -> &Rgba8 {
         match self.pixel_indices(x, y) {
             None => panic!(
                 "Image index {:?} out of bounds {:?}",
                 (x, y),
                 (self.width, self.height)
             ),
-            Some(pixel_indices) => P::from_slice(&self.data[pixel_indices]),
+            Some(pixel_indices) => Rgba8::from_slice(&self.data[pixel_indices]),
         }
     }
 
@@ -80,9 +92,9 @@ impl<P: Pixel> Canvas<P> {
         &'a mut self,
         y: usize,
         height: usize,
-    ) -> impl 'a + ParallelIterator<Item = (usize, &'a mut [P::DATA])> {
+    ) -> impl 'a + ParallelIterator<Item = (usize, &'a mut [u8])> {
         self.data
-            .par_chunks_exact_mut(self.width * P::CHANNELS)
+            .par_chunks_exact_mut(self.width * Rgba8::CHANNELS)
             .skip(y)
             .take(height)
             .enumerate()
@@ -95,89 +107,15 @@ impl<P: Pixel> Canvas<P> {
         y: usize,
         w: usize,
         h: usize,
-    ) -> impl 'a + ParallelIterator<Item = ((usize, usize), &'a mut P)> {
+    ) -> impl 'a + ParallelIterator<Item = ((usize, usize), &'a mut Rgba8)> {
         self.row_range_mut(y, h).flat_map(move |(iy, row)| {
-            row.par_chunks_mut(P::CHANNELS)
+            row.par_chunks_mut(Rgba8::CHANNELS)
                 .skip(x)
                 .take(w)
-                .map(P::from_slice_mut)
+                .map(Rgba8::from_slice_mut)
                 .enumerate()
                 .map(move |(ix, d)| ((ix, iy), d))
         })
-    }
-}
-
-impl<P: Pixel + Compositable> Canvas<P> {
-    pub fn layer_clip(&mut self, mask: &Self, target_opacity: f32) {
-        assert_eq!(self.dimensions(), mask.dimensions());
-
-        let layer_iter = self
-            .data
-            .par_chunks_exact_mut(P::CHANNELS)
-            .map(P::from_slice_mut);
-
-        let mask_iter = mask.data.par_chunks_exact(P::CHANNELS).map(P::from_slice);
-
-        layer_iter
-            .zip_eq(mask_iter)
-            .for_each(|(target, mask)| *target = mask.mask(*target, target_opacity));
-    }
-
-    pub fn layer_blend(
-        &mut self,
-        fg: &Self,
-        fg_opacity: f32,
-        blender: crate::composite::BlendingFunction,
-    ) {
-        assert_eq!(self.dimensions(), fg.dimensions());
-
-        let bottom_iter = self
-            .data
-            .par_chunks_exact_mut(P::CHANNELS)
-            .map(P::from_slice_mut);
-
-        let top_iter = fg.data.par_chunks_exact(P::CHANNELS).map(P::from_slice);
-
-        bottom_iter
-            .zip_eq(top_iter)
-            .for_each(|(bottom, top)| *bottom = bottom.blend(*top, fg_opacity, blender));
-    }
-}
-
-impl Rgba8Canvas {
-    pub fn to_f32(&self) -> RgbaFCanvas {
-        let data = self
-            .data
-            .chunks_exact(Rgba8::CHANNELS)
-            .map(Rgba8::from_slice)
-            .flat_map(|v| RgbaF::from(*v).0)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-
-        RgbaFCanvas {
-            width: self.width,
-            height: self.height,
-            data,
-        }
-    }
-}
-
-impl RgbaFCanvas {
-    pub fn to_u8(&self) -> Rgba8Canvas {
-        let data = self
-            .data
-            .chunks_exact(RgbaF::CHANNELS)
-            .map(RgbaF::from_slice)
-            .copied()
-            .flat_map(|v| Rgba8::from(v).0)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-
-        Rgba8Canvas {
-            width: self.width,
-            height: self.height,
-            data,
-        }
     }
 }
 

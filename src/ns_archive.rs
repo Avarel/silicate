@@ -21,6 +21,7 @@ pub enum NsArchiveError {
     BadIndex,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct NsKeyedArchive {
     #[serde(rename = "$version")]

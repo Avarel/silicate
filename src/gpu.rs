@@ -1,8 +1,5 @@
-use std::marker::PhantomData;
-
 use crate::canvas::{
-    pixel::{Pixel, Rgba8},
-    Rgba8Canvas,
+    Rgba8Canvas, Rgba8,
 };
 use futures::executor::block_on;
 use wgpu::{util::DeviceExt, BindGroupLayout};
@@ -67,19 +64,19 @@ impl CanvasTexture {
     }
 }
 
-struct BufferDimensions<P: Pixel> {
-    width: usize,
-    height: usize,
-    unpadded_bytes_per_row: usize,
-    padded_bytes_per_row: usize,
-    _phantom: PhantomData<P>,
+#[allow(dead_code)]
+struct BufferDimensions {
+    width: u32,
+    height: u32,
+    unpadded_bytes_per_row: u32,
+    padded_bytes_per_row: u32
 }
 
-impl<P: Pixel> BufferDimensions<P> {
-    fn new(width: usize, height: usize) -> Self {
-        let bytes_per_pixel = P::CHANNELS * std::mem::size_of::<P::DATA>();
+impl BufferDimensions {
+    fn new(width: u32, height: u32) -> Self {
+        let bytes_per_pixel = (Rgba8::CHANNELS * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
         let padded_bytes_per_row = unpadded_bytes_per_row + padded_bytes_per_row_padding;
         Self {
@@ -87,7 +84,6 @@ impl<P: Pixel> BufferDimensions<P> {
             height,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
-            _phantom: PhantomData::default(),
         }
     }
 }
@@ -202,7 +198,7 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
     // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
     // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
     // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
-    let buffer_dimensions = BufferDimensions::<Rgba8>::new(width, height);
+    let buffer_dimensions = BufferDimensions::new(width as u32, height as u32);
     // The output buffer lets us retrieve the data as an array
     let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -214,8 +210,8 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
     let texture_extent = wgpu::Extent3d {
-        width: buffer_dimensions.width as u32,
-        height: buffer_dimensions.height as u32,
+        width: buffer_dimensions.width,
+        height: buffer_dimensions.height,
         depth_or_array_layers: 1,
     };
 
@@ -373,7 +369,7 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
                         offset: 0,
                         bytes_per_row: Some(
                             std::num::NonZeroU32::new(
-                                buffer_dimensions.padded_bytes_per_row as u32,
+                                buffer_dimensions.padded_bytes_per_row,
                             )
                             .unwrap(),
                         ),

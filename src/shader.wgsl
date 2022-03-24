@@ -72,12 +72,12 @@ fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var fg = textureSample(layer, sample, in.tex_coords);
     var maska = textureSample(mask, sample, in.tex_coords).a;
-    if (in.clipped > 0u) {
-        fg.a = min(fg.a, maska);
-    }
+    fg.a = min(fg.a, select(1.0, maska, in.clipped > 0u));
 
     let bg = textureSample(prev, sample, in.tex_coords);
     fg.a = fg.a * in.opacity;
+
+    fg = select(fg, vec4<f32>(0.0), fg.a == 0.0);
 
     var final_pixel = vec3<f32>(0.0);
 
