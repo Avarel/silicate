@@ -22,15 +22,6 @@ fn vs_main(
  
 // Fragment shader
 
-[[group(0), binding(0)]]
-var layer: texture_2d<f32>;
-[[group(0), binding(2)]]
-var sample: sampler;
-[[group(0), binding(1)]]
-var prev: texture_2d<f32>;
-[[group(0), binding(3)]]
-var mask: texture_2d<f32>;
-
 fn comps(c: f32, a: f32) -> f32 {
     return c * (1.0 - a);
 }
@@ -64,16 +55,24 @@ struct CtxInput {
     blend: u32;
 };
 
+[[group(0), binding(0)]]
+var splr: sampler;
 [[group(1), binding(0)]]
+var composite: texture_2d<f32>;
+[[group(1), binding(1)]]
+var clipping_mask: texture_2d<f32>;
+[[group(1), binding(2)]]
+var layer: texture_2d<f32>;
+[[group(1), binding(3)]]
 var<uniform> ctx: CtxInput;
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    var fg = textureSample(layer, sample, in.tex_coords);
-    var maska = textureSample(mask, sample, in.tex_coords).a;
+    var fg = textureSample(layer, splr, in.tex_coords);
+    var maska = textureSample(clipping_mask, splr, in.tex_coords).a;
     fg.a = min(fg.a, maska);
 
-    let bg = textureSample(prev, sample, in.tex_coords);
+    let bg = textureSample(composite, splr, in.tex_coords);
     fg.a = fg.a * ctx.opacity;
 
     fg = select(fg, vec4<f32>(0.0), fg.a == 0.0);

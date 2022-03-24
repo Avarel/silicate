@@ -1,4 +1,4 @@
-use crate::canvas::{Rgba8Canvas, Rgba8};
+use crate::canvas::{Rgba8, Rgba8Canvas};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use lzokay::decompress::decompress;
@@ -14,7 +14,7 @@ use zip::read::ZipArchive;
 struct TilingMeta {
     columns: usize,
     rows: usize,
-    diff: Size,
+    diff: Size<usize>,
     tile_size: usize,
 }
 
@@ -59,7 +59,7 @@ pub struct ProcreateFile {
     //     videoDuration: String? = "Calculating..."
     pub tile_size: usize,
     pub composite: SilicaLayer,
-    pub size: Size,
+    pub size: Size<usize>,
 }
 
 impl ProcreateFile {
@@ -89,7 +89,7 @@ impl ProcreateFile {
 
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
-        let size = nka.decode::<Size>(root, "size")?;
+        let size = nka.decode::<Size<usize>>(root, "size")?;
         let tile_size = nka.decode::<usize>(root, "tileSize")?;
         let columns = size.width / tile_size + if size.width % tile_size == 0 { 0 } else { 1 };
         let rows = size.height / tile_size + if size.height % tile_size == 0 { 0 } else { 1 };
@@ -189,7 +189,6 @@ impl SilicaLayer {
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
-        //RgbaImage::new(self.size_width, self.size_height);
 
         for path in file_names {
             if !path.starts_with(&self.uuid) {
@@ -198,8 +197,8 @@ impl SilicaLayer {
 
             let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
             let captures = index_regex.captures(&chunk_str).unwrap();
-            let col = usize::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
-            let row = usize::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
+            let col = usize::from_str_radix(&captures[1], 10).unwrap();
+            let row = usize::from_str_radix(&captures[2], 10).unwrap();
 
             let tile_width = meta.tile_size
                 - if col != meta.columns - 1 {

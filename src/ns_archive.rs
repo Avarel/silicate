@@ -187,13 +187,22 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Size {
-    pub width: usize,
-    pub height: usize,
+impl<'a, T> NsDecode<'a> for Box<T>
+where
+    T: NsDecode<'a>,
+{
+    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
+        Ok(Box::new(T::decode(nka, val)?))
+    }
 }
 
-impl NsDecode<'_> for Size {
+#[derive(Debug, Clone, Copy)]
+pub struct Size<T> {
+    pub width: T,
+    pub height: T,
+}
+use std::str::FromStr;
+impl<T: FromStr> NsDecode<'_> for Size<T> {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let string = <&'_ str>::decode(nka, val)?;
 
@@ -203,8 +212,12 @@ impl NsDecode<'_> for Size {
             .captures(string)
             .ok_or(NsArchiveError::TypeMismatch)?;
 
-        let width = usize::from_str_radix(captures.get(1).unwrap().as_str(), 10).unwrap();
-        let height = usize::from_str_radix(captures.get(2).unwrap().as_str(), 10).unwrap();
+        let width = captures[1]
+            .parse::<T>()
+            .map_err(|_| NsArchiveError::TypeMismatch)?;
+        let height = captures[2]
+            .parse::<T>()
+            .map_err(|_| NsArchiveError::TypeMismatch)?;
         Ok(Size { width, height })
     }
 }
