@@ -13,15 +13,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut procreate = ProcreateFile::open("./Gilvana.procreate")?;
 
     let mut composite = Rgba8Canvas::new(
-        procreate.size.width as usize,
-        procreate.size.height as usize,
+        procreate.size.width,
+        procreate.size.height,
     );
     //RgbaImage::new(procreate.size.width, procreate.size.height);
     // render(&mut composite, &mut procreate.layers);
     // canvas::adapter::adapt(composite).save("./out/final.png")?;
 
+    gpu::gpu_render(procreate.size.width, procreate.size.height, &procreate.layers);
+
     // canvas::adapter::adapt(procreate.composite.image.unwrap()).save("./out/reference.png")?;
-    gpu::gpu_render(&procreate.composite.image.unwrap());
+    // gpu::gpu_render(&procreate.composite.image.unwrap());
     Ok(())
 }
 
