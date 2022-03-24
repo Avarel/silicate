@@ -3,17 +3,11 @@
 struct VertexInput {
     [[location(0)]] position: vec3<f32>;
     [[location(1)]] tex_coords: vec2<f32>;
-    [[location(2)]] opacity: f32;
-    [[location(3)]] blend: u32;
-    [[location(4)]] clipped: u32;
 };
 
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
     [[location(0)]] tex_coords: vec2<f32>;
-    [[location(1)]] opacity: f32;
-    [[location(2)]] blend: u32;
-    [[location(3)]] clipped: u32;
 };
 
 [[stage(vertex)]]
@@ -22,9 +16,6 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.opacity = model.opacity;
-    out.blend = model.blend;
-    out.clipped = model.clipped;
     out.clip_position = vec4<f32>(model.position, 1.0);
     return out;
 }
@@ -68,20 +59,28 @@ fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
     }
 }
 
+struct CtxInput {
+    opacity: f32;
+    blend: u32;
+};
+
+[[group(1), binding(0)]]
+var<uniform> ctx: CtxInput;
+
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var fg = textureSample(layer, sample, in.tex_coords);
     var maska = textureSample(mask, sample, in.tex_coords).a;
-    fg.a = min(fg.a, select(1.0, maska, in.clipped > 0u));
+    fg.a = min(fg.a, maska);
 
     let bg = textureSample(prev, sample, in.tex_coords);
-    fg.a = fg.a * in.opacity;
+    fg.a = fg.a * ctx.opacity;
 
     fg = select(fg, vec4<f32>(0.0), fg.a == 0.0);
 
     var final_pixel = vec3<f32>(0.0);
 
-    switch (in.blend) {
+    switch (ctx.blend) {
         case 1: {
             final_pixel = multiply(bg.rgb, fg.rgb, bg.a, fg.a);
         }

@@ -1,6 +1,4 @@
-use crate::canvas::{
-    Rgba8Canvas, Rgba8,
-};
+use crate::canvas::{Rgba8, Rgba8Canvas};
 use futures::executor::block_on;
 use wgpu::{util::DeviceExt, BindGroupLayout};
 
@@ -69,7 +67,7 @@ struct BufferDimensions {
     width: u32,
     height: u32,
     unpadded_bytes_per_row: u32,
-    padded_bytes_per_row: u32
+    padded_bytes_per_row: u32,
 }
 
 impl BufferDimensions {
@@ -93,45 +91,39 @@ impl BufferDimensions {
 struct Vertex {
     position: [f32; 3],
     tex_coords: [f32; 2],
-    opacity: f32,
-    blend: u32,
-    clipped: u32,
 }
 
-fn vertices(opacity: f32, blend: u32, clipped: u32) -> [Vertex; 4] {
+fn vertices() -> [Vertex; 4] {
     [
         Vertex {
-            position: [1.0, 1.0, 0.0],
-            tex_coords: [1.0, 0.0],
-            opacity,
-            blend,
-            clipped,
+            position: [-1.0, 1.0, 0.0],
+            tex_coords: [0.0, 0.0],
         },
         Vertex {
             position: [-1.0, -1.0, 0.0],
             tex_coords: [0.0, 1.0],
-            opacity,
-            blend,
-            clipped,
+        },
+        Vertex {
+            position: [1.0, 1.0, 0.0],
+            tex_coords: [1.0, 0.0],
         },
         Vertex {
             position: [1.0, -1.0, 0.0],
             tex_coords: [1.0, 1.0],
-            opacity,
-            blend,
-            clipped,
-        },
-        Vertex {
-            position: [-1.0, 1.0, 0.0],
-            tex_coords: [0.0, 0.0],
-            opacity,
-            blend,
-            clipped,
         },
     ]
 }
 
-const INDICES: &[u16] = &[0, 1, 2, 3, 1, 0];
+const INDICES: &[u16] = &[0, 1, 2, 3];
+
+// We need this for Rust to store our data correctly for the shaders
+#[repr(C)]
+// This is so we can store this in a buffer
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct LayerContext {
+    opacity: f32,
+    blend: u32,
+}
 
 impl Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -148,21 +140,6 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2, // NEW!
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32, // NEW!
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Uint32, // NEW!
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Uint32, // NEW!
                 },
             ],
         }
@@ -264,6 +241,20 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
             label: Some("texture_bind_group_layout"),
         });
 
+    let ctx_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some("camera_bind_group_layout"),
+    });
+
     let mut prev_texture = device.create_texture(&wgpu::TextureDescriptor {
         size: texture_extent,
         mip_level_count: 1,
@@ -274,30 +265,9 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
         label: Some("Output texture"),
     });
 
-    // for i in 0..INSTANCES.len() as u32 {
-    //     let CanvasTexture {
-    //         texture: _,
-    //         view: canvas_texture_view,
-    //     } = CanvasTexture::from_image(&device, &queue, canvas, Some("canvas"));
-
-    //     prev_texture = render_layer(
-    //         &device,
-    //         &queue,
-    //         &mut prev_texture,
-    //         &texture_extent,
-    //         &texture_bind_group_layout,
-    //         &sampler,
-    //         &vertex_buffer,
-    //         &index_buffer,
-    //         &instance_buffer,
-    //         &canvas_texture_view
-    //     );
-    //     dbg!(i);
-    // }
-
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[&texture_bind_group_layout],
+        bind_group_layouts: &[&texture_bind_group_layout, &ctx_bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -323,7 +293,7 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
             }],
         }),
         primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+            topology: wgpu::PrimitiveTopology::TriangleStrip, // 1.
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw, // 2.
             cull_mode: None,
@@ -335,13 +305,48 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
             conservative: false,
         },
         depth_stencil: None, // 1.
-        multisample: wgpu::MultisampleState {
-            count: 1,                         // 2.
-            mask: !0,                         // 3.
-            alpha_to_coverage_enabled: false, // 4.
-        },
+        multisample: wgpu::MultisampleState::default(),
         multiview: None, // 5.
     });
+
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Vertex Buffer"),
+        contents: bytemuck::cast_slice(&vertices()),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let all_mask_texture = device.create_texture(&wgpu::TextureDescriptor {
+        size: texture_extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        label: Some("Output texture"),
+    });
+
+    let all_mask_texture_view =
+        all_mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    queue.submit(Some({
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: &all_mask_texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+
+        encoder.finish()
+    }));
 
     render(
         layers,
@@ -350,38 +355,35 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
         &mut prev_texture,
         &texture_extent,
         &texture_bind_group_layout,
+        &ctx_bind_group_layout,
         &render_pipeline,
         &sampler,
-        // &vertex_buffer,
+        &vertex_buffer,
         &index_buffer,
+        &all_mask_texture_view,
     );
 
-    {
-        queue.submit(Some({
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            // Copy the data from the texture to the buffer
-            encoder.copy_texture_to_buffer(
-                prev_texture.as_image_copy(),
-                wgpu::ImageCopyBuffer {
-                    buffer: &output_buffer,
-                    layout: wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(
-                            std::num::NonZeroU32::new(
-                                buffer_dimensions.padded_bytes_per_row,
-                            )
-                            .unwrap(),
-                        ),
-                        rows_per_image: None,
-                    },
+    queue.submit(Some({
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        // Copy the data from the texture to the buffer
+        encoder.copy_texture_to_buffer(
+            prev_texture.as_image_copy(),
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(
+                        std::num::NonZeroU32::new(buffer_dimensions.padded_bytes_per_row).unwrap(),
+                    ),
+                    rows_per_image: None,
                 },
-                texture_extent,
-            );
+            },
+            texture_extent,
+        );
 
-            encoder.finish()
-        }));
-    }
+        encoder.finish()
+    }));
 
     {
         let buffer_slice = output_buffer.slice(..);
@@ -413,10 +415,12 @@ fn render(
     prev_texture: &mut wgpu::Texture,
     texture_extent: &wgpu::Extent3d,
     texture_bind_group_layout: &BindGroupLayout,
+    ctx_bind_group_layout: &BindGroupLayout,
     render_pipeline: &wgpu::RenderPipeline,
     sampler: &wgpu::Sampler,
-    // vertex_buffer: &wgpu::Buffer,
+    vertex_buffer: &wgpu::Buffer,
     index_buffer: &wgpu::Buffer,
+    all_mask_texture_view: &wgpu::TextureView,
 ) {
     let mut mask_texture_view = device
         .create_texture(&wgpu::TextureDescriptor {
@@ -450,10 +454,12 @@ fn render(
                     prev_texture,
                     texture_extent,
                     texture_bind_group_layout,
+                    ctx_bind_group_layout,
                     render_pipeline,
                     sampler,
-                    // vertex_buffer,
+                    vertex_buffer,
                     index_buffer,
+                    all_mask_texture_view,
                 );
                 eprintln!("Finished group {}", group.name);
             }
@@ -470,32 +476,27 @@ fn render(
                     view: canvas_texture_view,
                 } = CanvasTexture::from_image(&device, &queue, layer_image, Some("canvas"));
 
-                // composite.layer_blend(
-                //     &layer_image,
-                //     layer.opacity,
-                //     match layer.blend {
-                //         1 => composite::multiply,
-                //         2 => composite::screen,
-                //         11 => composite::overlay,
-                //         0 | _ => composite::normal,
-                //     },
-                // );
-
                 *prev_texture = render_layer(
                     device,
                     queue,
                     prev_texture,
                     texture_extent,
                     texture_bind_group_layout,
+                    ctx_bind_group_layout,
                     render_pipeline,
                     sampler,
-                    // vertex_buffer,
+                    vertex_buffer,
                     index_buffer,
                     &canvas_texture_view,
-                    layer.opacity,
-                    layer.blend,
-                    layer.clipped,
-                    &mask_texture_view,
+                    LayerContext {
+                        opacity: layer.opacity,
+                        blend: layer.blend,
+                    },
+                    if layer.clipped {
+                        &mask_texture_view
+                    } else {
+                        all_mask_texture_view
+                    },
                 );
 
                 if !layer.clipped {
@@ -508,20 +509,33 @@ fn render(
     }
 }
 
+struct RenderContext {
+    prev_texture: wgpu::Texture,
+    texture_extent: wgpu::Extent3d,
+    texture_bind_group_layout: BindGroupLayout,
+    ctx_bind_group_layout: BindGroupLayout,
+    render_pipeline: wgpu::RenderPipeline,
+    sampler: wgpu::Sampler,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    layer_texture_view: wgpu::TextureView,
+    layer_ctx: LayerContext,
+    mask_texture_view: wgpu::TextureView,
+}
+
 fn render_layer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     prev_texture: &wgpu::Texture,
     texture_extent: &wgpu::Extent3d,
     texture_bind_group_layout: &BindGroupLayout,
+    ctx_bind_group_layout: &BindGroupLayout,
     render_pipeline: &wgpu::RenderPipeline,
     sampler: &wgpu::Sampler,
-    // vertex_buffer: &wgpu::Buffer,
+    vertex_buffer: &wgpu::Buffer,
     index_buffer: &wgpu::Buffer,
-    canvas_texture_view: &wgpu::TextureView,
-    layer_opacity: f32,
-    layer_blend: u32,
-    clipped: bool,
+    layer_texture_view: &wgpu::TextureView,
+    layer_ctx: LayerContext,
     mask_texture_view: &wgpu::TextureView,
 ) -> wgpu::Texture {
     let prev_texture_view = prev_texture.create_view(&wgpu::TextureViewDescriptor {
@@ -529,10 +543,10 @@ fn render_layer(
         ..Default::default()
     });
 
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Vertex Buffer"),
-        contents: bytemuck::cast_slice(&vertices(layer_opacity, layer_blend, if clipped { 1 } else { 0 })),
-        usage: wgpu::BufferUsages::VERTEX,
+    let ctx_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Camera Buffer"),
+        contents: bytemuck::cast_slice(&[layer_ctx]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
     // The render pipeline renders data into this texture
@@ -558,7 +572,7 @@ fn render_layer(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&canvas_texture_view),
+                resource: wgpu::BindingResource::TextureView(&layer_texture_view),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -574,6 +588,15 @@ fn render_layer(
             },
         ],
         label: Some("diffuse_bind_group"),
+    });
+
+    let mixing_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &ctx_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: ctx_buffer.as_entire_binding(),
+        }],
+        label: Some("mixing_bind_group"),
     });
 
     queue.submit(Some({
@@ -595,6 +618,7 @@ fn render_layer(
 
         render_pass.set_pipeline(&render_pipeline); // 2.
         render_pass.set_bind_group(0, &canvas_bind_group, &[]); // NEW!
+        render_pass.set_bind_group(1, &mixing_bind_group, &[]); // NEW!
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
