@@ -35,13 +35,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn gpu_render(
-    width: usize,
-    height: usize,
+    width: u32,
+    height: u32,
     background: Option<[f32; 4]>,
     layers: &mut crate::silica::SilicaGroup,
     state: LogicalDevice,
 ) {
-    let mut state = RenderState::new(width as u32, height as u32, background, state);
+    let mut state = RenderState::new(width, height, background, state);
 
     let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,

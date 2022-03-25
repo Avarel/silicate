@@ -1,5 +1,4 @@
-use futures::executor::block_on;
-use image::{Rgba, Pixel};
+use image::{Pixel, Rgba};
 use std::num::NonZeroU32;
 use wgpu::util::DeviceExt;
 
@@ -13,25 +12,20 @@ pub struct LogicalDevice {
 }
 
 impl LogicalDevice {
-    pub fn new() -> Self {
+    pub async fn new() -> Option<Self> {
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::Backends::all());
 
-        let adapter =
-            block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .ok()?;
 
-        let (device, queue) = block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::empty(),
-                limits: wgpu::Limits::default(),
-            },
-            None,
-        ))
-        .unwrap();
-        dbg!(&device);
-        Self { device, queue }
+        Some(Self { device, queue })
     }
 }
 
@@ -44,8 +38,8 @@ pub struct GpuTexture {
 impl GpuTexture {
     pub fn empty(device: &wgpu::Device, width: u32, height: u32, label: Option<&str>) -> Self {
         let size = wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
 
@@ -91,8 +85,8 @@ impl GpuTexture {
             // The layout of the texture
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * width as u32),
-                rows_per_image: NonZeroU32::new(height as u32),
+                bytes_per_row: NonZeroU32::new(4 * width),
+                rows_per_image: NonZeroU32::new(height),
             },
             wgpu::Extent3d {
                 width,
@@ -113,7 +107,12 @@ pub struct BufferDimensions {
 
 impl BufferDimensions {
     fn new(width: u32, height: u32) -> Self {
-        let bytes_per_pixel = (usize::from(Rgba::<u8>::CHANNEL_COUNT) * std::mem::size_of::<u8>()) as u32;
+        // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
+        // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
+        // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
+        // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
+        let bytes_per_pixel =
+            (usize::from(Rgba::<u8>::CHANNEL_COUNT) * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
@@ -331,10 +330,6 @@ impl RenderState {
         let buffer_dimensions = BufferDimensions::new(width, height);
         // The output buffer lets us retrieve the data as an array
 
-        // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
-        // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
-        // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
-        // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
         let texture_extent = wgpu::Extent3d {
             width: buffer_dimensions.width,
             height: buffer_dimensions.height,
