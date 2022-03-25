@@ -11,7 +11,22 @@ use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
+use thiserror::Error;
 use zip::read::ZipArchive;
+
+#[derive(Error, Debug)]
+pub enum SilicaError {
+    #[error("i/o error")]
+    Io(#[from] std::io::Error),
+    #[error("plist error")]
+    PlistError(#[from] plist::Error),
+    #[error("zip error")]
+    ZipError(#[from] zip::result::ZipError),
+    #[error("ns archive error")]
+    NsArchiveError(#[from] NsArchiveError),
+    #[error("no graphics device")]
+    NoGraphicsDevice,
+}
 
 struct TilingMeta {
     columns: u32,
@@ -69,12 +84,12 @@ pub struct ProcreateFile {
 type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
-    pub fn open<P: AsRef<Path>>(p: P) -> Result<Self, NsArchiveError> {
+    pub fn open<P: AsRef<Path>>(p: P) -> Result<Self, SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
-        let mapping = unsafe { memmap2::Mmap::map(&file).unwrap() };
-        let mut archive = ZipArchive::new(Cursor::new(&mapping[..])).unwrap();
+        let mapping = unsafe { memmap2::Mmap::map(&file)? };
+        let mut archive = ZipArchive::new(Cursor::new(&mapping[..]))?;
 
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
@@ -94,7 +109,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         file_names: &[String],
         nka: NsKeyedArchive,
-    ) -> Result<Self, NsArchiveError> {
+    ) -> Result<Self, SilicaError> {
         let root = nka.root()?;
 
         println!("{root:#?}");
@@ -120,7 +135,8 @@ impl ProcreateFile {
             .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
-        let render = futures::executor::block_on(LogicalDevice::new()).unwrap();
+        let render = futures::executor::block_on(LogicalDevice::new())
+            .ok_or(SilicaError::NoGraphicsDevice)?;
 
         layers
             .par_iter_mut()
