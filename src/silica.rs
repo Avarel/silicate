@@ -22,8 +22,9 @@ struct TilingMeta {
 pub struct ProcreateFile {
     // animation:ValkyrieDocumentAnimation?
     pub author_name: Option<String>,
-    //     backgroundColor:Data?
-    // backgroundHidden:Bool?
+    // pub backgroundColor: Data?
+    pub background_hidden: bool,
+    pub background_color: [f32; 4],
     //     backgroundColorHSBA:Data?
     //     closedCleanlyKey:Bool?
     //     colorProfile:ValkyrieColorProfile?
@@ -116,8 +117,22 @@ impl ProcreateFile {
             .iter_mut()
             .for_each(|v| v.apply(&mut |layer| layer.load_image(&meta, &mut archive, &file_names)));
 
+        let background_color = <[f32; 4]>::try_from(
+            nka.decode::<&[u8]>(root, "backgroundColor")?
+                .chunks_exact(4)
+                .map(|bytes| {
+                    <[u8; 4]>::try_from(bytes)
+                        .map(f32::from_le_bytes)
+                        .map_err(|_| NsArchiveError::TypeMismatch)
+                })
+                .collect::<Result<Vec<f32>, _>>()?,
+        )
+        .unwrap();
+
         Ok(Self {
             author_name: nka.decode::<Option<String>>(root, "authorName")?,
+            background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
+            background_color,
             name: nka.decode::<Option<String>>(root, "name")?,
             tile_size,
             size,
@@ -248,8 +263,9 @@ impl SilicaLayer {
 impl NsDecode<'_> for SilicaLayer {
     fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         let coder = <&'_ Dictionary>::decode(nka, val)?;
+        // println!("{:#?} {:#?}", nka.decode::<Option<String>>(coder, "name")?, coder);
         Ok(Self {
-            blend: nka.decode::<u32>(coder, "blend")?,
+            blend: nka.decode::<u32>(coder, "extendedBlend")?,
             clipped: nka.decode::<bool>(coder, "clipped")?,
             hidden: nka.decode::<bool>(coder, "hidden")?,
             mask: None,

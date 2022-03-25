@@ -150,30 +150,28 @@ impl Vertex {
     }
 }
 
-pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGroup) {
+pub fn gpu_render(
+    width: usize,
+    height: usize,
+    background: Option<[f32; 4]>,
+    layers: &crate::silica::SilicaGroup,
+) {
     // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
     // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
     // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
     // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
-    let buffer_dimensions = BufferDimensions::new(width as u32, height as u32);
-    // The output buffer lets us retrieve the data as an array
 
-    let texture_extent = wgpu::Extent3d {
-        width: buffer_dimensions.width,
-        height: buffer_dimensions.height,
-        depth_or_array_layers: 1,
-    };
-
-    let mut state = RenderState::new(texture_extent);
+    let mut state = RenderState::new(width as u32, height as u32, background);
 
     let output_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: (buffer_dimensions.padded_bytes_per_row * buffer_dimensions.height) as u64,
+        size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
+            as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
-    render(layers, &mut state);
+    state.render(&resolve(&state, layers));
 
     state.queue.submit(Some({
         let mut encoder = state
@@ -186,7 +184,7 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
                 buffer: &output_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: NonZeroU32::new(buffer_dimensions.padded_bytes_per_row),
+                    bytes_per_row: NonZeroU32::new(state.buffer_dimensions.padded_bytes_per_row),
                     rows_per_image: None,
                 },
             },
@@ -196,137 +194,107 @@ pub fn gpu_render(width: usize, height: usize, layers: &crate::silica::SilicaGro
         encoder.finish()
     }));
 
-    {
-        let buffer_slice = output_buffer.slice(..);
+    let buffer_slice = output_buffer.slice(..);
 
-        // NOTE: We have to create the mapping THEN device.poll() before await
-        // the future. Otherwise the application will freeze.
-        let mapping = buffer_slice.map_async(wgpu::MapMode::Read);
-        state.device.poll(wgpu::Maintain::Wait);
-        block_on(mapping).unwrap();
+    // NOTE: We have to create the mapping THEN device.poll() before await
+    // the future. Otherwise the application will freeze.
+    let mapping = buffer_slice.map_async(wgpu::MapMode::Read);
+    state.device.poll(wgpu::Maintain::Wait);
+    block_on(mapping).unwrap();
 
-        let data = buffer_slice.get_mapped_range();
+    let data = buffer_slice.get_mapped_range();
 
-        let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-            buffer_dimensions.padded_bytes_per_row as u32 / 4,
-            buffer_dimensions.height as u32,
-            data,
-        )
-        .unwrap();
-        buffer.save("out/image.png").unwrap();
-    }
+    eprintln!("Loading data to CPU");
+    let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
+        state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
+        state.buffer_dimensions.height as u32,
+        data,
+    )
+    .unwrap();
+    eprintln!("Writing image");
+    buffer.save("out/image.png").unwrap();
+    eprintln!("Finished");
+    drop(buffer);
+    drop(buffer_slice);
 
     output_buffer.unmap();
 }
 
-struct CompositeLayer {
-    texture: GpuTexture,
-    clipped: bool,
-    opacity: f32,
-    blend: u32,
-}
+fn resolve(state: &RenderState, layers: &crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
+    fn inner(
+        state: &RenderState,
+        layers: &crate::silica::SilicaGroup,
+        composite_layers: &mut Vec<CompositeLayer>,
+    ) {
+        let mut mask_layer: Option<(usize, &crate::silica::SilicaLayer)> = None;
 
-fn resolve(layers: &crate::silica::SilicaGroup, render_state: &RenderState, composite_layers: &mut Vec<CompositeLayer>) {
-    for layer in layers.children.iter().rev() {
-        match layer {
-            SilicaHierarchy::Group(group) => {
-                if group.hidden {
-                    eprintln!("Hidden group {:?}", group.name);
-                    continue;
+        for (index, layer) in layers.children.iter().rev().enumerate() {
+            match layer {
+                SilicaHierarchy::Group(group) => {
+                    if group.hidden {
+                        eprintln!("Hidden group {:?}", group.name);
+                        continue;
+                    }
+                    eprintln!("Into group {}", group.name);
+                    inner(state, group, composite_layers);
+                    eprintln!("Finished group {}", group.name);
                 }
-                eprintln!("Into group {}", group.name);
-                resolve(group, render_state, composite_layers);
-                eprintln!("Finished group {}", group.name);
-            }
-            SilicaHierarchy::Layer(layer) => {
-                if layer.hidden {
-                    eprintln!("Hidden layer {:?}", layer.name);
-                    continue;
-                }
+                SilicaHierarchy::Layer(layer) => {
+                    if layer.hidden {
+                        eprintln!("Hidden layer {:?}", layer.name);
+                        continue;
+                    }
+                    if let Some((_, mask_layer)) = mask_layer {
+                        if layer.clipped && mask_layer.hidden {
+                            eprintln!("Hidden layer {:?} due to clip to hidden", layer.name);
+                            continue;
+                        }
+                    }
 
-                let layer_image = layer.image.as_ref().unwrap();
+                    let layer_image = layer.image.as_ref().unwrap();
 
-                let gpu_texture = GpuTexture::from_image(
-                    &render_state.device,
-                    &render_state.queue,
-                    layer_image,
-                    Some("canvas"),
-                );
+                    let gpu_texture = GpuTexture::from_image(
+                        &state.device,
+                        &state.queue,
+                        layer_image,
+                        Some("canvas"),
+                    );
 
-                composite_layers.push(CompositeLayer {
-                    texture: gpu_texture,
-                    clipped: layer.clipped,
-                    opacity: layer.opacity,
-                    blend: layer.blend
-                });
-
-                eprintln!("Resolved layer {:?}: {}", layer.name, layer.blend);
-            }
-        }
-    }
-}
-
-fn render(layers: &crate::silica::SilicaGroup, render_state: &mut RenderState) {
-    let mut mask_texture_view = None;
-
-    for layer in layers.children.iter().rev() {
-        match layer {
-            SilicaHierarchy::Group(group) => {
-                if group.hidden {
-                    eprintln!("Hidden group {:?}", group.name);
-                    continue;
-                }
-                eprintln!("Into group {}", group.name);
-                render(group, render_state);
-                eprintln!("Finished group {}", group.name);
-            }
-            SilicaHierarchy::Layer(layer) => {
-                if layer.hidden {
-                    eprintln!("Hidden layer {:?}", layer.name);
-                    continue;
-                }
-
-                let layer_image = layer.image.as_ref().unwrap();
-
-                let GpuTexture {
-                    texture: _,
-                    view: canvas_texture_view,
-                } = GpuTexture::from_image(
-                    &render_state.device,
-                    &render_state.queue,
-                    layer_image,
-                    Some("canvas"),
-                );
-
-                render_state.composite_texture = render_layer(
-                    &render_state,
-                    &canvas_texture_view,
-                    LayerContext {
+                    composite_layers.push(CompositeLayer {
+                        texture: gpu_texture,
+                        clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                         opacity: layer.opacity,
                         blend: layer.blend,
-                    },
-                    if layer.clipped {
-                        &mask_texture_view
-                            .as_ref()
-                            .unwrap_or(&render_state.filled_clipping_mask_view)
-                    } else {
-                        &render_state.filled_clipping_mask_view
-                    },
-                );
+                        name: layer.name.clone(),
+                    });
 
-                if !layer.clipped {
-                    mask_texture_view = Some(canvas_texture_view);
+                    if !layer.clipped {
+                        mask_layer = Some((index, &layer));
+                    }
+
+                    eprintln!("Resolved layer {:?}: {}", layer.name, layer.blend);
                 }
-
-                eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
             }
         }
     }
+
+    let mut composite_layers = Vec::new();
+    inner(&state, layers, &mut composite_layers);
+    composite_layers
+}
+
+struct CompositeLayer {
+    texture: GpuTexture,
+    clipped: Option<usize>,
+    opacity: f32,
+    blend: u32,
+    name: Option<String>,
 }
 
 struct RenderState {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    buffer_dimensions: BufferDimensions,
     composite_texture: wgpu::Texture,
     texture_extent: wgpu::Extent3d,
     constant_bind_group: wgpu::BindGroup,
@@ -351,7 +319,16 @@ impl RenderState {
         }
     }
 
-    pub fn new(texture_extent: wgpu::Extent3d) -> Self {
+    pub fn new(width: u32, height: u32, background: Option<[f32; 4]>) -> Self {
+        let buffer_dimensions = BufferDimensions::new(width, height);
+        // The output buffer lets us retrieve the data as an array
+
+        let texture_extent = wgpu::Extent3d {
+            width: buffer_dimensions.width,
+            height: buffer_dimensions.height,
+            depth_or_array_layers: 1,
+        };
+
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -468,8 +445,8 @@ impl RenderState {
         });
 
         let filled_clipping_mask_view = {
-            let complete_clipping_mask = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("output_texture"),
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("filled_clipping_mask"),
                 size: texture_extent,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -479,7 +456,7 @@ impl RenderState {
                     | wgpu::TextureUsages::TEXTURE_BINDING,
             });
 
-            let view = complete_clipping_mask.create_view(&wgpu::TextureViewDescriptor::default());
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
             queue.submit(Some({
                 let mut encoder =
@@ -504,19 +481,55 @@ impl RenderState {
             view
         };
 
-        let composite_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("output_texture"),
-            size: texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TEX_DIM,
-            format: TEX_FORMAT,
-            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
-        });
+        let composite_texture = {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("output_texture"),
+                size: texture_extent,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TEX_DIM,
+                format: TEX_FORMAT,
+                usage: wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            });
+
+            if let Some([r, g, b, a]) = background {
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                queue.submit(Some({
+                    let mut encoder = device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: f64::from(r),
+                                    g: f64::from(g),
+                                    b: f64::from(b),
+                                    a: f64::from(a),
+                                }),
+                                store: true,
+                            },
+                        }],
+                        depth_stencil_attachment: None,
+                    });
+
+                    encoder.finish()
+                }));
+            }
+
+            texture
+        };
 
         Self {
             device,
             queue,
+            buffer_dimensions,
             composite_texture,
             texture_extent,
             constant_bind_group,
@@ -528,7 +541,7 @@ impl RenderState {
         }
     }
 
-    pub fn new_output_texture(&self, device: &wgpu::Device) -> GpuTexture {
+    fn new_output_texture(&self, device: &wgpu::Device) -> GpuTexture {
         // The render pipeline renders data into this texture
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("output_texture"),
@@ -550,82 +563,130 @@ impl RenderState {
             view: output_texture_view,
         }
     }
+
+    fn render(&mut self, layers: &[CompositeLayer]) {
+        for layer in layers.iter() {
+            self.composite_texture = self.render_layer(
+                &layer.texture.view,
+                LayerContext {
+                    opacity: layer.opacity,
+                    blend: layer.blend,
+                },
+                if let Some(index) = layer.clipped {
+                    &layers[index].texture.view
+                } else {
+                    &self.filled_clipping_mask_view
+                },
+            );
+
+            eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
+        }
+    }
+
+    fn render_layer(
+        &self,
+        layer_texture_view: &wgpu::TextureView,
+        layer_ctx: LayerContext,
+        mask_texture_view: &wgpu::TextureView,
+    ) -> wgpu::Texture {
+        let prev_texture_view = self
+            .composite_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let ctx_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Context"),
+                contents: bytemuck::cast_slice(&[layer_ctx]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let GpuTexture {
+            texture: output_texture,
+            view: output_texture_view,
+        } = self.new_output_texture(&self.device);
+
+        let mixing_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.blending_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&mask_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&layer_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: ctx_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("mixing_bind_group"),
+        });
+
+        self.queue.submit(Some({
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &output_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
+            render_pass.set_bind_group(1, &mixing_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+            drop(render_pass);
+
+            encoder.finish()
+        }));
+
+        output_texture
+    }
 }
 
-fn render_layer(
-    state: &RenderState,
-    layer_texture_view: &wgpu::TextureView,
-    layer_ctx: LayerContext,
-    mask_texture_view: &wgpu::TextureView,
-) -> wgpu::Texture {
-    let prev_texture_view = state
-        .composite_texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
-
-    let ctx_buffer = state
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Context"),
-            contents: bytemuck::cast_slice(&[layer_ctx]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-    let GpuTexture {
-        texture: output_texture,
-        view: output_texture_view,
-    } = state.new_output_texture(&state.device);
-
-    let mixing_bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &state.blending_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&prev_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&mask_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&layer_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: ctx_buffer.as_entire_binding(),
-            },
-        ],
-        label: Some("mixing_bind_group"),
-    });
-
-    state.queue.submit(Some({
-        let mut encoder = state
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: &output_texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: true,
-                },
-            }],
-            depth_stencil_attachment: None,
-        });
-
-        render_pass.set_pipeline(&state.render_pipeline);
-        render_pass.set_bind_group(0, &state.constant_bind_group, &[]);
-        render_pass.set_bind_group(1, &mixing_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, state.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(state.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-        drop(render_pass);
-
-        encoder.finish()
-    }));
-
-    output_texture
+enum BlendingMode {
+    Normal = 0,
+    Multiply = 1,
+    Screen = 2,
+    Add = 3,
+    Lighten = 4,
+    Exclusion = 5,
+    Difference = 6,
+    Subtract = 7,
+    LinearBurn = 8,
+    ColorDodge = 9,
+    ColorBurn = 10,
+    Overlay = 11,
+    HardLight = 12,
+    Color = 13,
+    Luminosity = 14,
+    Hue = 15,
+    Saturation = 16,
+    SoftLight = 17,
+    Darken = 19,
+    HardMix = 20,
+    VividLight = 21,
+    LinearLight = 22,
+    PinLight = 23,
+    LighterColor = 24,
+    DarkerColor = 25,
+    Divide = 26,
 }

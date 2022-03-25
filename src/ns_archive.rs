@@ -156,6 +156,14 @@ impl<'a> NsDecode<'a> for &'a Value {
     }
 }
 
+impl<'a> NsDecode<'a> for &'a [u8] {
+    fn decode(_: &NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
+        val.ok_or(NsArchiveError::MissingKey)?
+            .as_data()
+            .ok_or(NsArchiveError::TypeMismatch)
+    }
+}
+
 impl NsDecode<'_> for Uid {
     fn decode(_: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
         val.ok_or(NsArchiveError::MissingKey)?

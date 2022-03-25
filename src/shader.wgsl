@@ -42,12 +42,36 @@ fn screen(c1: vec3<f32>, c2: vec3<f32>, _: f32, _: f32) -> vec3<f32> {
     return c2 + c1 - c2 * c1;
 }
 
-fn overlay(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
+fn overlay_c(c1: f32, c2: f32, a1: f32, a2: f32) -> f32 {
     if (c1 * 2.0 <= a1) {
         return c2 * c1 * 2.0 + comps(c2, a1) + comps(c1, a2);
     } else {
         return comps(c2, a1) + comps(c1, a2) - 2.0 * (a1 - c1) * (a2 - c2) + a2 * a1;
     }
+}
+
+fn overlay(c1: vec3<f32>, c2: vec3<f32>, a1: f32, a2: f32) -> vec3<f32> {
+    return vec3<f32>(
+        overlay_c(c1.r, c2.r, a1, a2), 
+        overlay_c(c1.g, c2.g, a1, a2), 
+        overlay_c(c1.b, c2.b, a1, a2)
+    );
+}
+
+fn darken(c1: vec3<f32>, c2: vec3<f32>, a1: f32, a2: f32) -> vec3<f32> {
+    return min(c2 * a1, c1 * a2) + comp(c2, a1) + comp(c1, a2);
+}
+
+fn lighten(c1: vec3<f32>, c2: vec3<f32>, a1: f32, a2: f32) -> vec3<f32> {
+    return max(c2 * a1, c1 * a2) + comp(c2, a1) + comp(c1, a2);
+}
+
+fn difference(c1: vec3<f32>, c2: vec3<f32>, a1: f32, a2: f32) -> vec3<f32> {
+    return c2 + c1 - 2.0 * min(c2 * a1, c1 * a2);
+}
+
+fn exclusion(c1: vec3<f32>, c2: vec3<f32>, a1: f32, a2: f32) -> vec3<f32> {
+    return (c2 * a1 + c1 * a2 - 2.0 * c2 * c1) + comp(c2, a1) + comp(c1, a2);
 }
 
 struct CtxInput {
@@ -69,7 +93,7 @@ var<uniform> ctx: CtxInput;
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var fg = textureSample(layer, splr, in.tex_coords);
-    var maska = textureSample(clipping_mask, splr, in.tex_coords).a;
+    let maska = textureSample(clipping_mask, splr, in.tex_coords).a;
     fg.a = min(fg.a, maska);
 
     let bg = textureSample(composite, splr, in.tex_coords);
@@ -86,8 +110,20 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
         case 2: {
             final_pixel = screen(bg.rgb, fg.rgb, bg.a, fg.a);
         }
+        case 4: {
+            final_pixel = lighten(bg.rgb, fg.rgb, bg.a, fg.a);
+        }
+        case 5: {
+            final_pixel = exclusion(bg.rgb, fg.rgb, bg.a, fg.a);
+        }
+        case 6: {
+            final_pixel = difference(bg.rgb, fg.rgb, bg.a, fg.a);
+        }
         case 11: {
-            final_pixel = vec3<f32>(overlay(bg.r, fg.r, bg.a, fg.a), overlay(bg.g, fg.g, bg.a, fg.a), overlay(bg.b, fg.b, bg.a, fg.a));
+            final_pixel = overlay(bg.rgb, fg.rgb, bg.a, fg.a);
+        }
+        case 19: {
+            final_pixel = darken(bg.rgb, fg.rgb, bg.a, fg.a);
         }
         default: {
             final_pixel = normal(bg.rgb, fg.rgb, bg.a, fg.a);
