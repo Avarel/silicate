@@ -4,11 +4,12 @@ use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use lzokay::decompress::decompress;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use regex::Regex;
 use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::path::Path;
-use std::{fs::File, io::Read};
+use std::io::Read;
 use zip::read::ZipArchive;
 
 struct TilingMeta {
@@ -65,30 +66,34 @@ pub struct ProcreateFile {
 
 impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(p: P) -> Result<Self, NsArchiveError> {
-        Self::from_file(OpenOptions::new().read(true).write(false).open(p)?)
+        // TODO: use file locks
+
+        let path = p.as_ref();
+        let file = OpenOptions::new().read(true).write(false).open(path)?;
+
+        let mut archive = ZipArchive::new(file)?;
+        let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
+
+        let nka: NsKeyedArchive = {
+            let mut document = archive.by_name("Document.archive")?;
+
+            let mut buf = Vec::with_capacity(document.size() as usize);
+            document.read_to_end(&mut buf)?;
+
+            plist::from_reader(Cursor::new(buf))?
+        };
+
+        Self::from_ns(path, &file_names, nka)
     }
 
-    pub fn from_file(f: File) -> Result<Self, NsArchiveError> {
-        let mut archive = ZipArchive::new(f)?;
-
-        let mut document = archive.by_name("Document.archive")?;
-
-        let mut buf = Vec::with_capacity(document.size() as usize);
-        document.read_to_end(&mut buf)?;
-
-        drop(document);
-
-        let nka: NsKeyedArchive = plist::from_reader(Cursor::new(buf))?;
-
-        Self::from_ns(archive, nka)
-    }
-
-    fn from_ns(mut archive: ZipArchive<File>, nka: NsKeyedArchive) -> Result<Self, NsArchiveError> {
+    fn from_ns(
+        path: &Path,
+        file_names: &[String],
+        nka: NsKeyedArchive,
+    ) -> Result<Self, NsArchiveError> {
         let root = nka.root()?;
 
         println!("{root:#?}");
-
-        let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
         let size = nka.decode::<Size<usize>>(root, "size")?;
         let tile_size = nka.decode::<usize>(root, "tileSize")?;
@@ -106,16 +111,17 @@ impl ProcreateFile {
         };
 
         // let mut composite = SilicaLayer::from_ns(&nka, nka.decode(root, "composite")?)?;
-        let mut composite = nka.decode::<SilicaLayer>(root, "composite")?;
-        composite.load_image(&meta, &mut archive, &file_names);
+        let mut composite = SilicaHierarchy::Layer(nka.decode::<SilicaLayer>(root, "composite")?);
+        // composite.load_image(&meta, path, &file_names);
 
         let mut layers = nka
             .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
         layers
-            .iter_mut()
-            .for_each(|v| v.apply(&mut |layer| layer.load_image(&meta, &mut archive, &file_names)));
+            .par_iter_mut()
+            .chain([&mut composite])
+            .for_each(|layer| layer.apply(&mut |layer| layer.load_image(&meta, path, &file_names)));
 
         let background_color = <[f32; 4]>::try_from(
             nka.decode::<&[u8]>(root, "backgroundColor")?
@@ -136,7 +142,7 @@ impl ProcreateFile {
             name: nka.decode::<Option<String>>(root, "name")?,
             tile_size,
             size,
-            composite,
+            composite: composite.unwrap_layer(),
             layers: SilicaGroup {
                 hidden: false,
                 name: String::new(),
@@ -194,16 +200,20 @@ impl std::fmt::Debug for SilicaLayer {
 }
 
 impl SilicaLayer {
-    fn load_image(
-        &mut self,
-        meta: &TilingMeta,
-        archive: &mut ZipArchive<File>,
-        file_names: &[String],
-    ) {
+    fn load_image(&mut self, meta: &TilingMeta, path: &Path, file_names: &[String]) {
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
+
+        let mut archive = ZipArchive::new(
+            OpenOptions::new()
+                .read(true)
+                .write(false)
+                .open(path)
+                .unwrap(),
+        )
+        .unwrap();
 
         for path in file_names {
             if !path.starts_with(&self.uuid) {
@@ -307,10 +317,17 @@ pub enum SilicaHierarchy {
 }
 
 impl SilicaHierarchy {
-    pub fn apply(&mut self, f: &mut impl FnMut(&mut SilicaLayer)) {
+    pub fn apply(&mut self, f: &mut dyn FnMut(&mut SilicaLayer)) {
         match self {
             Self::Layer(layer) => f(layer),
             Self::Group(group) => group.children.iter_mut().for_each(|child| child.apply(f)),
+        }
+    }
+
+    pub fn unwrap_layer(self) -> SilicaLayer {
+        match self {
+            Self::Layer(layer) => layer,
+            _ => panic!(),
         }
     }
 }

@@ -2,7 +2,6 @@ use once_cell::sync::OnceCell;
 use plist::{Dictionary, Uid, Value};
 use regex::Regex;
 use serde::Deserialize;
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]

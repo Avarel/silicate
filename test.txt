@@ -1,12 +1,12 @@
 {
     "videoQualityKey": Uid(
-        192,
+        218,
     ),
     "backgroundHidden": Boolean(
-        false,
+        true,
     ),
     "mask": Uid(
-        176,
+        202,
     ),
     "isLastItemAnimationBackground": Boolean(
         false,
@@ -18,10 +18,10 @@
         256,
     ),
     "layers": Uid(
-        169,
+        195,
     ),
     "selectedLayer": Uid(
-        42,
+        5,
     ),
     "drawingguide": Uid(
         0,
@@ -30,19 +30,19 @@
         1,
     ),
     "SilicaDocumentArchiveDPIKey": Real(
-        300.0,
+        132.0,
     ),
     "orientation": Integer(
-        4,
+        3,
     ),
     "backgroundColor": Uid(
-        182,
+        208,
     ),
     "referenceDocked": Boolean(
         false,
     ),
     "reference3D": Boolean(
-        false,
+        true,
     ),
     "videoEnabled": Boolean(
         true,
@@ -51,28 +51,28 @@
         false,
     ),
     "unwrappedLayers": Uid(
-        3,
+        4,
     ),
     "strokeCount": Uid(
-        195,
+        221,
     ),
     "name": Uid(
-        0,
+        2,
     ),
     "referenceOrientation": Integer(
         0,
     ),
     "$class": Uid(
-        197,
+        223,
     ),
     "flippedHorizontally": Boolean(
         false,
     ),
     "composite": Uid(
-        171,
+        197,
     ),
     "SilicaDocumentTrackedTimeKey": Real(
-        1101.8702263832092,
+        86603.00190842152,
     ),
     "isFirstItemAnimationForeground": Boolean(
         false,
@@ -87,13 +87,13 @@
         0,
     ),
     "colorProfile": Uid(
-        184,
+        210,
     ),
     "size": Uid(
-        2,
+        3,
     ),
     "SilicaDocumentVideoSegmentInfoKey": Uid(
-        189,
+        215,
     ),
     "selectedSamplerLayer": Uid(
         0,
@@ -108,16 +108,16 @@
         0,
     ),
     "animation": Uid(
-        187,
+        213,
     ),
     "videoResolutionKey": Uid(
-        193,
+        219,
     ),
     "flippedVertically": Boolean(
-        false,
+        true,
     ),
     "primaryItem": Uid(
-        42,
+        5,
     ),
     "featureSet": Integer(
         1,
@@ -126,15 +126,15 @@
         1,
     ),
     "referenceSize": Uid(
-        196,
+        222,
     ),
     "backgroundColorHSBA": Uid(
-        183,
+        209,
     ),
     "solo": Uid(
         0,
     ),
     "userSavedSelectionMasks": Uid(
-        181,
+        207,
     ),
 }
