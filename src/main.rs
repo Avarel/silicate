@@ -1,15 +1,11 @@
-mod canvas;
 mod error;
 mod gpu;
 mod ns_archive;
 mod silica;
 
-use crate::{
-    gpu::{GpuTexture, RenderState},
-    silica::SilicaHierarchy,
-};
+use crate::{gpu::RenderState, silica::SilicaHierarchy};
 use futures::executor::block_on;
-use gpu::CompositeLayer;
+use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
 use silica::ProcreateFile;
 use std::{error::Error, num::NonZeroU32};
@@ -19,7 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 2 {
         return Ok(());
     }
-    let procreate = ProcreateFile::open(&args[1])?;
+    let mut procreate = ProcreateFile::open(&args[1])?;
 
     gpu_render(
         procreate.size.width,
@@ -29,10 +25,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             Some(procreate.background_color)
         },
-        &procreate.layers,
+        &mut procreate.layers,
+        procreate.render,
     );
 
-    canvas::adapter::adapt(procreate.composite.image.unwrap()).save("./out/reference.png")?;
+    // canvas::adapter::adapt(procreate.composite.image.unwrap()).save("./out/reference.png")?;
     // gpu::gpu_render(&procreate.composite.image.unwrap());
     Ok(())
 }
@@ -41,11 +38,12 @@ pub fn gpu_render(
     width: usize,
     height: usize,
     background: Option<[f32; 4]>,
-    layers: &crate::silica::SilicaGroup,
+    layers: &mut crate::silica::SilicaGroup,
+    state: LogicalDevice,
 ) {
-    let mut state = RenderState::new(width as u32, height as u32, background);
+    let mut state = RenderState::new(width as u32, height as u32, background, state);
 
-    let output_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
+    let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
             as u64,
@@ -55,8 +53,9 @@ pub fn gpu_render(
 
     state.render(&resolve(&state, layers));
 
-    state.queue.submit(Some({
+    state.handle.queue.submit(Some({
         let mut encoder = state
+            .handle
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         // Copy the data from the texture to the buffer
@@ -81,7 +80,7 @@ pub fn gpu_render(
     // NOTE: We have to create the mapping THEN device.poll() before await
     // the future. Otherwise the application will freeze.
     let mapping = buffer_slice.map_async(wgpu::MapMode::Read);
-    state.device.poll(wgpu::Maintain::Wait);
+    state.handle.device.poll(wgpu::Maintain::Wait);
     block_on(mapping).unwrap();
 
     let data = buffer_slice.get_mapped_range();
@@ -102,15 +101,15 @@ pub fn gpu_render(
     output_buffer.unmap();
 }
 
-fn resolve(state: &RenderState, layers: &crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
+fn resolve(state: &RenderState, layers: &mut crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
     fn inner(
         state: &RenderState,
-        layers: &crate::silica::SilicaGroup,
+        layers: &mut crate::silica::SilicaGroup,
         composite_layers: &mut Vec<CompositeLayer>,
     ) {
         let mut mask_layer: Option<(usize, &crate::silica::SilicaLayer)> = None;
 
-        for (index, layer) in layers.children.iter().rev().enumerate() {
+        for (index, layer) in layers.children.iter_mut().rev().enumerate() {
             match layer {
                 SilicaHierarchy::Group(group) => {
                     if group.hidden {
@@ -133,14 +132,7 @@ fn resolve(state: &RenderState, layers: &crate::silica::SilicaGroup) -> Vec<Comp
                         }
                     }
 
-                    let layer_image = layer.image.as_ref().unwrap();
-
-                    let gpu_texture = GpuTexture::from_image(
-                        &state.device,
-                        &state.queue,
-                        layer_image,
-                        Some("canvas"),
-                    );
+                    let gpu_texture = layer.image.take().unwrap();
 
                     composite_layers.push(CompositeLayer {
                         texture: gpu_texture,
@@ -151,7 +143,7 @@ fn resolve(state: &RenderState, layers: &crate::silica::SilicaGroup) -> Vec<Comp
                     });
 
                     if !layer.clipped {
-                        mask_layer = Some((index, &layer));
+                        mask_layer = Some((index, layer));
                     }
 
                     eprintln!("Resolved layer {:?}: {}", layer.name, layer.blend);

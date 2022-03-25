@@ -1,15 +1,16 @@
-use crate::canvas::{Rgba8, Rgba8Canvas};
+use crate::gpu::{GpuTexture, LogicalDevice};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
+use image::{Pixel, Rgba};
 use lzokay::decompress::decompress;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator};
 use regex::Regex;
 use std::fs::OpenOptions;
 use std::io::Cursor;
-use std::path::Path;
 use std::io::Read;
+use std::path::Path;
 use zip::read::ZipArchive;
 
 struct TilingMeta {
@@ -62,16 +63,19 @@ pub struct ProcreateFile {
     pub tile_size: usize,
     pub composite: SilicaLayer,
     pub size: Size<usize>,
+    pub render: LogicalDevice,
 }
+
+type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(p: P) -> Result<Self, NsArchiveError> {
-        // TODO: use file locks
-
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
-        let mut archive = ZipArchive::new(file)?;
+        let mapping = unsafe { memmap2::Mmap::map(&file).unwrap() };
+        let mut archive = ZipArchive::new(Cursor::new(&mapping[..])).unwrap();
+
         let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
         let nka: NsKeyedArchive = {
@@ -83,11 +87,11 @@ impl ProcreateFile {
             plist::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(path, &file_names, nka)
+        Self::from_ns(archive, &file_names, nka)
     }
 
     fn from_ns(
-        path: &Path,
+        archive: ZipArchiveMmap<'_>,
         file_names: &[String],
         nka: NsKeyedArchive,
     ) -> Result<Self, NsArchiveError> {
@@ -110,18 +114,20 @@ impl ProcreateFile {
             tile_size,
         };
 
-        // let mut composite = SilicaLayer::from_ns(&nka, nka.decode(root, "composite")?)?;
         let mut composite = SilicaHierarchy::Layer(nka.decode::<SilicaLayer>(root, "composite")?);
-        // composite.load_image(&meta, path, &file_names);
 
         let mut layers = nka
             .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
+        let render = LogicalDevice::new();
+
         layers
             .par_iter_mut()
             .chain([&mut composite])
-            .for_each(|layer| layer.apply(&mut |layer| layer.load_image(&meta, path, &file_names)));
+            .for_each(|layer| {
+                layer.apply(&mut |layer| layer.load_image(&meta, archive.clone(), &file_names, &render))
+            });
 
         let background_color = <[f32; 4]>::try_from(
             nka.decode::<&[u8]>(root, "backgroundColor")?
@@ -136,6 +142,7 @@ impl ProcreateFile {
         .unwrap();
 
         Ok(Self {
+            render,
             author_name: nka.decode::<Option<String>>(root, "authorName")?,
             background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
             background_color,
@@ -179,7 +186,7 @@ pub struct SilicaLayer {
     pub size_height: u32,
     pub uuid: String,
     pub version: u64,
-    pub image: Option<Rgba8Canvas>,
+    pub image: Option<GpuTexture>,
 }
 
 impl std::fmt::Debug for SilicaLayer {
@@ -200,73 +207,63 @@ impl std::fmt::Debug for SilicaLayer {
 }
 
 impl SilicaLayer {
-    fn load_image(&mut self, meta: &TilingMeta, path: &Path, file_names: &[String]) {
+    fn load_image(
+        &mut self,
+        meta: &TilingMeta,
+        archive: ZipArchiveMmap<'_>,
+        file_names: &[String],
+        render: &LogicalDevice,
+    ) {
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
-        let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
+        // let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
+        let gpu_texture =
+            GpuTexture::empty(&render.device, self.size_width, self.size_height, None);
 
-        let mut archive = ZipArchive::new(
-            OpenOptions::new()
-                .read(true)
-                .write(false)
-                .open(path)
-                .unwrap(),
-        )
-        .unwrap();
+        file_names
+            .par_iter()
+            .filter(|path| path.starts_with(&self.uuid))
+            .for_each(|path| {
+                let mut archive = archive.clone();
 
-        for path in file_names {
-            if !path.starts_with(&self.uuid) {
-                continue;
-            }
+                let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
+                let captures = index_regex.captures(&chunk_str).unwrap();
+                let col = usize::from_str_radix(&captures[1], 10).unwrap();
+                let row = usize::from_str_radix(&captures[2], 10).unwrap();
 
-            let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
-            let captures = index_regex.captures(&chunk_str).unwrap();
-            let col = usize::from_str_radix(&captures[1], 10).unwrap();
-            let row = usize::from_str_radix(&captures[2], 10).unwrap();
+                let tile_width = meta.tile_size
+                    - if col != meta.columns - 1 {
+                        0
+                    } else {
+                        meta.diff.width
+                    };
+                let tile_height = meta.tile_size
+                    - if row != meta.rows - 1 {
+                        0
+                    } else {
+                        meta.diff.height
+                    };
 
-            let tile_width = meta.tile_size
-                - if col != meta.columns - 1 {
-                    0
-                } else {
-                    meta.diff.width
-                };
-            let tile_height = meta.tile_size
-                - if row != meta.rows - 1 {
-                    0
-                } else {
-                    meta.diff.height
-                };
-
-            let mut chunk = archive.by_name(path).unwrap();
-            let mut buf = Vec::new();
-            chunk.read_to_end(&mut buf).unwrap();
-            // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-            let mut dst = vec![0; tile_width * tile_height * Rgba8::CHANNELS];
-            decompress(&buf, &mut dst).unwrap();
-            let chunked_image =
-                Rgba8Canvas::from_vec(tile_width as usize, tile_height as usize, dst);
-            // imageops::replace(
-            //     &mut image_layer,
-            //     &chunked_image,
-            //     (col * meta.tile_size) as i64,
-            //     (row * meta.tile_size) as i64,
-            // );
-            // composite::replace(
-            //     &mut image_layer,
-            //     &chunked_image,
-            //     (col * meta.tile_size) as usize,
-            //     (row * meta.tile_size) as usize,
-            // );
-            image_layer.replace(
-                &chunked_image,
-                (col * meta.tile_size) as usize,
-                (row * meta.tile_size) as usize,
-            );
-        }
+                let mut chunk = archive.by_name(path).unwrap();
+                let mut buf = Vec::new();
+                chunk.read_to_end(&mut buf).unwrap();
+                // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
+                let mut dst =
+                    vec![0; tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT)];
+                decompress(&buf, &mut dst).unwrap();
+                gpu_texture.replace(
+                    &render.queue,
+                    (col * meta.tile_size) as u32,
+                    (row * meta.tile_size) as u32,
+                    tile_width as u32,
+                    tile_height as u32,
+                    &dst,
+                );
+            });
 
         // Note: the adapter is considerably slow since it checks if the image fits
-        self.image = Some(image_layer);
+        self.image = Some(gpu_texture);
     }
 }
 

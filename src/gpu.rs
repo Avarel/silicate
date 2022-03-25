@@ -1,32 +1,57 @@
-use crate::canvas::{Rgba8, Rgba8Canvas};
 use futures::executor::block_on;
+use image::{Rgba, Pixel};
 use std::num::NonZeroU32;
 use wgpu::util::DeviceExt;
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
+#[derive(Debug)]
+pub struct LogicalDevice {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+impl LogicalDevice {
+    pub fn new() -> Self {
+        // The instance is a handle to our GPU
+        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
+        let instance = wgpu::Instance::new(wgpu::Backends::all());
+
+        let adapter =
+            block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).unwrap();
+
+        let (device, queue) = block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                features: wgpu::Features::empty(),
+                limits: wgpu::Limits::default(),
+            },
+            None,
+        ))
+        .unwrap();
+        dbg!(&device);
+        Self { device, queue }
+    }
+}
+
 pub struct GpuTexture {
+    pub size: wgpu::Extent3d,
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
 }
 
 impl GpuTexture {
-    pub fn from_image(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        canvas: &Rgba8Canvas,
-        label: Option<&str>,
-    ) -> Self {
-        let canvas_extent = wgpu::Extent3d {
-            width: canvas.width as u32,
-            height: canvas.height as u32,
+    pub fn empty(device: &wgpu::Device, width: u32, height: u32, label: Option<&str>) -> Self {
+        let size = wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
             depth_or_array_layers: 1,
         };
 
         // Canvas texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: canvas_extent,
+            size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: TEX_DIM,
@@ -35,31 +60,46 @@ impl GpuTexture {
             label,
         });
 
-        queue.write_texture(
-            // Tells wgpu where to copy the pixel data
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            // The actual pixel data
-            &canvas.data,
-            // The layout of the texture
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * canvas.width as u32),
-                rows_per_image: NonZeroU32::new(canvas.height as u32),
-            },
-            canvas_extent,
-        );
-
         let canvas_texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         Self {
             texture,
             view: canvas_texture_view,
+            size,
         }
+    }
+
+    pub fn replace(
+        &self,
+        queue: &wgpu::Queue,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) {
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            &data,
+            // The layout of the texture
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(4 * width as u32),
+                rows_per_image: NonZeroU32::new(height as u32),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 
@@ -73,7 +113,7 @@ pub struct BufferDimensions {
 
 impl BufferDimensions {
     fn new(width: u32, height: u32) -> Self {
-        let bytes_per_pixel = (Rgba8::CHANNELS * std::mem::size_of::<u8>()) as u32;
+        let bytes_per_pixel = (usize::from(Rgba::<u8>::CHANNEL_COUNT) * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
@@ -154,8 +194,7 @@ pub struct CompositeLayer {
 }
 
 pub struct RenderState {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
+    pub handle: LogicalDevice,
     pub buffer_dimensions: BufferDimensions,
     pub composite_texture: wgpu::Texture,
     pub texture_extent: wgpu::Extent3d,
@@ -181,37 +220,16 @@ impl RenderState {
         }
     }
 
-    pub fn new(width: u32, height: u32, background: Option<[f32; 4]>) -> Self {
-        let buffer_dimensions = BufferDimensions::new(width, height);
-        // The output buffer lets us retrieve the data as an array
-
-        // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
-        // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
-        // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
-        // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
-        let texture_extent = wgpu::Extent3d {
-            width: buffer_dimensions.width,
-            height: buffer_dimensions.height,
-            depth_or_array_layers: 1,
-        };
-
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-
-        let adapter =
-            block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).unwrap();
-
-        let (device, queue) = block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::empty(),
-                limits: wgpu::Limits::default(),
-            },
-            None,
-        ))
-        .unwrap();
-        dbg!(&device);
+    pub fn new(
+        width: u32,
+        height: u32,
+        background: Option<[f32; 4]>,
+        handle: LogicalDevice,
+    ) -> Self {
+        let LogicalDevice {
+            ref device,
+            ref queue,
+        } = handle;
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
@@ -310,6 +328,19 @@ impl RenderState {
             multiview: None,
         });
 
+        let buffer_dimensions = BufferDimensions::new(width, height);
+        // The output buffer lets us retrieve the data as an array
+
+        // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
+        // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
+        // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
+        // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
+        let texture_extent = wgpu::Extent3d {
+            width: buffer_dimensions.width,
+            height: buffer_dimensions.height,
+            depth_or_array_layers: 1,
+        };
+
         let filled_clipping_mask_view = {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("filled_clipping_mask"),
@@ -393,8 +424,7 @@ impl RenderState {
         };
 
         Self {
-            device,
-            queue,
+            handle,
             buffer_dimensions,
             composite_texture,
             texture_extent,
@@ -407,9 +437,9 @@ impl RenderState {
         }
     }
 
-    fn new_output_texture(&self, device: &wgpu::Device) -> GpuTexture {
+    fn new_output_texture(&self) -> GpuTexture {
         // The render pipeline renders data into this texture
-        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+        let output_texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("output_texture"),
             size: self.texture_extent,
             mip_level_count: 1,
@@ -427,6 +457,7 @@ impl RenderState {
         GpuTexture {
             texture: output_texture,
             view: output_texture_view,
+            size: self.texture_extent,
         }
     }
 
@@ -460,6 +491,7 @@ impl RenderState {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let ctx_buffer = self
+            .handle
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Context"),
@@ -470,33 +502,38 @@ impl RenderState {
         let GpuTexture {
             texture: output_texture,
             view: output_texture_view,
-        } = self.new_output_texture(&self.device);
+            ..
+        } = self.new_output_texture();
 
-        let mixing_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.blending_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&prev_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&mask_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&layer_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: ctx_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("mixing_bind_group"),
-        });
+        let mixing_bind_group = self
+            .handle
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.blending_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&mask_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&layer_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: ctx_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("mixing_bind_group"),
+            });
 
-        self.queue.submit(Some({
+        self.handle.queue.submit(Some({
             let mut encoder = self
+                .handle
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
