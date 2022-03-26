@@ -22,8 +22,22 @@ fn vs_main(
  
 // Fragment shader
 
-fn comps(c: f32, a: f32) -> f32 {
-    return c * (1.0 - a);
+// All components are in the range [0…1], including hue.
+fn rgb2hsv(c: vec3<f32>) -> vec3<f32> {
+    let K = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    let p = mix(vec4<f32>(c.bg, K.wz), vec4<f32>(c.gb, K.xy), step(c.b, c.g));
+    let q = mix(vec4<f32>(p.xyw, c.r), vec4<f32>(c.r, p.yzx), step(p.x, c.r));
+
+    let d = q.x - min(q.w, q.y);
+    let e = 1.0e-10;
+    return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+// All components are in the range [0…1], including hue.
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+    let K = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
 }
 
 fn comp(c: vec3<f32>, a: f32) -> vec3<f32> {
@@ -44,9 +58,9 @@ fn screen(dca: vec3<f32>, sca: vec3<f32>, _: f32, _: f32) -> vec3<f32> {
 
 fn overlay_c(dca: f32, sca: f32, da: f32, sa: f32) -> f32 {
     if (dca * 2.0 <= da) {
-        return sca * dca * 2.0 + comps(sca, da) + comps(dca, sa);
+        return sca * dca * 2.0;
     } else {
-        return comps(sca, da) + comps(dca, sa) - 2.0 * (da - dca) * (sa - sca) + sa * da;
+        return -2.0 * (da - dca) * (sa - sca) + sa * da;
     }
 }
 
@@ -56,7 +70,7 @@ fn overlay(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
         overlay_c(dca.r, sca.r, da, sa), 
         overlay_c(dca.g, sca.g, da, sa), 
         overlay_c(dca.b, sca.b, da, sa)
-    );
+    ) + comp(sca, da) + comp(dca, sa);
 }
 
 fn darken(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
@@ -76,20 +90,16 @@ fn exclusion(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
 }
 
 fn hard_light(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return vec3<f32>(
-        overlay_c(sca.r, dca.r, sa, da), 
-        overlay_c(sca.g, dca.g, sa, da), 
-        overlay_c(sca.b, dca.b, sa, da)
-    );
+    return overlay(sca, dca, sa, da);
 }
 
 fn color_dodge_c(dca: f32, sca: f32, da: f32, sa: f32) -> f32 {
     if (sca == sa && dca == 0.0) {
-        return comps(sca, da);
+        return 0.0;
     } else if (sca == sa) {
-        return sa * da + comps(sca, da) + comps(dca, sa);
+        return sa * da;
     } else {
-        return sa * da * min(1.0, dca/da * sa/(sa - sca)) + comps(sca, da) + comps(dca, sa);
+        return sa * da * min(1.0, dca/da * sa/(sa - sca));
     }
 }
 
@@ -98,6 +108,15 @@ fn color_dodge(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
         color_dodge_c(dca.r, sca.r, da, sa), 
         color_dodge_c(dca.g, sca.g, da, sa), 
         color_dodge_c(dca.b, sca.b, da, sa)
+    ) + comp(sca, da) + comp(dca, sa);
+}
+
+// Half working
+fn soft_light(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
+    return mix(
+        sqrt(dca) * (2.0 * sca - 1.0) + 2.0 * dca * (1.0 - sca), 
+        2.0 * dca * sca + dca * dca * (1.0 - 2.0 * sca) + comp(sca, da) + comp(dca, sa),
+        step(dca, vec3<f32>(0.5))
     );
 }
 
@@ -154,6 +173,9 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
         }
         case 12: {
             final_pixel = hard_light(bg.rgb, fg.rgb, bg.a, fg.a);
+        }
+        case 17: {
+            final_pixel = soft_light(bg.rgb, fg.rgb, bg.a, fg.a);
         }
         case 19: {
             final_pixel = darken(bg.rgb, fg.rgb, bg.a, fg.a);

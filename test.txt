@@ -1,12 +1,12 @@
 {
     "videoQualityKey": Uid(
-        192,
+        198,
     ),
     "backgroundHidden": Boolean(
         false,
     ),
     "mask": Uid(
-        176,
+        182,
     ),
     "isLastItemAnimationBackground": Boolean(
         false,
@@ -18,10 +18,10 @@
         256,
     ),
     "layers": Uid(
-        169,
+        175,
     ),
     "selectedLayer": Uid(
-        114,
+        96,
     ),
     "drawingguide": Uid(
         0,
@@ -36,7 +36,7 @@
         4,
     ),
     "backgroundColor": Uid(
-        182,
+        188,
     ),
     "referenceDocked": Boolean(
         false,
@@ -54,7 +54,7 @@
         3,
     ),
     "strokeCount": Uid(
-        195,
+        201,
     ),
     "name": Uid(
         0,
@@ -63,16 +63,16 @@
         0,
     ),
     "$class": Uid(
-        197,
+        203,
     ),
     "flippedHorizontally": Boolean(
         false,
     ),
     "composite": Uid(
-        171,
+        177,
     ),
     "SilicaDocumentTrackedTimeKey": Real(
-        1454.8772015571594,
+        2003.6761407852173,
     ),
     "isFirstItemAnimationForeground": Boolean(
         false,
@@ -87,13 +87,13 @@
         0,
     ),
     "colorProfile": Uid(
-        184,
+        190,
     ),
     "size": Uid(
         2,
     ),
     "SilicaDocumentVideoSegmentInfoKey": Uid(
-        189,
+        195,
     ),
     "selectedSamplerLayer": Uid(
         0,
@@ -108,16 +108,16 @@
         0,
     ),
     "animation": Uid(
-        187,
+        193,
     ),
     "videoResolutionKey": Uid(
-        193,
+        199,
     ),
     "flippedVertically": Boolean(
         false,
     ),
     "primaryItem": Uid(
-        114,
+        96,
     ),
     "featureSet": Integer(
         1,
@@ -126,15 +126,15 @@
         1,
     ),
     "referenceSize": Uid(
-        196,
+        202,
     ),
     "backgroundColorHSBA": Uid(
-        183,
+        189,
     ),
     "solo": Uid(
         0,
     ),
     "userSavedSelectionMasks": Uid(
-        181,
+        187,
     ),
 }

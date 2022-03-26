@@ -16,4 +16,4 @@ once_cell = "1"
 wgpu = "0.12"
 futures = "0.3"
 bytemuck = { version = "1.4", features = ["derive"] }
-memmap2 = "0.5.3"
+memmap2 = "0.5"
