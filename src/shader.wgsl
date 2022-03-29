@@ -44,79 +44,59 @@ fn comp(c: vec3<f32>, a: f32) -> vec3<f32> {
     return c * (1.0 - a);
 }
 
-fn normal(dca: vec3<f32>, sca: vec3<f32>, _: f32, sa: f32) -> vec3<f32> {
-    return sca + comp(dca, sa);
+fn normal(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return s;
 }
 
-fn multiply(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return sca * dca + comp(sca, da) + comp(dca, sa);
+fn multiply(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return s * b;
 }
 
-fn screen(dca: vec3<f32>, sca: vec3<f32>, _: f32, _: f32) -> vec3<f32> {
-    return sca + dca - sca * dca;
+fn screen(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return s + b - s * b;
 }
 
-fn overlay_c(dca: f32, sca: f32, da: f32, sa: f32) -> f32 {
-    if (dca * 2.0 <= da) {
-        return sca * dca * 2.0;
-    } else {
-        return -2.0 * (da - dca) * (sa - sca) + sa * da;
-    }
-}
-
-
-fn overlay(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return vec3<f32>(
-        overlay_c(dca.r, sca.r, da, sa), 
-        overlay_c(dca.g, sca.g, da, sa), 
-        overlay_c(dca.b, sca.b, da, sa)
-    ) + comp(sca, da) + comp(dca, sa);
-}
-
-fn darken(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return min(sca * da, dca * sa) + comp(sca, da) + comp(dca, sa);
-}
-
-fn lighten(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return max(sca * da, dca * sa) + comp(sca, da) + comp(dca, sa);
-}
-
-fn difference(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return sca + dca - 2.0 * min(sca * da, dca * sa);
-}
-
-fn exclusion(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return (sca * da + dca * sa - 2.0 * sca * dca) + comp(sca, da) + comp(dca, sa);
-}
-
-fn hard_light(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return overlay(sca, dca, sa, da);
-}
-
-fn color_dodge_c(dca: f32, sca: f32, da: f32, sa: f32) -> f32 {
-    if (sca == sa && dca == 0.0) {
-        return 0.0;
-    } else if (sca == sa) {
-        return sa * da;
-    } else {
-        return sa * da * min(1.0, dca/da * sa/(sa - sca));
-    }
-}
-
-fn color_dodge(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
-    return vec3<f32>(
-        color_dodge_c(dca.r, sca.r, da, sa), 
-        color_dodge_c(dca.g, sca.g, da, sa), 
-        color_dodge_c(dca.b, sca.b, da, sa)
-    ) + comp(sca, da) + comp(dca, sa);
-}
-
-// Half working
-fn soft_light(dca: vec3<f32>, sca: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
+fn hard_light(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     return mix(
-        sqrt(dca) * (2.0 * sca - 1.0) + 2.0 * dca * (1.0 - sca), 
-        2.0 * dca * sca + dca * dca * (1.0 - 2.0 * sca) + comp(sca, da) + comp(dca, sa),
-        step(dca, vec3<f32>(0.5))
+        multiply(b, s * 2.0),
+        screen(b, 2.0 * s - vec3<f32>(1.0)),
+        step(b, vec3<f32>(0.5))
+    );
+}
+
+fn overlay(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return hard_light(s, b);
+}
+
+fn darken(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return min(s, b);
+}
+
+fn lighten(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return max(s, b);
+}
+
+fn difference(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return abs(b - s);
+}
+
+fn exclusion(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return b + s - 2.0 * b * s;
+}
+
+fn color_dodge(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return select(
+        min(vec3<f32>(1.0), b / (1.0 - s)),
+        vec3<f32>(1.0),
+        vec3<bool>(s.r >= 1.0, s.g >= 1.0, s.b >= 1.0)
+    );
+}
+
+fn soft_light(b: vec3<f32>, s: vec3<f32>, da: f32, sa: f32) -> vec3<f32> {
+    return mix(
+        sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s), 
+        2.0 * b * s + b * b * (1.0 - 2.0 * s) + comp(s, da) + comp(b, sa),
+        step(b, vec3<f32>(0.5))
     );
 }
 
@@ -143,47 +123,48 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     fg.a = min(fg.a, maska);
 
     let bg = textureSample(composite, splr, in.tex_coords);
-    fg.a = fg.a * ctx.opacity;
 
-    fg = select(fg, vec4<f32>(0.0), fg.a == 0.0);
+    // Procreate uses premultiplied alpha, so unpremultiply it.
+    let bg_raw = clamp(bg.rgb / bg.a, vec3<f32>(0.0), vec3<f32>(1.0));
+    let fg_raw = clamp(fg.rgb / fg.a, vec3<f32>(0.0), vec3<f32>(1.0));
 
     var final_pixel = vec3<f32>(0.0);
 
     switch (ctx.blend) {
         case 1: {
-            final_pixel = multiply(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = multiply(bg_raw, fg_raw);
         }
         case 2: {
-            final_pixel = screen(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = screen(bg_raw, fg_raw);
         }
         case 4: {
-            final_pixel = lighten(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = lighten(bg_raw, fg_raw);
         }
         case 5: {
-            final_pixel = exclusion(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = exclusion(bg_raw, fg_raw);
         }
         case 6: {
-            final_pixel = difference(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = difference(bg_raw, fg_raw);
         }
         case 9: {
-            final_pixel = color_dodge(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = color_dodge(bg_raw, fg_raw);
         }
         case 11: {
-            final_pixel = overlay(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = overlay(bg_raw, fg_raw);
         }
         case 12: {
-            final_pixel = hard_light(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = hard_light(bg_raw, fg_raw);
         }
         case 17: {
-            final_pixel = soft_light(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = soft_light(bg_raw, fg_raw, 1.0, 1.0);
         }
         case 19: {
-            final_pixel = darken(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = darken(bg_raw, fg_raw);
         }
         default: {
-            final_pixel = normal(bg.rgb, fg.rgb, bg.a, fg.a);
+            final_pixel = normal(bg_raw, fg_raw);
         }
     }
-
-    return vec4<f32>(final_pixel, bg.a + fg.a - bg.a * fg.a);
+    let a_fg = fg.a * ctx.opacity;
+    return vec4<f32>(final_pixel * a_fg + bg.rgb * (1.0 - a_fg), bg.a + a_fg - bg.a * a_fg);
 }
