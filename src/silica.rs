@@ -2,7 +2,8 @@ use crate::gpu::{GpuTexture, LogicalDevice};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use image::{Pixel, Rgba};
-use lzokay::decompress::decompress;
+use minilzo_rs::LZO;
+// use lzokay::decompress::decompress;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
@@ -234,6 +235,9 @@ impl SilicaLayer {
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
+        static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
+        let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
+
         // let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
         let gpu_texture =
             GpuTexture::empty(&render.device, self.size.width, self.size.height, None);
@@ -266,9 +270,7 @@ impl SilicaLayer {
                 let mut buf = Vec::new();
                 chunk.read_to_end(&mut buf).unwrap();
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let mut dst =
-                    vec![0; tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT)];
-                decompress(&buf, &mut dst).unwrap();
+                let dst = lzo.decompress_safe(&buf[..], tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT)).unwrap();
                 gpu_texture.replace(
                     &render.queue,
                     col * meta.tile_size,
