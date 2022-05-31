@@ -7,7 +7,7 @@ use crate::{gpu::RenderState, silica::SilicaHierarchy};
 use futures::executor::block_on;
 use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
-use silica::ProcreateFile;
+use silica::{ProcreateFile, SilicaGroup};
 use std::{error::Error, num::NonZeroU32};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -26,11 +26,27 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(procreate.background_color)
         },
         &mut procreate.layers,
-        procreate.render,
+        &procreate.render,
+        "out/image.png"
     );
 
-    // canvas::adapter::adapt(procreate.composite.image.unwrap()).save("./out/reference.png")?;
-    // gpu::gpu_render(&procreate.composite.image.unwrap());
+    gpu_render(
+        procreate.size.width,
+        procreate.size.height,
+        if procreate.background_hidden {
+            None
+        } else {
+            Some(procreate.background_color)
+        },
+        &mut SilicaGroup {
+            hidden: false,
+            children: vec![SilicaHierarchy::Layer(procreate.composite)],
+            name: String::from("composite"),
+        },
+        &procreate.render,
+        "out/reference.png"
+    );
+
     Ok(())
 }
 
@@ -39,7 +55,8 @@ pub fn gpu_render(
     height: u32,
     background: Option<[f32; 4]>,
     layers: &mut crate::silica::SilicaGroup,
-    state: LogicalDevice,
+    state: &LogicalDevice,
+    out_path: &str,
 ) {
     let mut state = RenderState::new(width, height, background, state);
 
@@ -93,7 +110,7 @@ pub fn gpu_render(
     )
     .unwrap();
     eprintln!("Writing image");
-    buffer.save("out/image.png").unwrap();
+    buffer.save(out_path).unwrap();
     eprintln!("Finished");
     drop(buffer);
     drop(buffer_slice);

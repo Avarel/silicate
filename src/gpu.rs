@@ -192,8 +192,8 @@ pub struct CompositeLayer {
     pub name: Option<String>,
 }
 
-pub struct RenderState {
-    pub handle: LogicalDevice,
+pub struct RenderState<'device> {
+    pub handle: &'device LogicalDevice,
     pub buffer_dimensions: BufferDimensions,
     pub composite_texture: wgpu::Texture,
     pub texture_extent: wgpu::Extent3d,
@@ -205,7 +205,7 @@ pub struct RenderState {
     filled_clipping_mask_view: wgpu::TextureView,
 }
 
-impl RenderState {
+impl<'device> RenderState<'device> {
     fn texture_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
             binding,
@@ -223,7 +223,7 @@ impl RenderState {
         width: u32,
         height: u32,
         background: Option<[f32; 4]>,
-        handle: LogicalDevice,
+        handle: &'device LogicalDevice,
     ) -> Self {
         let LogicalDevice {
             ref device,
@@ -560,31 +560,31 @@ impl RenderState {
     }
 }
 
-enum BlendingMode {
-    Normal = 0,
-    Multiply = 1,
-    Screen = 2,
-    Add = 3,
-    Lighten = 4,
-    Exclusion = 5,
-    Difference = 6,
-    Subtract = 7,
-    LinearBurn = 8,
-    ColorDodge = 9,
-    ColorBurn = 10,
-    Overlay = 11,
-    HardLight = 12,
-    Color = 13,
-    Luminosity = 14,
-    Hue = 15,
-    Saturation = 16,
-    SoftLight = 17,
-    Darken = 19,
-    HardMix = 20,
-    VividLight = 21,
-    LinearLight = 22,
-    PinLight = 23,
-    LighterColor = 24,
-    DarkerColor = 25,
-    Divide = 26,
-}
+// enum BlendingMode {
+//     Normal = 0,
+//     Multiply = 1,
+//     Screen = 2,
+//     Add = 3,
+//     Lighten = 4,
+//     Exclusion = 5,
+//     Difference = 6,
+//     Subtract = 7,
+//     LinearBurn = 8,
+//     ColorDodge = 9,
+//     ColorBurn = 10,
+//     Overlay = 11,
+//     HardLight = 12,
+//     Color = 13,
+//     Luminosity = 14,
+//     Hue = 15,
+//     Saturation = 16,
+//     SoftLight = 17,
+//     Darken = 19,
+//     HardMix = 20,
+//     VividLight = 21,
+//     LinearLight = 22,
+//     PinLight = 23,
+//     LighterColor = 24,
+//     DarkerColor = 25,
+//     Divide = 26,
+// }

@@ -3,7 +3,6 @@ use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
-// use lzokay::decompress::decompress;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
