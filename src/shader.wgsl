@@ -56,6 +56,10 @@ fn screen(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     return s + b - s * b;
 }
 
+fn add(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return s + b;
+}
+
 fn hard_light(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     return mix(
         multiply(b, s * 2.0),
@@ -80,6 +84,14 @@ fn difference(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     return abs(b - s);
 }
 
+fn subtract(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return b - s;
+}
+
+fn linear_burn(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return max(b + s - vec3(1.0), vec3(0.0));
+}
+
 fn exclusion(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     return b + s - 2.0 * b * s;
 }
@@ -89,6 +101,14 @@ fn color_dodge(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
         min(vec3(1.0), b / (1.0 - s)),
         vec3(1.0),
         vec3(s.r >= 1.0, s.g >= 1.0, s.b >= 1.0)
+    );
+}
+
+fn color_burn(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    return select(
+        max(vec3(0.0), (vec3(1.0) - ((vec3(1.0) - b)/s))),
+        vec3(1.0),
+        vec3(s.r <= 0.0, s.g <= 0.0, s.b <= 0.0)
     );
 }
 
@@ -105,20 +125,15 @@ struct CtxInput {
     blend: u32,
 };
 
-@group(0)
-@binding(0)
+@group(0) @binding(0)
 var splr: sampler;
-@group(1)
-@binding(0)
+@group(1) @binding(0)
 var composite: texture_2d<f32>;
-@group(1)
-@binding(1)
+@group(1) @binding(1)
 var clipping_mask: texture_2d<f32>;
-@group(1)
-@binding(2)
+@group(1) @binding(2)
 var layer: texture_2d<f32>;
-@group(1)
-@binding(3)
+@group(1) @binding(3)
 var<uniform> ctx: CtxInput;
 
 @fragment
@@ -128,6 +143,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     fg.a = min(fg.a, maska);
 
     let bg = textureSample(composite, splr, in.tex_coords);
+
+    if (bg.a == 0.0) {
+        return fg;
+    } else if (fg.a == 0.0) {
+        return bg;
+    }
 
     // Procreate uses premultiplied alpha, so unpremultiply it.
     let bg_raw = clamp(bg.rgb / bg.a, vec3(0.0), vec3(1.0));
@@ -142,6 +163,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 2u: {
             final_pixel = screen(bg_raw, fg_raw);
         }
+        case 3u: {
+            final_pixel = add(bg_raw, fg_raw);
+        }
         case 4u: {
             final_pixel = lighten(bg_raw, fg_raw);
         }
@@ -151,8 +175,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 6u: {
             final_pixel = difference(bg_raw, fg_raw);
         }
+        case 7u: {
+            final_pixel = subtract(bg_raw, fg_raw);
+        }
+        case 8u: {
+            final_pixel = linear_burn(bg_raw, fg_raw);
+        }
         case 9u: {
             final_pixel = color_dodge(bg_raw, fg_raw);
+        }
+        case 10u: {
+            final_pixel = color_burn(bg_raw, fg_raw);
         }
         case 11u: {
             final_pixel = overlay(bg_raw, fg_raw);
@@ -170,6 +203,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_pixel = normal(bg_raw, fg_raw);
         }
     }
+    final_pixel = clamp(final_pixel, vec3(0.0), vec3(1.0));
     let a_fg = fg.a * ctx.opacity;
-    return vec4(final_pixel * a_fg + bg.rgb * (1.0 - a_fg), bg.a + a_fg - bg.a * a_fg);
+    let result = vec4(final_pixel * a_fg + bg.rgb * (1.0 - a_fg), bg.a + a_fg - bg.a * a_fg);
+
+    return clamp(result, vec4(0.0), vec4(1.0));
 }
