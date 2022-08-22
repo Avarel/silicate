@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         &mut procreate.layers,
         &procreate.render,
-        "out/image.png"
+        "out/image.png",
     );
 
     gpu_render(
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             name: String::from("composite"),
         },
         &procreate.render,
-        "out/reference.png"
+        "out/reference.png",
     );
 
     Ok(())
@@ -96,9 +96,10 @@ pub fn gpu_render(
 
     // NOTE: We have to create the mapping THEN device.poll() before await
     // the future. Otherwise the application will freeze.
-    let mapping = buffer_slice.map_async(wgpu::MapMode::Read);
+    let (tx, rx) = futures::channel::oneshot::channel();
+    buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
     state.handle.device.poll(wgpu::Maintain::Wait);
-    block_on(mapping).unwrap();
+    block_on(rx).unwrap().unwrap();
 
     let data = buffer_slice.get_mapped_range();
 
