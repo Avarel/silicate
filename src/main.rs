@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         procreate.orientation,
         (procreate.flipped_horizontally, procreate.flipped_vertically),
-        &mut procreate.layers,
+        &procreate.layers,
         &procreate.render,
         "out/image.png",
     );
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         procreate.orientation,
         (procreate.flipped_horizontally, procreate.flipped_vertically),
-        &mut SilicaGroup {
+        &SilicaGroup {
             hidden: false,
             children: vec![SilicaHierarchy::Layer(procreate.composite)],
             name: String::from("composite"),
@@ -63,7 +63,7 @@ pub fn gpu_render(
     background: Option<[f32; 4]>,
     orientation: u32,
     flip_hv: (bool, bool),
-    layers: &mut crate::silica::SilicaGroup,
+    layers: &crate::silica::SilicaGroup,
     state: &LogicalDevice,
     out_path: &str,
 ) {
@@ -150,15 +150,15 @@ pub fn gpu_render(
     // output_buffer.unmap();
 }
 
-fn resolve(state: &RenderState, layers: &mut crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
-    fn inner(
+fn resolve<'a>(state: &RenderState, layers: &'a crate::silica::SilicaGroup) -> Vec<CompositeLayer<'a>> {
+    fn inner<'a>(
         state: &RenderState,
-        layers: &mut crate::silica::SilicaGroup,
-        composite_layers: &mut Vec<CompositeLayer>,
+        layers: &'a crate::silica::SilicaGroup,
+        composite_layers: &mut Vec<CompositeLayer<'a>>,
     ) {
         let mut mask_layer: Option<(usize, &crate::silica::SilicaLayer)> = None;
 
-        for (index, layer) in layers.children.iter_mut().rev().enumerate() {
+        for (index, layer) in layers.children.iter().rev().enumerate() {
             match layer {
                 SilicaHierarchy::Group(group) => {
                     if group.hidden {
@@ -181,14 +181,14 @@ fn resolve(state: &RenderState, layers: &mut crate::silica::SilicaGroup) -> Vec<
                         }
                     }
 
-                    let gpu_texture = layer.image.take().unwrap();
+                    let gpu_texture = layer.image.as_ref().unwrap();
 
                     composite_layers.push(CompositeLayer {
                         texture: gpu_texture,
                         clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                         opacity: layer.opacity,
                         blend: layer.blend,
-                        name: layer.name.clone(),
+                        name: layer.name.as_deref(),
                     });
 
                     if !layer.clipped {

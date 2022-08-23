@@ -159,9 +159,7 @@ const SQUARE_VERTICES: [Vertex; 4] = [
 
 const INDICES: &[u16] = &[0, 1, 2, 3];
 
-// We need this for Rust to store our data correctly for the shaders
 #[repr(C)]
-// This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct LayerContext {
     opacity: f32,
@@ -194,12 +192,12 @@ impl Vertex {
     }
 }
 
-pub struct CompositeLayer {
-    pub texture: GpuTexture,
+pub struct CompositeLayer<'a> {
+    pub texture: &'a GpuTexture,
     pub clipped: Option<usize>,
     pub opacity: f32,
     pub blend: u32,
-    pub name: Option<String>,
+    pub name: Option<&'a str>,
 }
 
 pub struct RenderState<'device> {
