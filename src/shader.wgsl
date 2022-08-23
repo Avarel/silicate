@@ -144,68 +144,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let bg = textureSample(composite, splr, in.tex_coords);
 
-    if (bg.a == 0.0) {
-        return fg;
-    } else if (fg.a == 0.0) {
-        return bg;
-    }
-
     // Procreate uses premultiplied alpha, so unpremultiply it.
     let bg_raw = clamp(bg.rgb / bg.a, vec3(0.0), vec3(1.0));
     let fg_raw = clamp(fg.rgb / fg.a, vec3(0.0), vec3(1.0));
 
     var final_pixel = vec3(0.0);
-
     switch (ctx.blend) {
-        case 1u: {
-            final_pixel = multiply(bg_raw, fg_raw);
-        }
-        case 2u: {
-            final_pixel = screen(bg_raw, fg_raw);
-        }
-        case 3u: {
-            final_pixel = add(bg_raw, fg_raw);
-        }
-        case 4u: {
-            final_pixel = lighten(bg_raw, fg_raw);
-        }
-        case 5u: {
-            final_pixel = exclusion(bg_raw, fg_raw);
-        }
-        case 6u: {
-            final_pixel = difference(bg_raw, fg_raw);
-        }
-        case 7u: {
-            final_pixel = subtract(bg_raw, fg_raw);
-        }
-        case 8u: {
-            final_pixel = linear_burn(bg_raw, fg_raw);
-        }
-        case 9u: {
-            final_pixel = color_dodge(bg_raw, fg_raw);
-        }
-        case 10u: {
-            final_pixel = color_burn(bg_raw, fg_raw);
-        }
-        case 11u: {
-            final_pixel = overlay(bg_raw, fg_raw);
-        }
-        case 12u: {
-            final_pixel = hard_light(bg_raw, fg_raw);
-        }
-        case 17u: {
-            final_pixel = soft_light(bg_raw, fg_raw, 1.0, 1.0);
-        }
-        case 19u: {
-            final_pixel = darken(bg_raw, fg_raw);
-        }
-        default: {
-            final_pixel = normal(bg_raw, fg_raw);
-        }
+        case 1u: { final_pixel = multiply(bg_raw, fg_raw); }
+        case 2u: { final_pixel = screen(bg_raw, fg_raw); }
+        case 3u: { final_pixel = add(bg_raw, fg_raw); }
+        case 4u: { final_pixel = lighten(bg_raw, fg_raw); }
+        case 5u: { final_pixel = exclusion(bg_raw, fg_raw); }
+        case 6u: { final_pixel = difference(bg_raw, fg_raw); }
+        case 7u: { final_pixel = subtract(bg_raw, fg_raw); }
+        case 8u: { final_pixel = linear_burn(bg_raw, fg_raw); }
+        case 9u: { final_pixel = color_dodge(bg_raw, fg_raw); }
+        case 10u: { final_pixel = color_burn(bg_raw, fg_raw); }
+        case 11u: { final_pixel = overlay(bg_raw, fg_raw); }
+        case 12u: { final_pixel = hard_light(bg_raw, fg_raw); }
+        case 17u: { final_pixel = soft_light(bg_raw, fg_raw, 1.0, 1.0); }
+        case 19u: { final_pixel = darken(bg_raw, fg_raw); }
+        default: { final_pixel = normal(bg_raw, fg_raw); }
     }
     final_pixel = clamp(final_pixel, vec3(0.0), vec3(1.0));
+    
     let a_fg = fg.a * ctx.opacity;
-    let result = vec4(final_pixel * a_fg + bg.rgb * (1.0 - a_fg), bg.a + a_fg - bg.a * a_fg);
+    let result = vec4(final_pixel * a_fg * bg.a + fg.rgb * (1.0 - bg.a) + bg.rgb * (1.0 - fg.a), bg.a + a_fg - bg.a * a_fg);
 
     return clamp(result, vec4(0.0), vec4(1.0));
 }

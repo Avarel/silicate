@@ -294,7 +294,22 @@ impl<'device> RenderState<'device> {
                 push_constant_ranges: &[],
             });
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        // wgpu::include_wgsl!("shader.wgsl")
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("lol"),
+            source: wgpu::ShaderSource::Wgsl({
+                use std::io::Read;
+                use std::fs::OpenOptions;
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open("./src/shader.wgsl")
+                    .unwrap();
+
+                let mut buf = String::new();
+                file.read_to_string(&mut buf).unwrap();
+                buf.into()
+            }),
+        });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("render_pipeline"),
