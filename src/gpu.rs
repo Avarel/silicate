@@ -127,28 +127,33 @@ impl BufferDimensions {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct Vertex {
     position: [f32; 3],
-    tex_coords: [f32; 2],
+    bg_coords: [f32; 2],
+    fg_coords: [f32; 2],
 }
 
-const SQUARE_VERTICES: &[Vertex] = &[
+const SQUARE_VERTICES: [Vertex; 4] = [
     Vertex {
         position: [-1.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
+        bg_coords: [0.0, 0.0],
+        fg_coords: [0.0, 1.0],
     },
     Vertex {
         position: [-1.0, -1.0, 0.0],
-        tex_coords: [0.0, 1.0],
+        bg_coords: [0.0, 1.0],
+        fg_coords: [0.0, 0.0],
     },
     Vertex {
         position: [1.0, 1.0, 0.0],
-        tex_coords: [1.0, 0.0],
+        bg_coords: [1.0, 0.0],
+        fg_coords: [1.0, 1.0],
     },
     Vertex {
         position: [1.0, -1.0, 0.0],
-        tex_coords: [1.0, 1.0],
+        bg_coords: [1.0, 1.0],
+        fg_coords: [1.0, 0.0],
     },
 ];
 
@@ -177,7 +182,12 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2, // NEW!
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2 + 3]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }
@@ -222,6 +232,7 @@ impl<'device> RenderState<'device> {
     pub fn new(
         width: u32,
         height: u32,
+        flip_hv: (bool, bool),
         background: Option<[f32; 4]>,
         handle: &'device LogicalDevice,
     ) -> Self {
@@ -230,9 +241,25 @@ impl<'device> RenderState<'device> {
             ref queue,
         } = handle;
 
+        let mut vertices = SQUARE_VERTICES;
+        for v in &mut vertices {
+            v.fg_coords = [
+                if flip_hv.0 {
+                    1.0 - v.fg_coords[0]
+                } else {
+                    v.fg_coords[0]
+                },
+                if flip_hv.1 {
+                    1.0 - v.fg_coords[1]
+                } else {
+                    v.fg_coords[1]
+                },
+            ];
+        }
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
-            contents: bytemuck::cast_slice(&SQUARE_VERTICES),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -298,8 +325,8 @@ impl<'device> RenderState<'device> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lol"),
             source: wgpu::ShaderSource::Wgsl({
-                use std::io::Read;
                 use std::fs::OpenOptions;
+                use std::io::Read;
                 let mut file = OpenOptions::new()
                     .read(true)
                     .open("./src/shader.wgsl")

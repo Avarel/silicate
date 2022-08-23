@@ -25,10 +25,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             Some(procreate.background_color)
         },
+        procreate.orientation,
+        (procreate.flipped_horizontally, procreate.flipped_vertically),
         &mut procreate.layers,
         &procreate.render,
         "out/image.png",
     );
+
+    dbg!(procreate.flipped_horizontally);
+    dbg!(procreate.flipped_vertically);
 
     gpu_render(
         procreate.size.width,
@@ -38,6 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             Some(procreate.background_color)
         },
+        procreate.orientation,
+        (procreate.flipped_horizontally, procreate.flipped_vertically),
         &mut SilicaGroup {
             hidden: false,
             children: vec![SilicaHierarchy::Layer(procreate.composite)],
@@ -54,11 +61,13 @@ pub fn gpu_render(
     width: u32,
     height: u32,
     background: Option<[f32; 4]>,
+    orientation: u32,
+    flip_hv: (bool, bool),
     layers: &mut crate::silica::SilicaGroup,
     state: &LogicalDevice,
     out_path: &str,
 ) {
-    let mut state = RenderState::new(width, height, background, state);
+    let mut state = RenderState::new(width, height, flip_hv, background, state);
 
     let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -103,20 +112,42 @@ pub fn gpu_render(
 
     let data = buffer_slice.get_mapped_range();
 
+    // eprintln!("Loading data to CPU");
+    // let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
+    //     state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
+    //     state.buffer_dimensions.height as u32,
+    //     data,
+    // )
+    // .unwrap();
+    // eprintln!("Writing image");
+    
+
     eprintln!("Loading data to CPU");
-    let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
+    let mut buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
         state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
         state.buffer_dimensions.height as u32,
-        data,
+        data.to_vec(),
     )
     .unwrap();
+    eprintln!("Rotating image");
+    
+    buffer = image::imageops::crop_imm(&buffer, 0, 0, width, height).to_image();
+    match orientation {
+        0 => {},
+        1 | 4 => buffer = image::imageops::rotate90(&buffer),
+        2 => buffer = image::imageops::rotate180(&buffer),
+        3 => buffer = image::imageops::rotate270(&buffer),
+        _ => println!("Unknown orientation!")
+    };
     eprintln!("Writing image");
+
     buffer.save(out_path).unwrap();
+
     eprintln!("Finished");
     drop(buffer);
     drop(buffer_slice);
 
-    output_buffer.unmap();
+    // output_buffer.unmap();
 }
 
 fn resolve(state: &RenderState, layers: &mut crate::silica::SilicaGroup) -> Vec<CompositeLayer> {

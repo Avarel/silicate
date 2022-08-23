@@ -49,14 +49,15 @@ pub struct ProcreateFile {
     // //  public var drawingguide
     //     faceBackgroundHidden:Bool?
     //     featureSet:Int? = 1
-    //     flippedHorizontally:Bool?
-    //     flippedVertically:Bool?
+    pub flipped_horizontally: bool,
+    pub flipped_vertically: bool,
     //     isFirstItemAnimationForeground:Bool?
     //     isLastItemAnimationBackground:Bool?
     // //  public var lastTextStyling
     pub layers: SilicaGroup,
     //     mask:SilicaLayer?
     pub name: Option<String>,
+    pub orientation: u32,
     //     orientation:Int?
     //     primaryItem:Any?
     // //  skipping a bunch of reference window related stuff here
@@ -166,6 +167,9 @@ impl ProcreateFile {
             stroke_count: nka.decode::<usize>(root, "strokeCount")?,
             background_color,
             name: nka.decode::<Option<String>>(root, "name")?,
+            orientation: nka.decode::<u32>(root, "orientation")?,
+            flipped_horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
+            flipped_vertically: nka.decode::<bool>(root, "flippedVertically")?,
             tile_size,
             size,
             composite: composite.unwrap_layer(),
