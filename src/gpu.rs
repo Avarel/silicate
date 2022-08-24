@@ -15,7 +15,7 @@ impl LogicalDevice {
     pub async fn new() -> Option<Self> {
         // Obtain the handle to the GPU
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-        
+
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -58,11 +58,11 @@ impl GpuTexture {
             label,
         });
 
-        let canvas_texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         Self {
             texture,
-            view: canvas_texture_view,
+            view,
             size,
         }
     }
@@ -603,5 +603,3 @@ impl<'device> RenderState<'device> {
         output_texture
     }
 }
-
-

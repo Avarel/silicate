@@ -259,11 +259,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let maska = textureSample(clipping_mask, splr, in.fg_coords).a;
 
     // Short circuit
-    if (bga.a == 0.0) {
-        return fga;
-    } else if (fga.a == 0.0) {
-        return bga;
-    }
+    // if (bga.a == 0.0) {
+    //     return fga;
+    // } else if (fga.a == 0.0) {
+    //     return bga;
+    // }
 
     // Procreate uses premultiplied alpha, so unpremultiply it.
     let bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);

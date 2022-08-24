@@ -64,6 +64,11 @@ struct TilingMeta {
     tile_size: u32,
 }
 
+pub struct Flipped {
+    pub horizontally: bool,
+    pub vertically: bool,
+}
+
 #[derive(Debug)]
 pub struct ProcreateFile {
     // animation:ValkyrieDocumentAnimation?
@@ -100,7 +105,6 @@ pub struct ProcreateFile {
     //     size: CGSize?
     //     solo: SilicaLayer?
     pub stroke_count: usize,
-    //     tileSize: Int?
     //     videoEnabled: Bool? = true
     //     videoQualityKey: String?
     //     videoResolutionKey: String?
@@ -108,13 +112,12 @@ pub struct ProcreateFile {
     pub tile_size: u32,
     pub composite: SilicaLayer,
     pub size: Size<u32>,
-    pub render: LogicalDevice,
 }
 
 type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
-    pub fn open<P: AsRef<Path>>(p: P) -> Result<Self, SilicaError> {
+    pub fn open<P: AsRef<Path>>(p: P, dev: &LogicalDevice) -> Result<Self, SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -132,17 +135,18 @@ impl ProcreateFile {
             plist::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, &file_names, nka)
+        Self::from_ns(archive, &file_names, nka, dev)
     }
 
     fn from_ns(
         archive: ZipArchiveMmap<'_>,
         file_names: &[String],
         nka: NsKeyedArchive,
+        dev: &LogicalDevice
     ) -> Result<Self, SilicaError> {
         let root = nka.root()?;
 
-        println!("{root:#?}");
+        // println!("{root:#?}");
 
         let size = nka.decode::<Size<u32>>(root, "size")?;
         let tile_size = nka.decode::<u32>(root, "tileSize")?;
@@ -165,15 +169,12 @@ impl ProcreateFile {
             .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
-        let render = futures::executor::block_on(LogicalDevice::new())
-            .ok_or(SilicaError::NoGraphicsDevice)?;
-
         layers
             .par_iter_mut()
             .chain([&mut composite])
             .for_each(|layer| {
                 layer.apply_mut(&mut |layer| {
-                    layer.load_image(&meta, archive.clone(), &file_names, &render)
+                    layer.load_image(&meta, archive.clone(), &file_names, dev)
                 })
             });
 
@@ -190,7 +191,6 @@ impl ProcreateFile {
         .unwrap();
 
         Ok(Self {
-            render,
             author_name: nka.decode::<Option<String>>(root, "authorName")?,
             background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
             stroke_count: nka.decode::<usize>(root, "strokeCount")?,
@@ -270,7 +270,6 @@ impl SilicaLayer {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        // let mut image_layer = Rgba8Canvas::new(self.size_width as usize, self.size_height as usize);
         let gpu_texture =
             GpuTexture::empty(&render.device, self.size.width, self.size.height, None);
 

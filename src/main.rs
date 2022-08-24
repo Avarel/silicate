@@ -7,7 +7,7 @@ use crate::{gpu::RenderState, silica::SilicaHierarchy};
 use futures::executor::block_on;
 use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
-use silica::{ProcreateFile, SilicaGroup};
+use silica::{ProcreateFile, SilicaError, SilicaGroup};
 use std::{error::Error, num::NonZeroU32};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -15,56 +15,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 2 {
         return Ok(());
     }
-    let procreate = ProcreateFile::open(&args[1])?;
 
-    gpu_render(
-        procreate.size.width,
-        procreate.size.height,
-        if procreate.background_hidden {
-            None
-        } else {
-            Some(procreate.background_color)
-        },
-        procreate.orientation,
-        (procreate.flipped_horizontally, procreate.flipped_vertically),
-        &procreate.layers,
-        &procreate.render,
-        "out/image.png",
-    );
+    let device =
+        futures::executor::block_on(LogicalDevice::new()).ok_or(SilicaError::NoGraphicsDevice)?;
 
-    gpu_render(
-        procreate.size.width,
-        procreate.size.height,
-        if procreate.background_hidden {
-            None
-        } else {
-            Some(procreate.background_color)
-        },
-        procreate.orientation,
-        (procreate.flipped_horizontally, procreate.flipped_vertically),
-        &SilicaGroup {
-            hidden: false,
-            children: vec![SilicaHierarchy::Layer(procreate.composite)],
-            name: String::from("composite"),
-        },
-        &procreate.render,
-        "out/reference.png",
-    );
+    let procreate = ProcreateFile::open(&args[1], &device)?;
+
+    gpu_render(&procreate, false, &device, "out/image.png");
+    gpu_render(&procreate, true, &device, "out/reference.png");
 
     Ok(())
 }
 
 pub fn gpu_render(
-    width: u32,
-    height: u32,
-    background: Option<[f32; 4]>,
-    orientation: u32,
-    flip_hv: (bool, bool),
-    layers: &crate::silica::SilicaGroup,
+    pc: &ProcreateFile,
+    composite_reference: bool,
     state: &LogicalDevice,
     out_path: &str,
 ) {
-    let mut state = RenderState::new(width, height, flip_hv, background, state);
+    let mut state = RenderState::new(
+        pc.size.width,
+        pc.size.height,
+        (pc.flipped_horizontally, pc.flipped_vertically),
+        (!pc.background_hidden).then_some(pc.background_color),
+        state,
+    );
 
     let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -74,7 +49,17 @@ pub fn gpu_render(
         mapped_at_creation: false,
     });
 
-    state.render(&resolve(&state, layers));
+    if composite_reference {
+        state.render(&[CompositeLayer {
+            texture: pc.composite.image.as_ref().unwrap(),
+            clipped: None,
+            opacity: 1.0,
+            blend: 0,
+            name: Some("Composite"),
+        }]);
+    } else {
+        state.render(&resolve(&state, &pc.layers));
+    }
 
     state.handle.queue.submit(Some({
         let mut encoder = state
@@ -117,7 +102,6 @@ pub fn gpu_render(
     // )
     // .unwrap();
     // eprintln!("Writing image");
-    
 
     eprintln!("Loading data to CPU");
     let mut buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
@@ -127,14 +111,14 @@ pub fn gpu_render(
     )
     .unwrap();
     eprintln!("Rotating image");
-    
-    buffer = image::imageops::crop_imm(&buffer, 0, 0, width, height).to_image();
-    match orientation {
-        0 => {},
+
+    buffer = image::imageops::crop_imm(&buffer, 0, 0, pc.size.width, pc.size.height).to_image();
+    match pc.orientation {
+        0 => {}
         1 | 4 => buffer = image::imageops::rotate90(&buffer),
         2 => buffer = image::imageops::rotate180(&buffer),
         3 => buffer = image::imageops::rotate270(&buffer),
-        _ => println!("Unknown orientation!")
+        _ => println!("Unknown orientation!"),
     };
     eprintln!("Writing image");
 
@@ -147,7 +131,10 @@ pub fn gpu_render(
     // output_buffer.unmap();
 }
 
-fn resolve<'a>(state: &RenderState, layers: &'a crate::silica::SilicaGroup) -> Vec<CompositeLayer<'a>> {
+fn resolve<'a>(
+    state: &RenderState,
+    layers: &'a crate::silica::SilicaGroup,
+) -> Vec<CompositeLayer<'a>> {
     fn inner<'a>(
         state: &RenderState,
         layers: &'a crate::silica::SilicaGroup,
