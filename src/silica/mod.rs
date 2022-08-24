@@ -1,11 +1,13 @@
+mod ir;
+
 use crate::gpu::{GpuTexture, LogicalDevice};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use once_cell::sync::OnceCell;
-use plist::{Dictionary, Value};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::IntoParallelIterator;
 use regex::Regex;
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -13,6 +15,8 @@ use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
 use zip::read::ZipArchive;
+
+use self::ir::{SilicaIRGroup, SilicaIRHierarchy, SilicaIRLayer};
 
 #[derive(Error, Debug)]
 pub enum SilicaError {
@@ -22,6 +26,8 @@ pub enum SilicaError {
     PlistError(#[from] plist::Error),
     #[error("zip error")]
     ZipError(#[from] zip::result::ZipError),
+    #[error("LZO decompression error")]
+    LzoError(#[from] minilzo_rs::Error),
     #[error("ns archive error")]
     NsArchiveError(#[from] NsArchiveError),
     #[error("no graphics device")]
@@ -64,6 +70,7 @@ struct TilingMeta {
     tile_size: u32,
 }
 
+#[derive(Debug)]
 pub struct Flipped {
     pub horizontally: bool,
     pub vertically: bool,
@@ -83,8 +90,7 @@ pub struct ProcreateFile {
     // //  public var drawingguide
     //     faceBackgroundHidden:Bool?
     //     featureSet:Int? = 1
-    pub flipped_horizontally: bool,
-    pub flipped_vertically: bool,
+    pub flipped: Flipped,
     //     isFirstItemAnimationForeground:Bool?
     //     isLastItemAnimationBackground:Bool?
     // //  public var lastTextStyling
@@ -121,10 +127,9 @@ impl ProcreateFile {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
+        // TODO: file locking for this unsafe memmap
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
         let mut archive = ZipArchive::new(Cursor::new(&mapping[..]))?;
-
-        let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
         let nka: NsKeyedArchive = {
             let mut document = archive.by_name("Document.archive")?;
@@ -135,12 +140,11 @@ impl ProcreateFile {
             plist::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, &file_names, nka, dev)
+        Self::from_ns(archive, nka, dev)
     }
 
     fn from_ns(
         archive: ZipArchiveMmap<'_>,
-        file_names: &[String],
         nka: NsKeyedArchive,
         dev: &LogicalDevice,
     ) -> Result<Self, SilicaError> {
@@ -150,8 +154,8 @@ impl ProcreateFile {
 
         let size = nka.decode::<Size<u32>>(root, "size")?;
         let tile_size = nka.decode::<u32>(root, "tileSize")?;
-        let columns = size.width / tile_size + if size.width % tile_size == 0 { 0 } else { 1 };
-        let rows = size.height / tile_size + if size.height % tile_size == 0 { 0 } else { 1 };
+        let columns = (size.width + tile_size - 1) / tile_size;
+        let rows = (size.height + tile_size - 1) / tile_size;
 
         let meta = TilingMeta {
             columns,
@@ -163,54 +167,53 @@ impl ProcreateFile {
             tile_size,
         };
 
-        let mut composite = SilicaHierarchy::Layer(nka.decode::<SilicaLayer>(root, "composite")?);
-
-        let mut layers = nka
-            .decode::<WrappedArray<SilicaHierarchy>>(root, "unwrappedLayers")?
-            .objects;
-
-        layers
-            .par_iter_mut()
-            .chain([&mut composite])
-            .for_each(|layer| {
-                layer.apply_mut(&mut |layer| {
-                    layer.load_image(&meta, archive.clone(), &file_names, dev)
-                })
-            });
-
-        let background_color = <[f32; 4]>::try_from(
-            nka.decode::<&[u8]>(root, "backgroundColor")?
-                .chunks_exact(4)
-                .map(|bytes| {
-                    <[u8; 4]>::try_from(bytes)
-                        .map(f32::from_le_bytes)
-                        .map_err(|_| NsArchiveError::TypeMismatch)
-                })
-                .collect::<Result<Vec<f32>, _>>()?,
-        )
-        .unwrap();
+        let file_names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
 
         Ok(Self {
             author_name: nka.decode::<Option<String>>(root, "authorName")?,
             background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
             stroke_count: nka.decode::<usize>(root, "strokeCount")?,
-            background_color,
+            background_color: <[f32; 4]>::try_from(
+                nka.decode::<&[u8]>(root, "backgroundColor")?
+                    .chunks_exact(4)
+                    .map(|bytes| {
+                        <[u8; 4]>::try_from(bytes)
+                            .map(f32::from_le_bytes)
+                            .map_err(|_| NsArchiveError::TypeMismatch)
+                    })
+                    .collect::<Result<Vec<f32>, _>>()?,
+            )
+            .unwrap(),
             name: nka.decode::<Option<String>>(root, "name")?,
             orientation: nka.decode::<u32>(root, "orientation")?,
-            flipped_horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
-            flipped_vertically: nka.decode::<bool>(root, "flippedVertically")?,
+            flipped: Flipped {
+                horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
+                vertically: nka.decode::<bool>(root, "flippedVertically")?,
+            },
             tile_size,
             size,
-            composite: composite.unwrap_layer(),
+            composite: SilicaLayer::load(
+                nka.decode::<SilicaIRLayer>(root, "composite")?,
+                &meta,
+                &archive,
+                &file_names,
+                dev,
+            )?,
             layers: SilicaGroup {
                 hidden: false,
-                name: String::new(),
-                children: layers,
+                name: String::from("Root Layer"),
+                children: nka
+                    .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+                    .objects
+                    .into_par_iter()
+                    .map(|ir| SilicaHierarchy::load(ir, &meta, &archive, &file_names, dev))
+                    .collect::<Result<_, _>>()?,
             },
         })
     }
 }
 
+#[derive(Debug)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?
     pub blend: u32,
@@ -237,49 +240,47 @@ pub struct SilicaLayer {
     pub size: Size<u32>,
     pub uuid: String,
     pub version: u64,
-    pub image: Option<GpuTexture>,
-}
-
-impl std::fmt::Debug for SilicaLayer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SilicaLayer")
-            .field("blend", &self.blend)
-            .field("clipped", &self.clipped)
-            .field("hidden", &self.hidden)
-            .field("mask", &self.mask)
-            .field("name", &self.name)
-            .field("opacity", &self.opacity)
-            .field("size_width", &self.size)
-            .field("uuid", &self.uuid)
-            .field("version", &self.version)
-            .finish()
-    }
+    pub image: GpuTexture,
 }
 
 impl SilicaLayer {
-    fn load_image(
-        &mut self,
+    fn load(
+        ir: SilicaIRLayer,
         meta: &TilingMeta,
-        archive: ZipArchiveMmap<'_>,
+        archive: &ZipArchiveMmap<'_>,
         file_names: &[String],
         render: &LogicalDevice,
-    ) {
+    ) -> Result<Self, SilicaError> {
+        let nka = ir.nka;
+        let coder = ir.coder;
+        let blend = nka.decode::<u32>(coder, "extendedBlend")?;
+        let clipped = nka.decode::<bool>(coder, "clipped")?;
+        let hidden = nka.decode::<bool>(coder, "hidden")?;
+        let mask = None;
+        let name = nka.decode::<Option<String>>(coder, "name")?;
+        let opacity = nka.decode::<f32>(coder, "opacity")?;
+        let uuid = nka.decode::<String>(coder, "UUID")?;
+        let version = nka.decode::<u64>(coder, "version")?;
+        let size = Size {
+            width: nka.decode::<u32>(coder, "sizeWidth")?,
+            height: nka.decode::<u32>(coder, "sizeHeight")?,
+        };
+
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture =
-            GpuTexture::empty(&render.device, self.size.width, self.size.height, None);
+        let gpu_texture = GpuTexture::empty(&render.device, size.width, size.height, None);
 
         file_names
             .par_iter()
-            .filter(|path| path.starts_with(&self.uuid))
-            .for_each(|path| {
+            .filter(|path| path.starts_with(&uuid))
+            .try_for_each(|path| -> Result<(), SilicaError> {
                 let mut archive = archive.clone();
 
-                let chunk_str = &path[self.uuid.len()..path.find('.').unwrap_or(path.len())];
+                let chunk_str = &path[uuid.len()..path.find('.').unwrap_or(path.len())];
                 let captures = index_regex.captures(&chunk_str).unwrap();
                 let col = u32::from_str_radix(&captures[1], 10).unwrap();
                 let row = u32::from_str_radix(&captures[2], 10).unwrap();
@@ -297,16 +298,14 @@ impl SilicaLayer {
                         meta.diff.height
                     }) as usize;
 
-                let mut chunk = archive.by_name(path).unwrap();
+                let mut chunk = archive.by_name(path)?;
                 let mut buf = Vec::new();
-                chunk.read_to_end(&mut buf).unwrap();
+                chunk.read_to_end(&mut buf)?;
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let dst = lzo
-                    .decompress_safe(
-                        &buf[..],
-                        tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
-                    )
-                    .unwrap();
+                let dst = lzo.decompress_safe(
+                    &buf[..],
+                    tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
+                )?;
                 gpu_texture.replace(
                     &render.queue,
                     col * meta.tile_size,
@@ -315,30 +314,20 @@ impl SilicaLayer {
                     tile_height as u32,
                     &dst,
                 );
-            });
+                Ok(())
+            })?;
 
-        // Note: the adapter is considerably slow since it checks if the image fits
-        self.image = Some(gpu_texture);
-    }
-}
-
-impl NsDecode<'_> for SilicaLayer {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        let coder = <&'_ Dictionary>::decode(nka, val)?;
         Ok(Self {
-            blend: nka.decode::<u32>(coder, "extendedBlend")?,
-            clipped: nka.decode::<bool>(coder, "clipped")?,
-            hidden: nka.decode::<bool>(coder, "hidden")?,
-            mask: None,
-            name: nka.decode::<Option<String>>(coder, "name")?,
-            opacity: nka.decode::<f32>(coder, "opacity")?,
-            uuid: nka.decode::<String>(coder, "UUID")?,
-            version: nka.decode::<u64>(coder, "version")?,
-            size: Size {
-                width: nka.decode::<u32>(coder, "sizeWidth")?,
-                height: nka.decode::<u32>(coder, "sizeHeight")?,
-            },
-            image: None,
+            blend,
+            clipped,
+            hidden,
+            mask,
+            name,
+            opacity,
+            size,
+            uuid,
+            version,
+            image: gpu_texture,
         })
     }
 }
@@ -350,15 +339,24 @@ pub struct SilicaGroup {
     pub name: String,
 }
 
-impl NsDecode<'_> for SilicaGroup {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        let coder = <&'_ Dictionary>::decode(nka, val)?;
+impl SilicaGroup {
+    fn load(
+        ir: SilicaIRGroup,
+        meta: &TilingMeta,
+        archive: &ZipArchiveMmap<'_>,
+        file_names: &[String],
+        render: &LogicalDevice,
+    ) -> Result<Self, SilicaError> {
+        let nka = ir.nka;
+        let coder = ir.coder;
         Ok(Self {
             hidden: nka.decode::<bool>(coder, "isHidden")?,
             name: nka.decode::<String>(coder, "name")?,
-            children: nka
-                .decode::<WrappedArray<SilicaHierarchy>>(coder, "children")?
-                .objects,
+            children: ir
+                .children
+                .into_par_iter()
+                .map(|ir| SilicaHierarchy::load(ir, meta, archive, file_names, render))
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -370,33 +368,20 @@ pub enum SilicaHierarchy {
 }
 
 impl SilicaHierarchy {
-    pub fn apply_mut(&mut self, f: &mut dyn FnMut(&mut SilicaLayer)) {
-        match self {
-            Self::Layer(layer) => f(layer),
-            Self::Group(group) => group
-                .children
-                .iter_mut()
-                .for_each(|child| child.apply_mut(f)),
-        }
-    }
-
-    pub fn unwrap_layer(self) -> SilicaLayer {
-        match self {
-            Self::Layer(layer) => layer,
-            _ => panic!(),
-        }
-    }
-}
-
-impl NsDecode<'_> for SilicaHierarchy {
-    fn decode(nka: &NsKeyedArchive, val: Option<&Value>) -> Result<Self, NsArchiveError> {
-        let coder = <&'_ Dictionary>::decode(nka, val)?;
-        let class = nka.decode::<NsClass>(coder, "$class")?;
-
-        match class.class_name.as_str() {
-            "SilicaGroup" => Ok(SilicaGroup::decode(nka, val).map(Self::Group)?),
-            "SilicaLayer" => Ok(SilicaLayer::decode(nka, val).map(Self::Layer)?),
-            _ => Err(NsArchiveError::TypeMismatch),
-        }
+    fn load(
+        ir: SilicaIRHierarchy,
+        meta: &TilingMeta,
+        archive: &ZipArchiveMmap<'_>,
+        file_names: &[String],
+        render: &LogicalDevice,
+    ) -> Result<Self, SilicaError> {
+        Ok(match ir {
+            SilicaIRHierarchy::Layer(layer) => {
+                SilicaHierarchy::Layer(SilicaLayer::load(layer, meta, archive, file_names, render)?)
+            }
+            SilicaIRHierarchy::Group(group) => {
+                SilicaHierarchy::Group(SilicaGroup::load(group, meta, archive, file_names, render)?)
+            }
+        })
     }
 }

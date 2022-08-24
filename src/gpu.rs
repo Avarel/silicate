@@ -33,6 +33,7 @@ impl LogicalDevice {
     }
 }
 
+#[derive(Debug)]
 pub struct GpuTexture {
     pub size: wgpu::Extent3d,
     pub texture: wgpu::Texture,
@@ -325,7 +326,7 @@ impl<'device> RenderState<'device> {
 
         // wgpu::include_wgsl!("shader.wgsl")
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("lol"),
+            label: Some("Dynamically loaded shader module"),
             source: wgpu::ShaderSource::Wgsl({
                 use std::fs::OpenOptions;
                 use std::io::Read;

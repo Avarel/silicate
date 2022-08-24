@@ -36,7 +36,7 @@ pub fn gpu_render(
     let mut state = RenderState::new(
         pc.size.width,
         pc.size.height,
-        (pc.flipped_horizontally, pc.flipped_vertically),
+        (pc.flipped.horizontally, pc.flipped.vertically),
         (!pc.background_hidden).then_some(pc.background_color),
         state,
     );
@@ -51,7 +51,7 @@ pub fn gpu_render(
 
     if composite_reference {
         state.render(&[CompositeLayer {
-            texture: pc.composite.image.as_ref().unwrap(),
+            texture: &pc.composite.image,
             clipped: None,
             opacity: 1.0,
             blend: 0,
@@ -155,7 +155,7 @@ fn resolve<'a>(
                         }
                     }
 
-                    let gpu_texture = layer.image.as_ref().unwrap();
+                    let gpu_texture = &layer.image;
 
                     composite_layers.push(CompositeLayer {
                         texture: gpu_texture,
