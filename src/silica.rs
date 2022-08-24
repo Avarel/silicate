@@ -28,6 +28,35 @@ pub enum SilicaError {
     NoGraphicsDevice,
 }
 
+enum BlendingMode {
+    Normal = 0,
+    Multiply = 1,
+    Screen = 2,
+    Add = 3,
+    Lighten = 4,
+    Exclusion = 5,
+    Difference = 6,
+    Subtract = 7,
+    LinearBurn = 8,
+    ColorDodge = 9,
+    ColorBurn = 10,
+    Overlay = 11,
+    HardLight = 12,
+    Color = 13,
+    Luminosity = 14,
+    Hue = 15,
+    Saturation = 16,
+    SoftLight = 17,
+    Darken = 19,
+    HardMix = 20,
+    VividLight = 21,
+    LinearLight = 22,
+    PinLight = 23,
+    LighterColor = 24,
+    DarkerColor = 25,
+    Divide = 26,
+}
+
 struct TilingMeta {
     columns: u32,
     rows: u32,

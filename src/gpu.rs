@@ -13,17 +13,21 @@ pub struct LogicalDevice {
 
 impl LogicalDevice {
     pub async fn new() -> Option<Self> {
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-
+        // Obtain the handle to the GPU
+        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        
         let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                ..Default::default()
+            })
             .await?;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default(), None)
             .await
             .ok()?;
+
+        dbg!(adapter.get_info());
 
         Some(Self { device, queue })
     }
@@ -511,7 +515,7 @@ impl<'device> RenderState<'device> {
                 },
             );
 
-            eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
+            // eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
         }
     }
 
@@ -600,31 +604,4 @@ impl<'device> RenderState<'device> {
     }
 }
 
-// enum BlendingMode {
-//     Normal = 0,
-//     Multiply = 1,
-//     Screen = 2,
-//     Add = 3,
-//     Lighten = 4,
-//     Exclusion = 5,
-//     Difference = 6,
-//     Subtract = 7,
-//     LinearBurn = 8,
-//     ColorDodge = 9,
-//     ColorBurn = 10,
-//     Overlay = 11,
-//     HardLight = 12,
-//     Color = 13,
-//     Luminosity = 14,
-//     Hue = 15,
-//     Saturation = 16,
-//     SoftLight = 17,
-//     Darken = 19,
-//     HardMix = 20,
-//     VividLight = 21,
-//     LinearLight = 22,
-//     PinLight = 23,
-//     LighterColor = 24,
-//     DarkerColor = 25,
-//     Divide = 26,
-// }
+

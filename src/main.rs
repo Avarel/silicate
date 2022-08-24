@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 2 {
         return Ok(());
     }
-    let mut procreate = ProcreateFile::open(&args[1])?;
+    let procreate = ProcreateFile::open(&args[1])?;
 
     gpu_render(
         procreate.size.width,
@@ -31,9 +31,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &procreate.render,
         "out/image.png",
     );
-
-    dbg!(procreate.flipped_horizontally);
-    dbg!(procreate.flipped_vertically);
 
     gpu_render(
         procreate.size.width,
@@ -160,23 +157,13 @@ fn resolve<'a>(state: &RenderState, layers: &'a crate::silica::SilicaGroup) -> V
 
         for (index, layer) in layers.children.iter().rev().enumerate() {
             match layer {
-                SilicaHierarchy::Group(group) => {
-                    if group.hidden {
-                        eprintln!("Hidden group {:?}", group.name);
-                        continue;
-                    }
-                    eprintln!("Into group {}", group.name);
+                SilicaHierarchy::Group(group) if !group.hidden => {
                     inner(state, group, composite_layers);
-                    eprintln!("Finished group {}", group.name);
                 }
-                SilicaHierarchy::Layer(layer) => {
-                    if layer.hidden {
-                        eprintln!("Hidden layer {:?}", layer.name);
-                        continue;
-                    }
+                SilicaHierarchy::Layer(layer) if !layer.hidden => {
                     if let Some((_, mask_layer)) = mask_layer {
                         if layer.clipped && mask_layer.hidden {
-                            eprintln!("Hidden layer {:?} due to clip to hidden", layer.name);
+                            // eprintln!("Hidden layer {:?} due to clip to hidden", layer.name);
                             continue;
                         }
                     }
@@ -195,8 +182,9 @@ fn resolve<'a>(state: &RenderState, layers: &'a crate::silica::SilicaGroup) -> V
                         mask_layer = Some((index, layer));
                     }
 
-                    eprintln!("Resolved layer {:?}: {}", layer.name, layer.blend);
+                    // eprintln!("Resolved layer {:?}: {}", layer.name, layer.blend);
                 }
+                _ => continue,
             }
         }
     }
