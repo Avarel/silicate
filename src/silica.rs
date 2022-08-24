@@ -142,7 +142,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         file_names: &[String],
         nka: NsKeyedArchive,
-        dev: &LogicalDevice
+        dev: &LogicalDevice,
     ) -> Result<Self, SilicaError> {
         let root = nka.root()?;
 
@@ -301,7 +301,12 @@ impl SilicaLayer {
                 let mut buf = Vec::new();
                 chunk.read_to_end(&mut buf).unwrap();
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let dst = lzo.decompress_safe(&buf[..], tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT)).unwrap();
+                let dst = lzo
+                    .decompress_safe(
+                        &buf[..],
+                        tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
+                    )
+                    .unwrap();
                 gpu_texture.replace(
                     &render.queue,
                     col * meta.tile_size,

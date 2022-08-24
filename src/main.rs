@@ -7,7 +7,7 @@ use crate::{gpu::RenderState, silica::SilicaHierarchy};
 use futures::executor::block_on;
 use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
-use silica::{ProcreateFile, SilicaError, SilicaGroup};
+use silica::{ProcreateFile, SilicaError};
 use std::{error::Error, num::NonZeroU32};
 
 fn main() -> Result<(), Box<dyn Error>> {

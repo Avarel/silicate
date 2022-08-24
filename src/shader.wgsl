@@ -68,6 +68,10 @@ fn sat(c: vec3f) -> f32 {
 fn set_sat(cb: vec3f, s: f32) -> vec3f {
     let mb = min(min(cb.r, cb.g), cb.b);
     let sb = sat(cb);
+    // Equivalent (modulo rounding errors) to setting the
+    // smallest (R,G,B) component to 0, the largest to <ssat>,
+    // and interpolating the "middle" component based on its
+    // original value relative to the smallest/largest.
     return select(vec3(0.0), (cb - mb) * s / sb, sb > 0.0);
 }
 
@@ -184,10 +188,10 @@ fn color_burn(b: vec3f, s: vec3f) -> vec3f {
     );
 }
 
-fn soft_light(b: vec3f, s: vec3f, da: f32, sa: f32) -> vec3f {
+fn soft_light(b: vec3f, s: vec3f) -> vec3f {
     return mix(
         sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s), 
-        2.0 * b * s + b * b * (1.0 - 2.0 * s) + comp(s, da) + comp(b, sa),
+        2.0 * b * s + b * b * (1.0 - 2.0 * s),
         step(b, vec3(0.5))
     );
 }
@@ -288,7 +292,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         case 14u: { final_pixel = luminosity(bg.rgb, fg.rgb); }
         case 15u: { final_pixel = hue(bg.rgb, fg.rgb); }
         case 16u: { final_pixel = saturation(bg.rgb, fg.rgb); }
-        case 17u: { final_pixel = soft_light(bg.rgb, fg.rgb, 1.0, 1.0); }
+        case 17u: { final_pixel = soft_light(bg.rgb, fg.rgb); }
         case 19u: { final_pixel = darken(bg.rgb, fg.rgb); }
         case 20u: { final_pixel = hard_mix(bg.rgb, fg.rgb); }
         case 21u: { final_pixel = vivid_light(bg.rgb, fg.rgb); }
