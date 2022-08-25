@@ -3,11 +3,11 @@ mod gpu;
 mod ns_archive;
 mod silica;
 
-use crate::{gpu::RenderState, silica::SilicaHierarchy};
+use crate::{gpu::RenderState, silica::{SilicaHierarchy, BlendingMode}};
 use futures::executor::block_on;
 use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
-use silica::{ProcreateFile, SilicaError};
+use silica::ProcreateFile;
 use std::{error::Error, num::NonZeroU32};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let device =
-        futures::executor::block_on(LogicalDevice::new()).ok_or(SilicaError::NoGraphicsDevice)?;
+    let device = futures::executor::block_on(LogicalDevice::new()).unwrap();
 
     let procreate = ProcreateFile::open(&args[1], &device)?;
 
@@ -54,7 +53,7 @@ pub fn gpu_render(
             texture: &pc.composite.image,
             clipped: None,
             opacity: 1.0,
-            blend: 0,
+            blend: BlendingMode::Normal,
             name: Some("Composite"),
         }]);
     } else {

@@ -7,8 +7,6 @@ This renders the file using the GPU, leveraging the `wgpu` crate.
 
 ## Note
 The compositor produces accurate blending results except for:
-* Hard Light
-* Overlay
 * Saturation
 * Hue
 

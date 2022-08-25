@@ -2,6 +2,8 @@ use image::{Pixel, Rgba};
 use std::num::NonZeroU32;
 use wgpu::util::DeviceExt;
 
+use crate::silica::BlendingMode;
+
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
@@ -201,7 +203,7 @@ pub struct CompositeLayer<'a> {
     pub texture: &'a GpuTexture,
     pub clipped: Option<usize>,
     pub opacity: f32,
-    pub blend: u32,
+    pub blend: BlendingMode,
     pub name: Option<&'a str>,
 }
 
@@ -507,7 +509,7 @@ impl<'device> RenderState<'device> {
                 &layer.texture.view,
                 LayerContext {
                     opacity: layer.opacity,
-                    blend: layer.blend,
+                    blend: layer.blend.to_u32(),
                 },
                 if let Some(index) = layer.clipped {
                     &layers[index].texture.view

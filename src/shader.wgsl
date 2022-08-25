@@ -126,9 +126,9 @@ fn add(b: vec3f, s: vec3f) -> vec3f {
 
 fn hard_light(b: vec3f, s: vec3f) -> vec3f {
     return mix(
-        multiply(b, s * 2.0),
         screen(b, 2.0 * s - 1.0),
-        step(b, vec3(0.5))
+        multiply(b, s * 2.0),
+        step(s, vec3(0.5))
     );
 }
 
@@ -192,7 +192,7 @@ fn soft_light(b: vec3f, s: vec3f) -> vec3f {
     return mix(
         sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s), 
         2.0 * b * s + b * b * (1.0 - 2.0 * s),
-        step(b, vec3(0.5))
+        step(s, vec3(0.5))
     );
 }
 
