@@ -3,12 +3,20 @@ mod gpu;
 mod ns_archive;
 mod silica;
 
-use crate::{gpu::RenderState, silica::{SilicaHierarchy, BlendingMode}};
+use crate::{
+    gpu::RenderState,
+    silica::{BlendingMode, SilicaHierarchy},
+};
 use futures::executor::block_on;
 use gpu::{CompositeLayer, LogicalDevice};
 use image::{ImageBuffer, Rgba};
-use silica::ProcreateFile;
-use std::{error::Error, num::NonZeroU32};
+use silica::{ProcreateFile, SilicaGroup};
+use std::{
+    error::Error,
+    fmt::format,
+    num::NonZeroU32,
+    sync::{atomic::AtomicBool, Arc, RwLock},
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
@@ -43,10 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let procreate = ProcreateFile::open(&args[1], &device)?;
 
-    let tex = gpu_render(&procreate, false, &device, "out/image.png");
-    // gpu_render(&procreate, true, &device, "out/reference.png");
-
-    start_gui(device, window, event_loop, &tex);
+    start_gui(procreate, device, window, event_loop);
     Ok(())
 }
 
@@ -54,7 +59,6 @@ pub fn gpu_render(
     pc: &ProcreateFile,
     composite_reference: bool,
     state: &LogicalDevice,
-    out_path: &str,
 ) -> wgpu::TextureView {
     let mut state = RenderState::new(
         pc.size.width,
@@ -64,13 +68,13 @@ pub fn gpu_render(
         state,
     );
 
-    let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
-            as u64,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    // let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
+    //     label: None,
+    //     size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
+    //         as u64,
+    //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+    //     mapped_at_creation: false,
+    // });
 
     if composite_reference {
         state.render(&[CompositeLayer {
@@ -84,75 +88,78 @@ pub fn gpu_render(
         state.render(&resolve(&state, &pc.layers));
     }
 
-    state.handle.queue.submit(Some({
-        let mut encoder = state
-            .handle
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        // Copy the data from the texture to the buffer
-        encoder.copy_texture_to_buffer(
-            state.composite_texture.as_image_copy(),
-            wgpu::ImageCopyBuffer {
-                buffer: &output_buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: NonZeroU32::new(state.buffer_dimensions.padded_bytes_per_row),
-                    rows_per_image: None,
-                },
-            },
-            state.texture_extent,
-        );
+    // state.handle.queue.submit(Some({
+    //     let mut encoder = state
+    //         .handle
+    //         .device
+    //         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    //     // Copy the data from the texture to the buffer
+    //     encoder.copy_texture_to_buffer(
+    //         state.composite_texture.as_image_copy(),
+    //         wgpu::ImageCopyBuffer {
+    //             buffer: &output_buffer,
+    //             layout: wgpu::ImageDataLayout {
+    //                 offset: 0,
+    //                 bytes_per_row: NonZeroU32::new(state.buffer_dimensions.padded_bytes_per_row),
+    //                 rows_per_image: None,
+    //             },
+    //         },
+    //         state.texture_extent,
+    //     );
 
-        encoder.finish()
-    }));
+    //     encoder.finish()
+    // }));
 
-    let buffer_slice = output_buffer.slice(..);
+    // let buffer_slice = output_buffer.slice(..);
 
-    // NOTE: We have to create the mapping THEN device.poll() before await
-    // the future. Otherwise the application will freeze.
-    let (tx, rx) = futures::channel::oneshot::channel();
-    buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-    state.handle.device.poll(wgpu::Maintain::Wait);
-    block_on(rx).unwrap().unwrap();
+    // // NOTE: We have to create the mapping THEN device.poll() before await
+    // // the future. Otherwise the application will freeze.
+    // let (tx, rx) = futures::channel::oneshot::channel();
+    // buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+    // state.handle.device.poll(wgpu::Maintain::Wait);
+    // block_on(rx).unwrap().unwrap();
 
-    let data = buffer_slice.get_mapped_range();
+    // let data = buffer_slice.get_mapped_range();
+
+    // // eprintln!("Loading data to CPU");
+    // // let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
+    // //     state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
+    // //     state.buffer_dimensions.height as u32,
+    // //     data,
+    // // )
+    // // .unwrap();
+    // // eprintln!("Writing image");
 
     // eprintln!("Loading data to CPU");
-    // let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
+    // let mut buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
     //     state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
     //     state.buffer_dimensions.height as u32,
-    //     data,
+    //     data.to_vec(),
     // )
     // .unwrap();
+    // eprintln!("Rotating image");
+
+    // buffer = image::imageops::crop_imm(&buffer, 0, 0, pc.size.width, pc.size.height).to_image();
+    // match pc.orientation {
+    //     0 => {}
+    //     1 | 4 => buffer = image::imageops::rotate90(&buffer),
+    //     2 => buffer = image::imageops::rotate180(&buffer),
+    //     3 => buffer = image::imageops::rotate270(&buffer),
+    //     _ => println!("Unknown orientation!"),
+    // };
     // eprintln!("Writing image");
 
-    eprintln!("Loading data to CPU");
-    let mut buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-        state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
-        state.buffer_dimensions.height as u32,
-        data.to_vec(),
-    )
-    .unwrap();
-    eprintln!("Rotating image");
+    // buffer.save(out_path).unwrap();
 
-    buffer = image::imageops::crop_imm(&buffer, 0, 0, pc.size.width, pc.size.height).to_image();
-    match pc.orientation {
-        0 => {}
-        1 | 4 => buffer = image::imageops::rotate90(&buffer),
-        2 => buffer = image::imageops::rotate180(&buffer),
-        3 => buffer = image::imageops::rotate270(&buffer),
-        _ => println!("Unknown orientation!"),
-    };
-    eprintln!("Writing image");
-
-    buffer.save(out_path).unwrap();
-
-    eprintln!("Finished");
-    drop(buffer);
-    drop(buffer_slice);
+    // eprintln!("Finished");
+    // drop(buffer);
+    // drop(buffer_slice);
 
     // output_buffer.unmap();
-    state.composite_to_srgb().create_view(&wgpu::TextureViewDescriptor::default())
+    state
+        // .composite_to_srgb()
+        .composite_texture
+        .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 fn resolve<'a>(
@@ -211,46 +218,79 @@ use std::time::Instant;
 use egui::FontDefinitions;
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::{event::Event::*, event_loop};
 use winit::event_loop::{ControlFlow, EventLoop};
+use winit::{event::Event::*, event_loop};
 const INITIAL_WIDTH: u32 = 600;
 const INITIAL_HEIGHT: u32 = 600;
 
-/// A custom event type for the winit app.
-enum Event {
-    RequestRedraw,
+fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
+    for layer in &mut layers.children {
+        *i += 1;
+        match layer {
+            SilicaHierarchy::Layer(l) => {
+                ui.push_id(*i, |ui| {
+                    *i += 1;
+                    ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
+                        ui.checkbox(&mut l.hidden, "Hidden").changed();
+                        ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0));
+                    });
+                });
+            }
+            SilicaHierarchy::Group(h) => {
+                ui.push_id(*i, |ui| {
+                    *i += 1;
+                    ui.collapsing(h.name.to_string().as_str(), |ui| {
+                        ui.checkbox(&mut h.hidden, "Hidden").changed();
+                        layout_layers(ui, h, i);
+                    })
+                });
+            }
+        }
+    }
 }
 
-// /// This is the repaint signal type that egui needs for requesting a repaint from another thread.
-// /// It sends the custom RequestRedraw event to the winit event loop.
-// struct ExampleRepaintSignal(std::sync::Mutex<winit::event_loop::EventLoopProxy<Event>>);
-
-// impl epi::backend::RepaintSignal for ExampleRepaintSignal {
-//     fn request_repaint(&self) {
-//         self.0.lock().unwrap().send_event(Event::RequestRedraw).ok();
-//     }
-// }
+fn layout_layers_ro(ui: &mut egui::Ui, layers: &SilicaGroup, i: &mut usize) {
+    for layer in &layers.children {
+        *i += 1;
+        match layer {
+            SilicaHierarchy::Layer(l) => {
+                ui.push_id(*i, |ui| {
+                    *i += 1;
+                    ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
+                        let mut z = l.hidden;
+                        ui.checkbox(&mut z, "Hidden");
+                        let mut z = l.opacity;
+                        ui.add(egui::Slider::new(&mut z, 0.0..=1.0));
+                    });
+                });
+            }
+            SilicaHierarchy::Group(h) => {
+                ui.push_id(*i, |ui| {
+                    *i += 1;
+                    ui.collapsing(h.name.to_string().as_str(), |ui| {
+                        let mut z = h.hidden;
+                        ui.checkbox(&mut z, "Hidden");
+                        layout_layers_ro(ui, h, i);
+                    })
+                });
+            }
+        }
+    }
+}
 
 /// A simple egui + wgpu + winit based example.
-fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: winit::event_loop::EventLoop<Event>, tex: &wgpu::TextureView) {
-    let instance = dev.instance;
-    let device = dev.device;
-    let adapter = dev.adapter;
-    let queue = dev.queue;
-    let surface = unsafe { instance.create_surface(&window) };
+fn start_gui(
+    pc: ProcreateFile,
+    dev: LogicalDevice,
+    window: winit::window::Window,
+    event_loop: winit::event_loop::EventLoop<()>,
+) {
+    let surface = unsafe { dev.instance.create_surface(&window) };
 
-    // let (device, queue) = futures::executor::block_on(adapter.request_device(
-    //     &wgpu::DeviceDescriptor {
-    //         features: wgpu::Features::default(),
-    //         limits: wgpu::Limits::default(),
-    //         label: None,
-    //     },
-    //     None,
-    // ))
-    // .unwrap();
+    let tex = Arc::new(RwLock::new(gpu_render(&pc, false, &dev)));
 
     let size = window.inner_size();
-    let surface_format = surface.get_supported_formats(&adapter)[0];
+    let surface_format = surface.get_supported_formats(&dev.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
@@ -258,7 +298,7 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
         height: size.height as u32,
         present_mode: wgpu::PresentMode::Fifo,
     };
-    surface.configure(&device, &surface_config);
+    surface.configure(&dev.device, &surface_config);
 
     // We use the egui_winit_platform crate as the platform.
     let mut platform = Platform::new(PlatformDescriptor {
@@ -269,15 +309,42 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
         style: Default::default(),
     });
 
-    // We use the egui_wgpu_backend crate as the render backend.
-    let mut egui_rpass = RenderPass::new(&device, surface_format, 1);
+    let dev = Arc::new(dev);
+    let pc = Arc::new(RwLock::new(pc));
+    let running = Arc::new(AtomicBool::new(true));
 
-    let egui_tex = egui_rpass.egui_texture_from_wgpu_texture(&device, tex, wgpu::FilterMode::Linear);
+    // We use the egui_wgpu_backend crate as the render backend.
+    let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
+
+    let egui_tex = egui_rpass.egui_texture_from_wgpu_texture(
+        &dev.device,
+        &tex.read().unwrap(),
+        wgpu::FilterMode::Linear,
+    );
+
+    {
+        let tex = tex.clone();
+        let running = running.clone();
+        let dev = dev.clone();
+        let pc = pc.clone();
+        // let egui_rpass = egui_rpass.clone();
+        std::thread::spawn(move || {
+            while running.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Ok(pc) = pc.try_read() {
+                    *tex.write().unwrap() = gpu_render(&pc, false, &dev);
+                }
+                
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        });
+    }
 
     // egui_rpass.update_egui_texture_from_wgpu_texture(device, texture, texture_filter, id)
 
     // // Display the demo application that ships with egui.
     // let mut demo_app = egui_demo_lib::DemoWindows::default();
+
+    let mut show = true;
 
     let start_time = Instant::now();
     event_loop.run(move |event, _, control_flow| {
@@ -286,6 +353,8 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
 
         match event {
             RedrawRequested(..) => {
+                let mut need_redraw = false;
+
                 platform.update_time(start_time.elapsed().as_secs_f64());
 
                 let output_frame = match surface.get_current_texture() {
@@ -308,33 +377,61 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
                 // Begin to draw the UI frame.
                 platform.begin_frame();
 
-                // // Draw the demo application.
-                // demo_app.ui(&platform.context());
-
                 egui::CentralPanel::default().show(&platform.context(), |ui| {
-                    ui.label("wow!");
-                    egui::Area::new("image").default_pos(egui::pos2(0.0, 0.0)).drag_bounds(egui::Rect::EVERYTHING).show(ui.ctx(), |ui| {
-                        ui.image(egui_tex, (1000.0, 1000.0));
+                    egui::Area::new("image")
+                        .default_pos(egui::pos2(0.0, 0.0))
+                        .drag_bounds(egui::Rect::EVERYTHING)
+                        .show(ui.ctx(), |ui| {
+                            if show {
+                                ui.image(egui_tex, (1000.0, 1000.0));
+                            }
+                        });
+                });
+
+                if let Ok(mut z) = pc.try_write() {
+                    egui::Window::new("Layers").show(&platform.context(), |ui| {
+                        if ui.button("Toggle Canvas").clicked() {
+                            show = !show;
+                            need_redraw = true;
+                        }
+                        let mut i = 0;
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            layout_layers(ui, &mut z.layers, &mut i);
+                        })
                     });
-                });
+                } else {
+                    egui::Window::new("Layers").enabled(false).show(&platform.context(), |ui| {
+                        if ui.button("Toggle Canvas").clicked() {
+                            show = !show;
+                            need_redraw = true;
+                        }
+                        let mut i = 0;
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            layout_layers_ro(ui, &pc.read().unwrap().layers, &mut i);
+                        })
+                    });
+                }
 
-                
-
-                egui::Window::new("Lolsers").show(&platform.context(), |ui| {
-                    if ui.button("lol!").clicked() {
-                        println!("wow!");
-                    }
-                });
-
-
+                if let Ok(z) = tex.try_read() {
+                    egui_rpass
+                        .update_egui_texture_from_wgpu_texture(
+                            &dev.device,
+                            &z,
+                            wgpu::FilterMode::Linear,
+                            egui_tex,
+                        )
+                        .unwrap();
+                }
 
                 // End the UI frame. We could now handle the output and draw the UI with the backend.
                 let full_output = platform.end_frame(Some(&window));
                 let paint_jobs = platform.context().tessellate(full_output.shapes);
 
-                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("encoder"),
-                });
+                let mut encoder =
+                    dev.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("encoder"),
+                        });
 
                 // Upload all resources for the GPU.
                 let screen_descriptor = ScreenDescriptor {
@@ -344,9 +441,9 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
                 };
                 let tdelta: egui::TexturesDelta = full_output.textures_delta;
                 egui_rpass
-                    .add_textures(&device, &queue, &tdelta)
+                    .add_textures(&dev.device, &dev.queue, &tdelta)
                     .expect("add texture ok");
-                egui_rpass.update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
+                egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
                 // Record all render passes.
                 egui_rpass
@@ -359,7 +456,7 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
                     )
                     .unwrap();
                 // Submit the commands.
-                queue.submit(iter::once(encoder.finish()));
+                dev.queue.submit(iter::once(encoder.finish()));
 
                 // Redraw egui
                 output_frame.present();
@@ -368,15 +465,13 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
                     .remove_textures(tdelta)
                     .expect("remove texture ok");
 
-                // Suppport reactive on windows only, but not on linux.
-                // if _output.needs_repaint {
+                // if need_redraw {
                 //     *control_flow = ControlFlow::Poll;
                 // } else {
                 //     *control_flow = ControlFlow::Wait;
                 // }
-                *control_flow = ControlFlow::Wait;
             }
-            MainEventsCleared | UserEvent(Event::RequestRedraw) => {
+            MainEventsCleared => {
                 window.request_redraw();
             }
             WindowEvent { event, .. } => match event {
@@ -387,11 +482,12 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
                     if size.width > 0 && size.height > 0 {
                         surface_config.width = size.width;
                         surface_config.height = size.height;
-                        surface.configure(&device, &surface_config);
+                        surface.configure(&dev.device, &surface_config);
                     }
                 }
                 winit::event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
+                    running.store(false, std::sync::atomic::Ordering::SeqCst);
                 }
                 _ => {}
             },
@@ -399,9 +495,3 @@ fn start_gui(dev: LogicalDevice, window: winit::window::Window, event_loop: wini
         }
     });
 }
-
-// /// Time of day as seconds since midnight. Used for clock in demo app.
-// pub fn seconds_since_midnight() -> f64 {
-//     let time = chrono::Local::now().time();
-//     time.num_seconds_from_midnight() as f64 + 1e-9 * (time.nanosecond() as f64)
-// }
