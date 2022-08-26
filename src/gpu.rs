@@ -9,7 +9,9 @@ const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 #[derive(Debug)]
 pub struct LogicalDevice {
+    pub instance: wgpu::Instance,
     pub device: wgpu::Device,
+    pub adapter: wgpu::Adapter,
     pub queue: wgpu::Queue,
 }
 
@@ -31,7 +33,39 @@ impl LogicalDevice {
 
         dbg!(adapter.get_info());
 
-        Some(Self { device, queue })
+        Some(Self { instance, device, adapter, queue })
+    }
+
+    pub async fn with_window(window: &winit::window::Window) -> Option<Self> {
+        // let window = winit::window::WindowBuilder::new()
+        // .with_decorations(true)
+        // .with_resizable(true)
+        // .with_transparent(false)
+        // .with_title("egui-wgpu_winit example")
+        // .with_inner_size(winit::dpi::PhysicalSize {
+        //     width: INITIAL_WIDTH,
+        //     height: INITIAL_HEIGHT,
+        // })
+        // .build(&event_loop)
+        // .unwrap();
+
+        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let surface = unsafe { instance.create_surface(window) };
+
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }).await?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .ok()?;
+
+        dbg!(adapter.get_info());
+
+        Some(Self { instance, device, adapter, queue })
     }
 }
 
@@ -244,6 +278,7 @@ impl<'device> RenderState<'device> {
         let LogicalDevice {
             ref device,
             ref queue,
+            ..
         } = handle;
 
         let mut vertices = SQUARE_VERTICES;
@@ -520,6 +555,143 @@ impl<'device> RenderState<'device> {
 
             // eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
         }
+    }
+
+    pub fn composite_to_srgb(&self) -> wgpu::Texture {
+        // The render pipeline renders data into this texture
+        let output_texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("output_texture"),
+            size: self.texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TEX_DIM,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
+        });
+
+        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shader = self.handle.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Dynamically loaded shader module"),
+            source: wgpu::ShaderSource::Wgsl({
+                use std::fs::OpenOptions;
+                use std::io::Read;
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open("./src/srgb.wgsl")
+                    .unwrap();
+
+                let mut buf = String::new();
+                file.read_to_string(&mut buf).unwrap();
+                buf.into()
+            }),
+        });
+
+        let render_pipeline_layout =
+        self.handle.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("render_pipeline_layout"),
+            bind_group_layouts: &[&self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("texture_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                }],
+            }), &self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("blending_group_layout"),
+                entries: &[
+                    Self::texture_bind_group_layout_entry(0),
+                ],
+            })],
+            push_constant_ranges: &[],
+        });
+
+        let prev_texture_view = self
+            .composite_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mixing_bind_group = self
+            .handle
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("blending_group_layout"),
+                    entries: &[
+                        Self::texture_bind_group_layout_entry(0),
+                    ],
+                }),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+                    },
+                ],
+                label: Some("mixing_bind_group"),
+        });
+
+        let render_pipeline = self.handle.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("render_pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[Vertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: TEX_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip, // 1.
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw, // 2.
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        self.handle.queue.submit(Some({
+            let mut encoder = self
+                .handle
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            render_pass.set_pipeline(&render_pipeline);
+            render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
+            render_pass.set_bind_group(1, &mixing_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+            drop(render_pass);
+
+            encoder.finish()
+        }));
+        
+        output_texture
     }
 
     fn render_layer(

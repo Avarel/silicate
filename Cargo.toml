@@ -17,3 +17,8 @@ wgpu = "0.13"
 futures = "0.3"
 bytemuck = { version = "1.12", features = ["derive"] }
 memmap2 = "0.5"
+# Display GUI
+egui = { version = "0.18", features = ["bytemuck"] }
+egui_wgpu_backend = "0.18.0"
+egui_winit_platform = "0.15.0"
+winit = "0.26"
