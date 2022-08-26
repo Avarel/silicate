@@ -11,7 +11,7 @@ use gpu::{CompositeLayer, GpuTexture, LogicalDevice};
 use silica::{ProcreateFile, SilicaGroup};
 use std::{
     error::Error,
-    sync::{atomic::AtomicBool, Arc, RwLock},
+    sync::{atomic::AtomicBool, Arc, RwLock}, num::NonZeroU32,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let event_loop = winit::event_loop::EventLoop::with_user_event();
+    let event_loop = EventLoopBuilder::new().build();
     let window = winit::window::WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)
@@ -195,13 +195,13 @@ use std::iter;
 use std::time::Instant;
 
 use egui::{
-    plot::{Plot, Value},
+    plot::{Plot, PlotPoint},
     FontDefinitions,
 };
-use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
+use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event::Event::*;
 use winit::event_loop::ControlFlow;
+use winit::{event::Event::*, event_loop::EventLoopBuilder};
 const INITIAL_WIDTH: u32 = 1200;
 const INITIAL_HEIGHT: u32 = 700;
 
@@ -293,7 +293,7 @@ fn start_gui(
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let egui_tex = egui_rpass.egui_texture_from_wgpu_texture(
+    let mut egui_tex = egui_rpass.register_native_texture(
         &dev.device,
         &tex.read().unwrap(),
         wgpu::FilterMode::Linear,
@@ -400,7 +400,7 @@ fn start_gui(
                             let size = state.read().unwrap().buffer_dimensions;
                             plot_ui.image(egui::plot::PlotImage::new(
                                 egui_tex,
-                                Value { x: 0.0, y: 0.0 },
+                                PlotPoint { x: 0.0, y: 0.0 },
                                 (size.width as f32, size.height as f32),
                             ))
                         });
@@ -408,16 +408,7 @@ fn start_gui(
 
                 let full_output = platform.end_frame(Some(&window));
 
-                if let Ok(z) = tex.try_read() {
-                    egui_rpass
-                        .update_egui_texture_from_wgpu_texture(
-                            &dev.device,
-                            &z,
-                            wgpu::FilterMode::Linear,
-                            egui_tex,
-                        )
-                        .unwrap();
-                }
+         
 
                 let paint_jobs = platform.context().tessellate(full_output.shapes);
 
@@ -429,14 +420,22 @@ fn start_gui(
 
                 // Upload all resources for the GPU.
                 let screen_descriptor = ScreenDescriptor {
-                    physical_width: surface_config.width,
-                    physical_height: surface_config.height,
-                    scale_factor: window.scale_factor() as f32,
+                    size_in_pixels: [surface_config.width, surface_config.height],
+                    pixels_per_point: window.scale_factor() as f32
                 };
                 let tdelta: egui::TexturesDelta = full_output.textures_delta;
-                egui_rpass
-                    .add_textures(&dev.device, &dev.queue, &tdelta)
-                    .expect("add texture ok");
+                // egui_rpass
+                //     .add_textures(&dev.device, &dev.queue, &tdelta)
+                //     .expect("add texture ok");
+                // egui_rpass.
+                // egui_rpass.update_texture(&dev.device, &dev.queue, id, image_delta)
+
+                for (id, image_delta) in &tdelta.set {
+                    egui_rpass.update_texture(&dev.device, &dev.queue, *id, image_delta);
+                }
+                for id in &tdelta.free {
+                    egui_rpass.free_texture(id);
+                }
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
                 // Record all render passes.
@@ -447,17 +446,24 @@ fn start_gui(
                         &paint_jobs,
                         &screen_descriptor,
                         Some(wgpu::Color::BLACK),
-                    )
-                    .unwrap();
+                    );
                 // Submit the commands.
                 dev.queue.submit(iter::once(encoder.finish()));
 
                 // Redraw egui
                 output_frame.present();
 
-                egui_rpass
-                    .remove_textures(tdelta)
-                    .expect("remove texture ok");
+                // egui_rpass
+                //     .remove_textures(tdelta)
+                //     .expect("remove texture ok");
+                tdelta.free.iter().for_each(|z| egui_rpass.free_texture(z));
+
+                if let Ok(z) = tex.try_read() {
+                    egui_rpass.free_texture(&egui_tex);
+                    egui_tex = egui_rpass.register_native_texture(&dev.device, &z, wgpu::FilterMode::Linear);
+                    // egui_rpass
+                    //     .update_texture(&dev.device, &z, wgpu::FilterMode::Linear, egui_tex);
+                }
             }
             MainEventsCleared => {
                 window.request_redraw();

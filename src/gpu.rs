@@ -16,61 +16,36 @@ pub struct LogicalDevice {
 }
 
 impl LogicalDevice {
+    const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static> = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    };
+
     pub async fn new() -> Option<Self> {
-        // Obtain the handle to the GPU
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..Default::default()
-            })
-            .await?;
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default(), None)
-            .await
-            .ok()?;
-
-        dbg!(adapter.get_info());
-
-        Some(Self {
-            instance,
-            device,
-            adapter,
-            queue,
-        })
+        let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await?;
+        Self::from_adapter(instance, adapter).await
     }
 
     pub async fn with_window(window: &winit::window::Window) -> Option<Self> {
-        // let window = winit::window::WindowBuilder::new()
-        // .with_decorations(true)
-        // .with_resizable(true)
-        // .with_transparent(false)
-        // .with_title("egui-wgpu_winit example")
-        // .with_inner_size(winit::dpi::PhysicalSize {
-        //     width: INITIAL_WIDTH,
-        //     height: INITIAL_HEIGHT,
-        // })
-        // .build(&event_loop)
-        // .unwrap();
-
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
-
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
+                ..Self::ADAPTER_OPTIONS
             })
             .await?;
+        Self::from_adapter(instance, adapter).await
+    }
 
+    async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
+        dbg!(adapter.get_info());
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default(), None)
             .await
             .ok()?;
-
-        dbg!(adapter.get_info());
 
         Some(Self {
             instance,
@@ -316,7 +291,8 @@ impl<'device> RenderState<'device> {
     }
 
     pub fn tranpose_dimensions(&mut self) {
-        let buffer_dimensions = BufferDimensions::new(self.buffer_dimensions.height, self.buffer_dimensions.width);
+        let buffer_dimensions =
+            BufferDimensions::new(self.buffer_dimensions.height, self.buffer_dimensions.width);
         // The output buffer lets us retrieve the data as an array
 
         let texture_extent = wgpu::Extent3d {
@@ -340,8 +316,10 @@ impl<'device> RenderState<'device> {
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
             self.handle.queue.submit(Some({
-                let mut encoder =
-                    self.handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                let mut encoder = self
+                    .handle
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
@@ -371,11 +349,14 @@ impl<'device> RenderState<'device> {
         // self.vertex_buffer.slice(..).get_mapped_range_mut()[..self.vertices.len()]
         //     .copy_from_slice(bytemuck::cast_slice(&self.vertices));
         // self.vertex_buffer.unmap();
-        self.vertex_buffer = self.handle.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex_buffer"),
-            contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        self.vertex_buffer =
+            self.handle
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("vertex_buffer"),
+                    contents: bytemuck::cast_slice(&self.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
     }
 
     pub fn new(
@@ -391,7 +372,6 @@ impl<'device> RenderState<'device> {
         } = handle;
 
         let vertices = SQUARE_VERTICES;
-        
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
