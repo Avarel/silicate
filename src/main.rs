@@ -7,14 +7,10 @@ use crate::{
     gpu::RenderState,
     silica::{BlendingMode, SilicaHierarchy},
 };
-use futures::executor::block_on;
-use gpu::{CompositeLayer, LogicalDevice};
-use image::{ImageBuffer, Rgba};
+use gpu::{CompositeLayer, GpuTexture, LogicalDevice};
 use silica::{ProcreateFile, SilicaGroup};
 use std::{
     error::Error,
-    fmt::format,
-    num::NonZeroU32,
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
@@ -37,16 +33,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build(&event_loop)
         .unwrap();
 
-    // let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-
-    // // WGPU 0.11+ support force fallback (if HW implementation not supported), set it to true or false (optional).
-    // let adapter = futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-    //     power_preference: wgpu::PowerPreference::LowPower,
-    //     compatible_surface: Some(&surface),
-    //     force_fallback_adapter: false,
-    // }))
-    // .unwrap();
-
     let device = futures::executor::block_on(LogicalDevice::with_window(&window)).unwrap();
 
     let procreate = ProcreateFile::open(&args[1], &device)?;
@@ -56,18 +42,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn gpu_render(
-    pc: &ProcreateFile,
+    state: &RenderState,
+    // pc: &ProcreateFile,
+    gpu_textures: &[GpuTexture],
+    layers: &SilicaGroup,
     composite_reference: bool,
-    state: &LogicalDevice,
 ) -> wgpu::TextureView {
-    let mut state = RenderState::new(
-        pc.size.width,
-        pc.size.height,
-        (pc.flipped.horizontally, pc.flipped.vertically),
-        (!pc.background_hidden).then_some(pc.background_color),
-        state,
-    );
-
     // let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
     //     label: None,
     //     size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
@@ -76,17 +56,17 @@ pub fn gpu_render(
     //     mapped_at_creation: false,
     // });
 
-    if composite_reference {
-        state.render(&[CompositeLayer {
-            texture: &pc.composite.image,
-            clipped: None,
-            opacity: 1.0,
-            blend: BlendingMode::Normal,
-            name: Some("Composite"),
-        }]);
-    } else {
-        state.render(&resolve(&state, &pc.layers));
-    }
+    // let result = if composite_reference {
+    //     state.render(&[CompositeLayer {
+    //         texture: &pc.composite.image,
+    //         clipped: None,
+    //         opacity: 1.0,
+    //         blend: BlendingMode::Normal,
+    //         name: Some("Composite"),
+    //     }])
+    // } else {
+    let result = state.render(&resolve(&state, gpu_textures, &layers));
+    // };
 
     // state.handle.queue.submit(Some({
     //     let mut encoder = state
@@ -156,18 +136,17 @@ pub fn gpu_render(
     // drop(buffer_slice);
 
     // output_buffer.unmap();
-    state
-        // .composite_to_srgb()
-        .composite_texture
-        .create_view(&wgpu::TextureViewDescriptor::default())
+    result.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 fn resolve<'a>(
     state: &RenderState,
+    gpu_textures: &'a [GpuTexture],
     layers: &'a crate::silica::SilicaGroup,
 ) -> Vec<CompositeLayer<'a>> {
     fn inner<'a>(
         state: &RenderState,
+        gpu_textures: &'a [GpuTexture],
         layers: &'a crate::silica::SilicaGroup,
         composite_layers: &mut Vec<CompositeLayer<'a>>,
     ) {
@@ -176,7 +155,7 @@ fn resolve<'a>(
         for (index, layer) in layers.children.iter().rev().enumerate() {
             match layer {
                 SilicaHierarchy::Group(group) if !group.hidden => {
-                    inner(state, group, composite_layers);
+                    inner(state, gpu_textures, group, composite_layers);
                 }
                 SilicaHierarchy::Layer(layer) if !layer.hidden => {
                     if let Some((_, mask_layer)) = mask_layer {
@@ -186,7 +165,7 @@ fn resolve<'a>(
                         }
                     }
 
-                    let gpu_texture = &layer.image;
+                    let gpu_texture = &gpu_textures[layer.image];
 
                     composite_layers.push(CompositeLayer {
                         texture: gpu_texture,
@@ -208,20 +187,23 @@ fn resolve<'a>(
     }
 
     let mut composite_layers = Vec::new();
-    inner(&state, layers, &mut composite_layers);
+    inner(&state, gpu_textures, layers, &mut composite_layers);
     composite_layers
 }
 
 use std::iter;
 use std::time::Instant;
 
-use egui::FontDefinitions;
+use egui::{
+    plot::{Plot, Value},
+    FontDefinitions,
+};
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::{event::Event::*, event_loop};
-const INITIAL_WIDTH: u32 = 600;
-const INITIAL_HEIGHT: u32 = 600;
+use winit::event::Event::*;
+use winit::event_loop::ControlFlow;
+const INITIAL_WIDTH: u32 = 1200;
+const INITIAL_HEIGHT: u32 = 700;
 
 fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
     for layer in &mut layers.children {
@@ -232,7 +214,14 @@ fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
                     *i += 1;
                     ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
                         ui.checkbox(&mut l.hidden, "Hidden").changed();
-                        ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0));
+                        egui::ComboBox::from_label("Blending Mode")
+                            .selected_text(format!("{:?}", l.blend))
+                            .show_ui(ui, |ui| {
+                                for b in BlendingMode::all() {
+                                    ui.selectable_value(&mut l.blend, *b, b.to_str());
+                                }
+                            });
+                        ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("Opacity"));
                     });
                 });
             }
@@ -249,67 +238,55 @@ fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
     }
 }
 
-fn layout_layers_ro(ui: &mut egui::Ui, layers: &SilicaGroup, i: &mut usize) {
-    for layer in &layers.children {
-        *i += 1;
-        match layer {
-            SilicaHierarchy::Layer(l) => {
-                ui.push_id(*i, |ui| {
-                    *i += 1;
-                    ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
-                        let mut z = l.hidden;
-                        ui.checkbox(&mut z, "Hidden");
-                        let mut z = l.opacity;
-                        ui.add(egui::Slider::new(&mut z, 0.0..=1.0));
-                    });
-                });
-            }
-            SilicaHierarchy::Group(h) => {
-                ui.push_id(*i, |ui| {
-                    *i += 1;
-                    ui.collapsing(h.name.to_string().as_str(), |ui| {
-                        let mut z = h.hidden;
-                        ui.checkbox(&mut z, "Hidden");
-                        layout_layers_ro(ui, h, i);
-                    })
-                });
-            }
-        }
-    }
-}
-
-/// A simple egui + wgpu + winit based example.
 fn start_gui(
-    pc: ProcreateFile,
+    (pc, gpu_textures): (ProcreateFile, Vec<GpuTexture>),
     dev: LogicalDevice,
     window: winit::window::Window,
     event_loop: winit::event_loop::EventLoop<()>,
 ) {
     let surface = unsafe { dev.instance.create_surface(&window) };
 
-    let tex = Arc::new(RwLock::new(gpu_render(&pc, false, &dev)));
+    let dev = &*Box::leak(Box::new(dev));
+
+    let state = Arc::new(RwLock::new({
+        let mut state = RenderState::new(
+            pc.size.width,
+            pc.size.height,
+            (!pc.background_hidden).then_some(pc.background_color),
+            dev,
+        );
+        state.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
+        state
+    }));
+
+    let tex = Arc::new(RwLock::new(
+        state
+            .read()
+            .unwrap()
+            .base_composite_texture()
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+    ));
 
     let size = window.inner_size();
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
-        width: size.width as u32,
-        height: size.height as u32,
+        width: size.width,
+        height: size.height,
         present_mode: wgpu::PresentMode::Fifo,
     };
     surface.configure(&dev.device, &surface_config);
 
     // We use the egui_winit_platform crate as the platform.
     let mut platform = Platform::new(PlatformDescriptor {
-        physical_width: size.width as u32,
-        physical_height: size.height as u32,
+        physical_width: size.width,
+        physical_height: size.height,
         scale_factor: window.scale_factor(),
         font_definitions: FontDefinitions::default(),
         style: Default::default(),
     });
 
-    let dev = Arc::new(dev);
     let pc = Arc::new(RwLock::new(pc));
     let running = Arc::new(AtomicBool::new(true));
 
@@ -323,26 +300,20 @@ fn start_gui(
     );
 
     {
+        let state = state.clone();
         let tex = tex.clone();
         let running = running.clone();
-        let dev = dev.clone();
         let pc = pc.clone();
-        // let egui_rpass = egui_rpass.clone();
         std::thread::spawn(move || {
             while running.load(std::sync::atomic::Ordering::SeqCst) {
-                if let Ok(pc) = pc.try_read() {
-                    *tex.write().unwrap() = gpu_render(&pc, false, &dev);
-                }
-                
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                let gpu_textures = &gpu_textures;
+                let layer_data = pc.read().unwrap().layers.clone();
+                *tex.write().unwrap() =
+                    gpu_render(&state.read().unwrap(), &gpu_textures, &layer_data, false);
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         });
     }
-
-    // egui_rpass.update_egui_texture_from_wgpu_texture(device, texture, texture_filter, id)
-
-    // // Display the demo application that ships with egui.
-    // let mut demo_app = egui_demo_lib::DemoWindows::default();
 
     let mut show = true;
 
@@ -353,8 +324,6 @@ fn start_gui(
 
         match event {
             RedrawRequested(..) => {
-                let mut need_redraw = false;
-
                 platform.update_time(start_time.elapsed().as_secs_f64());
 
                 let output_frame = match surface.get_current_texture() {
@@ -377,40 +346,67 @@ fn start_gui(
                 // Begin to draw the UI frame.
                 platform.begin_frame();
 
-                egui::CentralPanel::default().show(&platform.context(), |ui| {
-                    egui::Area::new("image")
-                        .default_pos(egui::pos2(0.0, 0.0))
-                        .drag_bounds(egui::Rect::EVERYTHING)
-                        .show(ui.ctx(), |ui| {
-                            if show {
-                                ui.image(egui_tex, (1000.0, 1000.0));
-                            }
-                        });
-                });
+                egui::SidePanel::new(egui::panel::Side::Right, "Side Panel")
+                    .default_width(300.0)
+                    .show(&platform.context(), |ui| {
+                        if ui.button("Toggle Canvas").clicked() {
+                            show = !show;
+                        }
+                        // if ui.button("Flip Canvas").clicked() {
+                        //     state.write().unwrap().flip_vertices((true, true));
+                        // }
+                        // if ui.checkbox(checked, text)
+                        // ui.separator();
 
-                if let Ok(mut z) = pc.try_write() {
-                    egui::Window::new("Layers").show(&platform.context(), |ui| {
-                        if ui.button("Toggle Canvas").clicked() {
-                            show = !show;
-                            need_redraw = true;
+                        let mut pc = pc.write().unwrap();
+
+                        ui.separator();
+
+                        if ui.button("Horizontal Flip").clicked() {
+                            state.write().unwrap().flip_vertices((true, false));
                         }
-                        let mut i = 0;
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            layout_layers(ui, &mut z.layers, &mut i);
-                        })
-                    });
-                } else {
-                    egui::Window::new("Layers").enabled(false).show(&platform.context(), |ui| {
-                        if ui.button("Toggle Canvas").clicked() {
-                            show = !show;
-                            need_redraw = true;
+                        if ui.button("Vertical Flip").clicked() {
+                            state.write().unwrap().flip_vertices((false, true));
                         }
+                        if ui.button("Rotate CCW").clicked() {
+                            state.write().unwrap().rotate_vertices(true);
+                            state.write().unwrap().tranpose_dimensions();
+                        }
+                        if ui.button("Rotate CCW").clicked() {
+                            state.write().unwrap().rotate_vertices(false);
+                            state.write().unwrap().tranpose_dimensions();
+                        }
+
+                        ui.separator();
+
                         let mut i = 0;
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            layout_layers_ro(ui, &pc.read().unwrap().layers, &mut i);
-                        })
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                layout_layers(ui, &mut pc.layers, &mut i);
+                            });
                     });
-                }
+
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none())
+                    .show(&platform.context(), |ui| {
+                        let mut plot = Plot::new("lines_demo").data_aspect(1.0);
+
+                        if show {
+                            plot = plot.show_x(false).show_y(false).show_axes([false, false]);
+                        }
+
+                        plot.show(ui, |plot_ui| {
+                            let size = state.read().unwrap().buffer_dimensions;
+                            plot_ui.image(egui::plot::PlotImage::new(
+                                egui_tex,
+                                Value { x: 0.0, y: 0.0 },
+                                (size.width as f32, size.height as f32),
+                            ))
+                        });
+                    });
+
+                let full_output = platform.end_frame(Some(&window));
 
                 if let Ok(z) = tex.try_read() {
                     egui_rpass
@@ -423,8 +419,6 @@ fn start_gui(
                         .unwrap();
                 }
 
-                // End the UI frame. We could now handle the output and draw the UI with the backend.
-                let full_output = platform.end_frame(Some(&window));
                 let paint_jobs = platform.context().tessellate(full_output.shapes);
 
                 let mut encoder =
@@ -464,12 +458,6 @@ fn start_gui(
                 egui_rpass
                     .remove_textures(tdelta)
                     .expect("remove texture ok");
-
-                // if need_redraw {
-                //     *control_flow = ControlFlow::Poll;
-                // } else {
-                //     *control_flow = ControlFlow::Wait;
-                // }
             }
             MainEventsCleared => {
                 window.request_redraw();

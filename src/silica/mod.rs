@@ -5,10 +5,12 @@ use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 
+use std::fmt::Pointer;
 use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use zip::read::ZipArchive;
 
@@ -62,7 +64,76 @@ pub enum BlendingMode {
     Divide = 26,
 }
 
+impl std::fmt::Display for BlendingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
 impl BlendingMode {
+    pub fn all() -> &'static [BlendingMode] {
+        use BlendingMode::*;
+        &[
+            Normal,
+            Multiply,
+            Screen,
+            Add,
+            Lighten,
+            Exclusion,
+            Difference,
+            Subtract,
+            LinearBurn,
+            ColorDodge,
+            ColorBurn,
+            Overlay,
+            HardLight,
+            Color,
+            Luminosity,
+            Hue,
+            Saturation,
+            SoftLight,
+            Darken,
+            HardMix,
+            VividLight,
+            LinearLight,
+            PinLight,
+            LighterColor,
+            DarkerColor,
+            Divide,
+        ]
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::Multiply => "Multiply",
+            Self::Screen => "Screen",
+            Self::Add => "Add",
+            Self::Lighten => "Lighten",
+            Self::Exclusion => "Exclusion",
+            Self::Difference => "Difference",
+            Self::Subtract => "Subtract",
+            Self::LinearBurn => "Linear Burn",
+            Self::ColorDodge => "Color Dodge",
+            Self::ColorBurn => "Color Burn",
+            Self::Overlay => "Overlay",
+            Self::HardLight => "Hard Light",
+            Self::Color => "Color",
+            Self::Luminosity => "Luminosity",
+            Self::Hue => "Hue",
+            Self::Saturation => "Saturation",
+            Self::SoftLight => "Soft Light",
+            Self::Darken => "Darken",
+            Self::HardMix => "Hard Mix",
+            Self::VividLight => "Vivid Light",
+            Self::LinearLight => "Linear Light",
+            Self::PinLight => "Pin Light",
+            Self::LighterColor => "Lighter Color",
+            Self::DarkerColor => "Darker Color",
+            Self::Divide => "Divide",
+        }
+    }
+
     pub fn from_u32(blend: u32) -> Result<Self, SilicaError> {
         Ok(match blend {
             0 => Self::Normal,
@@ -157,20 +228,20 @@ pub struct ProcreateFile {
     pub size: Size<u32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SilicaHierarchy {
     Layer(SilicaLayer),
     Group(SilicaGroup),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SilicaGroup {
     pub hidden: bool,
     pub children: Vec<SilicaHierarchy>,
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?
     pub blend: BlendingMode,
@@ -184,7 +255,7 @@ pub struct SilicaLayer {
     // extendedBlend:Int?
     pub hidden: bool,
     // locked:Bool?
-    pub mask: Option<Box<SilicaLayer>>,
+    pub mask: Option<Box<usize>>,
     pub name: Option<String>,
     pub opacity: f32,
     // perspectiveAssisted:Bool?
@@ -197,13 +268,16 @@ pub struct SilicaLayer {
     pub size: Size<u32>,
     pub uuid: String,
     pub version: u64,
-    pub image: GpuTexture,
+    pub image: usize,
 }
 
 type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
-    pub fn open<P: AsRef<Path>>(p: P, dev: &LogicalDevice) -> Result<Self, SilicaError> {
+    pub fn open<P: AsRef<Path>>(
+        p: P,
+        dev: &LogicalDevice,
+    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -227,10 +301,8 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dev: &LogicalDevice,
-    ) -> Result<Self, SilicaError> {
+    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         let root = nka.root()?;
-
-        // println!("{root:#?}");
 
         let size = nka.decode::<Size<u32>>(root, "size")?;
         let tile_size = nka.decode::<u32>(root, "tileSize")?;
@@ -249,45 +321,51 @@ impl ProcreateFile {
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
-        Ok(Self {
-            author_name: nka.decode::<Option<String>>(root, "authorName")?,
-            background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
-            stroke_count: nka.decode::<usize>(root, "strokeCount")?,
-            background_color: <[f32; 4]>::try_from(
-                nka.decode::<&[u8]>(root, "backgroundColor")?
-                    .chunks_exact(4)
-                    .map(|bytes| {
-                        <[u8; 4]>::try_from(bytes)
-                            .map(f32::from_le_bytes)
-                            .map_err(|_| NsArchiveError::TypeMismatch)
-                    })
-                    .collect::<Result<Vec<f32>, _>>()?,
-            )
-            .unwrap(),
-            name: nka.decode::<Option<String>>(root, "name")?,
-            orientation: nka.decode::<u32>(root, "orientation")?,
-            flipped: Flipped {
-                horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
-                vertically: nka.decode::<bool>(root, "flippedVertically")?,
+        let mut gpu_textures = Vec::new();
+
+        Ok((
+            Self {
+                author_name: nka.decode::<Option<String>>(root, "authorName")?,
+                background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
+                stroke_count: nka.decode::<usize>(root, "strokeCount")?,
+                background_color: <[f32; 4]>::try_from(
+                    nka.decode::<&[u8]>(root, "backgroundColor")?
+                        .chunks_exact(4)
+                        .map(|bytes| {
+                            <[u8; 4]>::try_from(bytes)
+                                .map(f32::from_le_bytes)
+                                .map_err(|_| NsArchiveError::TypeMismatch)
+                        })
+                        .collect::<Result<Vec<f32>, _>>()?,
+                )
+                .unwrap(),
+                name: nka.decode::<Option<String>>(root, "name")?,
+                orientation: nka.decode::<u32>(root, "orientation")?,
+                flipped: Flipped {
+                    horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
+                    vertically: nka.decode::<bool>(root, "flippedVertically")?,
+                },
+                tile_size,
+                size,
+                composite: nka.decode::<SilicaIRLayer>(root, "composite")?.load(
+                    &meta,
+                    &archive,
+                    &file_names,
+                    dev,
+                    &mut gpu_textures,
+                )?,
+                layers: SilicaGroup {
+                    hidden: false,
+                    name: String::from("Root Layer"),
+                    children: nka
+                        .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+                        .objects
+                        .into_iter()
+                        .map(|ir| ir.load(&meta, &archive, &file_names, dev, &mut gpu_textures))
+                        .collect::<Result<_, _>>()?,
+                },
             },
-            tile_size,
-            size,
-            composite: nka.decode::<SilicaIRLayer>(root, "composite")?.load(
-                &meta,
-                &archive,
-                &file_names,
-                dev,
-            )?,
-            layers: SilicaGroup {
-                hidden: false,
-                name: String::from("Root Layer"),
-                children: nka
-                    .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
-                    .objects
-                    .into_par_iter()
-                    .map(|ir| ir.load(&meta, &archive, &file_names, dev))
-                    .collect::<Result<_, _>>()?,
-            },
-        })
+            gpu_textures,
+        ))
     }
 }

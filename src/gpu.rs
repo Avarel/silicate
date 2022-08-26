@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 use crate::silica::BlendingMode;
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
-const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[derive(Debug)]
 pub struct LogicalDevice {
@@ -33,7 +33,12 @@ impl LogicalDevice {
 
         dbg!(adapter.get_info());
 
-        Some(Self { instance, device, adapter, queue })
+        Some(Self {
+            instance,
+            device,
+            adapter,
+            queue,
+        })
     }
 
     pub async fn with_window(window: &winit::window::Window) -> Option<Self> {
@@ -52,11 +57,13 @@ impl LogicalDevice {
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
 
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }).await?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default(), None)
@@ -65,7 +72,12 @@ impl LogicalDevice {
 
         dbg!(adapter.get_info());
 
-        Some(Self { instance, device, adapter, queue })
+        Some(Self {
+            instance,
+            device,
+            adapter,
+            queue,
+        })
     }
 }
 
@@ -138,7 +150,7 @@ impl GpuTexture {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub struct BufferDimensions {
     pub width: u32,
     pub height: u32,
@@ -244,8 +256,9 @@ pub struct CompositeLayer<'a> {
 pub struct RenderState<'device> {
     pub handle: &'device LogicalDevice,
     pub buffer_dimensions: BufferDimensions,
-    pub composite_texture: wgpu::Texture,
     pub texture_extent: wgpu::Extent3d,
+    vertices: [Vertex; 4],
+    background: Option<[f32; 4]>,
     constant_bind_group: wgpu::BindGroup,
     blending_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
@@ -268,21 +281,8 @@ impl<'device> RenderState<'device> {
         }
     }
 
-    pub fn new(
-        width: u32,
-        height: u32,
-        flip_hv: (bool, bool),
-        background: Option<[f32; 4]>,
-        handle: &'device LogicalDevice,
-    ) -> Self {
-        let LogicalDevice {
-            ref device,
-            ref queue,
-            ..
-        } = handle;
-
-        let mut vertices = SQUARE_VERTICES;
-        for v in &mut vertices {
+    pub fn flip_vertices(&mut self, flip_hv: (bool, bool)) {
+        for v in &mut self.vertices {
             v.fg_coords = [
                 if flip_hv.0 {
                     1.0 - v.fg_coords[0]
@@ -296,6 +296,102 @@ impl<'device> RenderState<'device> {
                 },
             ];
         }
+        self.reload_vertices_buffer();
+    }
+
+    pub fn rotate_vertices(&mut self, ccw: bool) {
+        let temp = self.vertices[0].fg_coords;
+        if ccw {
+            self.vertices[0].fg_coords = self.vertices[1].fg_coords;
+            self.vertices[1].fg_coords = self.vertices[3].fg_coords;
+            self.vertices[3].fg_coords = self.vertices[2].fg_coords;
+            self.vertices[2].fg_coords = temp;
+        } else {
+            self.vertices[0].fg_coords = self.vertices[2].fg_coords;
+            self.vertices[2].fg_coords = self.vertices[3].fg_coords;
+            self.vertices[3].fg_coords = self.vertices[1].fg_coords;
+            self.vertices[1].fg_coords = temp;
+        }
+        self.reload_vertices_buffer();
+    }
+
+    pub fn tranpose_dimensions(&mut self) {
+        let buffer_dimensions = BufferDimensions::new(self.buffer_dimensions.height, self.buffer_dimensions.width);
+        // The output buffer lets us retrieve the data as an array
+
+        let texture_extent = wgpu::Extent3d {
+            width: buffer_dimensions.width,
+            height: buffer_dimensions.height,
+            depth_or_array_layers: 1,
+        };
+
+        let filled_clipping_mask_view = {
+            let texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("filled_clipping_mask"),
+                size: texture_extent,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TEX_DIM,
+                format: TEX_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            self.handle.queue.submit(Some({
+                let mut encoder =
+                    self.handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+
+                encoder.finish()
+            }));
+
+            view
+        };
+
+        self.buffer_dimensions = buffer_dimensions;
+        self.texture_extent = texture_extent;
+        self.filled_clipping_mask_view = filled_clipping_mask_view;
+    }
+
+    pub fn reload_vertices_buffer(&mut self) {
+        // self.vertex_buffer.slice(..).get_mapped_range_mut()[..self.vertices.len()]
+        //     .copy_from_slice(bytemuck::cast_slice(&self.vertices));
+        // self.vertex_buffer.unmap();
+        self.vertex_buffer = self.handle.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex_buffer"),
+            contents: bytemuck::cast_slice(&self.vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+    }
+
+    pub fn new(
+        width: u32,
+        height: u32,
+        background: Option<[f32; 4]>,
+        handle: &'device LogicalDevice,
+    ) -> Self {
+        let LogicalDevice {
+            ref device,
+            ref queue,
+            ..
+        } = handle;
+
+        let vertices = SQUARE_VERTICES;
+        
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
@@ -455,59 +551,15 @@ impl<'device> RenderState<'device> {
             view
         };
 
-        let composite_texture = {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("output_texture"),
-                size: texture_extent,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TEX_DIM,
-                format: TEX_FORMAT,
-                usage: wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            });
-
-            if let Some([r, g, b, a]) = background {
-                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-                queue.submit(Some({
-                    let mut encoder = device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: f64::from(r),
-                                    g: f64::from(g),
-                                    b: f64::from(b),
-                                    a: f64::from(a),
-                                }),
-                                store: true,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                    });
-
-                    encoder.finish()
-                }));
-            }
-
-            texture
-        };
-
         Self {
             handle,
             buffer_dimensions,
-            composite_texture,
             texture_extent,
             constant_bind_group,
             blending_group_layout,
+            background,
             render_pipeline,
+            vertices,
             vertex_buffer,
             index_buffer,
             filled_clipping_mask_view,
@@ -538,9 +590,58 @@ impl<'device> RenderState<'device> {
         }
     }
 
-    pub fn render(&mut self, layers: &[CompositeLayer]) {
+    pub fn base_composite_texture(&self) -> wgpu::Texture {
+        let texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("output_texture"),
+            size: self.texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TEX_DIM,
+            format: TEX_FORMAT,
+            usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+
+        if let Some([r, g, b, a]) = self.background {
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            self.handle.queue.submit(Some({
+                let mut encoder = self
+                    .handle
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: f64::from(r),
+                                g: f64::from(g),
+                                b: f64::from(b),
+                                a: f64::from(a),
+                            }),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+
+                encoder.finish()
+            }));
+        }
+
+        texture
+    }
+
+    pub fn render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
+        let mut composite_texture = self.base_composite_texture();
         for layer in layers.iter() {
-            self.composite_texture = self.render_layer(
+            composite_texture = self.render_layer(
+                composite_texture,
                 &layer.texture.view,
                 LayerContext {
                     opacity: layer.opacity,
@@ -555,154 +656,18 @@ impl<'device> RenderState<'device> {
 
             // eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
         }
-    }
-
-    pub fn composite_to_srgb(&self) -> wgpu::Texture {
-        // The render pipeline renders data into this texture
-        let output_texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("output_texture"),
-            size: self.texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TEX_DIM,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
-        });
-
-        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let shader = self.handle.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Dynamically loaded shader module"),
-            source: wgpu::ShaderSource::Wgsl({
-                use std::fs::OpenOptions;
-                use std::io::Read;
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open("./src/srgb.wgsl")
-                    .unwrap();
-
-                let mut buf = String::new();
-                file.read_to_string(&mut buf).unwrap();
-                buf.into()
-            }),
-        });
-
-        let render_pipeline_layout =
-        self.handle.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("render_pipeline_layout"),
-            bind_group_layouts: &[&self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("texture_bind_group_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                    count: None,
-                }],
-            }), &self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("blending_group_layout"),
-                entries: &[
-                    Self::texture_bind_group_layout_entry(0),
-                ],
-            })],
-            push_constant_ranges: &[],
-        });
-
-        let prev_texture_view = self
-            .composite_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mixing_bind_group = self
-            .handle
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.handle.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("blending_group_layout"),
-                    entries: &[
-                        Self::texture_bind_group_layout_entry(0),
-                    ],
-                }),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
-                    },
-                ],
-                label: Some("mixing_bind_group"),
-        });
-
-        let render_pipeline = self.handle.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("render_pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: TEX_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip, // 1.
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        self.handle.queue.submit(Some({
-            let mut encoder = self
-                .handle
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            render_pass.set_pipeline(&render_pipeline);
-            render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
-            render_pass.set_bind_group(1, &mixing_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-            drop(render_pass);
-
-            encoder.finish()
-        }));
-        
-        output_texture
+        composite_texture
     }
 
     fn render_layer(
         &self,
+        composite_texture: wgpu::Texture,
         layer_texture_view: &wgpu::TextureView,
         layer_ctx: LayerContext,
         mask_texture_view: &wgpu::TextureView,
     ) -> wgpu::Texture {
-        let prev_texture_view = self
-            .composite_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let prev_texture_view =
+            composite_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let ctx_buffer = self
             .handle

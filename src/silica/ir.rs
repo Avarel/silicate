@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 use crate::gpu::{GpuTexture, LogicalDevice};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
@@ -39,6 +40,7 @@ impl SilicaIRLayer<'_> {
         archive: &ZipArchiveMmap<'_>,
         file_names: &[&str],
         render: &LogicalDevice,
+        gpu_textures: &mut Vec<GpuTexture>,
     ) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
@@ -99,6 +101,12 @@ impl SilicaIRLayer<'_> {
                 Ok(())
             })?;
 
+        let image = {
+            let i = gpu_textures.len();
+            gpu_textures.push(gpu_texture);
+            i
+        };
+
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(nka.decode::<u32>(coder, "extendedBlend")?)?,
             clipped: nka.decode::<bool>(coder, "clipped")?,
@@ -109,7 +117,7 @@ impl SilicaIRLayer<'_> {
             size,
             uuid,
             version: nka.decode::<u64>(coder, "version")?,
-            image: gpu_texture,
+            image,
         })
     }
 }
@@ -153,6 +161,7 @@ impl SilicaIRGroup<'_> {
         archive: &ZipArchiveMmap<'_>,
         file_names: &[&str],
         render: &LogicalDevice,
+        gpu_textures: &mut Vec<GpuTexture>,
     ) -> Result<SilicaGroup, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
@@ -161,8 +170,9 @@ impl SilicaIRGroup<'_> {
             name: nka.decode::<String>(coder, "name")?,
             children: self
                 .children
-                .into_par_iter()
-                .map(|ir| ir.load(meta, archive, file_names, render))
+                // .into_par_iter()
+                .into_iter()
+                .map(|ir| ir.load(meta, archive, file_names, render, gpu_textures))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -175,14 +185,23 @@ impl SilicaIRHierarchy<'_> {
         archive: &ZipArchiveMmap<'_>,
         file_names: &[&str],
         render: &LogicalDevice,
+        gpu_textures: &mut Vec<GpuTexture>,
     ) -> Result<SilicaHierarchy, SilicaError> {
         Ok(match self {
-            SilicaIRHierarchy::Layer(layer) => {
-                SilicaHierarchy::Layer(layer.load(meta, archive, file_names, render)?)
-            }
-            SilicaIRHierarchy::Group(group) => {
-                SilicaHierarchy::Group(group.load(meta, archive, file_names, render)?)
-            }
+            SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(
+                meta,
+                archive,
+                file_names,
+                render,
+                gpu_textures,
+            )?),
+            SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(group.load(
+                meta,
+                archive,
+                file_names,
+                render,
+                gpu_textures,
+            )?),
         })
     }
 }
