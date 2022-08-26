@@ -65,7 +65,7 @@ pub fn gpu_render(
     //         name: Some("Composite"),
     //     }])
     // } else {
-    let result = state.render(&resolve(&state, gpu_textures, &layers));
+    let result = state.second_gen_render(&resolve(&state, gpu_textures, &layers));
     // };
 
     // state.handle.queue.submit(Some({
@@ -310,7 +310,7 @@ fn start_gui(
                 let layer_data = pc.read().unwrap().layers.clone();
                 *tex.write().unwrap() =
                     gpu_render(&state.read().unwrap(), &gpu_textures, &layer_data, false);
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
         });
     }
@@ -352,11 +352,6 @@ fn start_gui(
                         if ui.button("Toggle Canvas").clicked() {
                             show = !show;
                         }
-                        // if ui.button("Flip Canvas").clicked() {
-                        //     state.write().unwrap().flip_vertices((true, true));
-                        // }
-                        // if ui.checkbox(checked, text)
-                        // ui.separator();
 
                         let mut pc = pc.write().unwrap();
 

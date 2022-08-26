@@ -639,6 +639,100 @@ impl<'device> RenderState<'device> {
         composite_texture
     }
 
+    pub fn second_gen_render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
+        let mut composite_texture = self.base_composite_texture();
+
+        self.handle.queue.submit(Some({
+            let mut encoder = self
+                .handle
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            for layer in layers.iter() {
+                let prev_texture_view =
+                    composite_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                let ctx_buffer =
+                    self.handle
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Context"),
+                            contents: bytemuck::cast_slice(&[LayerContext {
+                                opacity: layer.opacity,
+                                blend: layer.blend.to_u32(),
+                            }]),
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        });
+
+                let GpuTexture {
+                    texture: output_texture,
+                    view: output_texture_view,
+                    ..
+                } = self.new_output_texture();
+
+                let mixing_bind_group =
+                    self.handle
+                        .device
+                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &self.blending_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        &prev_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        if let Some(index) = layer.clipped {
+                                            &layers[index].texture.view
+                                        } else {
+                                            &self.filled_clipping_mask_view
+                                        },
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        &layer.texture.view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: ctx_buffer.as_entire_binding(),
+                                },
+                            ],
+                            label: Some("mixing_bind_group"),
+                        });
+
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
+                render_pass.set_bind_group(1, &mixing_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+                drop(render_pass);
+
+                composite_texture = output_texture
+            }
+            encoder.finish()
+        }));
+        composite_texture
+    }
+
     fn render_layer(
         &self,
         composite_texture: wgpu::Texture,

@@ -19,7 +19,7 @@ bytemuck = { version = "1.12", features = ["derive"] }
 memmap2 = "0.5"
 # Display GUI
 egui = { version = "0.19", features = ["bytemuck"] }
-egui-wgpu = { version = "0.19", features = ["winit"]}
+egui-wgpu = "0.19"
 # egui-winit = "0.19"
 egui_winit_platform = "0.16"
 winit = "0.27"
