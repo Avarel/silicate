@@ -237,6 +237,17 @@ struct CtxInput {
     @size(8) padding: u32,
 };
 
+struct Why {
+    a0: CtxInput,
+    a1: CtxInput,
+    a2: CtxInput,
+    a3: CtxInput,
+    a4: CtxInput,
+    a5: CtxInput,
+    a6: CtxInput,
+    // a7: CtxInput,
+};
+
 @group(0) @binding(0)
 var splr: sampler;
 @group(1) @binding(0)
@@ -246,8 +257,10 @@ var clipping_mask: binding_array<texture_2d<f32>>;
 @group(1) @binding(2)
 var layer: binding_array<texture_2d<f32>>;
 @group(1) @binding(3)
-var<storage, read> ctx: array<CtxInput>;
+var<storage, read> blends: array<u32>;
 @group(1) @binding(4)
+var<storage, read> opacities: array<f32>;
+@group(1) @binding(5)
 var<uniform> layer_count: i32;
 
 // Blend alpha straight colors
@@ -274,13 +287,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         //     return bga;
         // }
 
-        // Procreate uses premultiplied alpha, so unpremultiply it.
         var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * ctx[i].opacity);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * opacities[i]);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
-        switch (ctx[i].blend) {
+        switch (blends[i]) {
             case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
             case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
             case 3u: { final_pixel = add(bg.rgb, fg.rgb); }

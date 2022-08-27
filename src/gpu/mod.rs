@@ -9,7 +9,7 @@ use wgpu::{util::DeviceExt, CommandEncoder};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const CHUNKS: u32 = 32;
+// const CHUNKS: u32 = 7;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BufferDimensions {
@@ -72,14 +72,6 @@ const SQUARE_VERTICES: [Vertex; 4] = [
 ];
 
 const INDICES: &[u16] = &[0, 1, 2, 3];
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct LayerContext {
-    opacity: f32,
-    blend: u32,
-    _padding: [f32; 2],
-}
 
 impl Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -285,10 +277,11 @@ impl<'device> Compositor<'device> {
                 label: Some("blending_group_layout"),
                 entries: &[
                     fragment_bgl_tex_entry(0, None),
-                    fragment_bgl_tex_entry(1, NonZeroU32::new(CHUNKS)),
-                    fragment_bgl_tex_entry(2, NonZeroU32::new(CHUNKS)),
-                    fragment_bgl_buffer_ro_entry(3, NonZeroU32::new(CHUNKS)),
-                    fragment_bgl_uniform_entry(4),
+                    fragment_bgl_tex_entry(1, NonZeroU32::new(handle.chunks)),
+                    fragment_bgl_tex_entry(2, NonZeroU32::new(handle.chunks)),
+                    fragment_bgl_buffer_ro_entry(3, None),
+                    fragment_bgl_buffer_ro_entry(4, None),
+                    fragment_bgl_uniform_entry(5),
                 ],
             });
 
@@ -459,7 +452,7 @@ impl<'device> Compositor<'device> {
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            for chunked_layers in layers.chunks(CHUNKS as usize) {
+            for chunked_layers in layers.chunks(self.handle.chunks as usize) {
                 composite_texture =
                     self.render_pass(&mut encoder, composite_texture, layers, chunked_layers);
             }
@@ -478,9 +471,10 @@ impl<'device> Compositor<'device> {
     ) -> wgpu::Texture {
         let prev_texture_view = default_view(&composite_texture);
 
-        let mut mask_views: Vec<wgpu::TextureView> = Vec::with_capacity(CHUNKS as usize);
-        let mut layer_views = Vec::with_capacity(CHUNKS as usize);
-        let mut ctxs = Vec::with_capacity(CHUNKS as usize);
+        let mut mask_views: Vec<wgpu::TextureView> = Vec::with_capacity(self.handle.chunks as usize);
+        let mut layer_views = Vec::with_capacity(self.handle.chunks as usize);
+        let mut blends = Vec::with_capacity(self.handle.chunks as usize);
+        let mut opacities = Vec::with_capacity(self.handle.chunks as usize);
 
         for layer in chunked_layers.iter() {
             mask_views.push(default_view(if let Some(mask_layer) = layer.clipped {
@@ -489,22 +483,16 @@ impl<'device> Compositor<'device> {
                 &self.filled_clipping_mask
             }));
             layer_views.push(default_view(&layer.texture.texture));
-            ctxs.push(LayerContext {
-                opacity: layer.opacity,
-                blend: layer.blend.to_u32(),
-                _padding: [0.0; 2],
-            });
+            blends.push(layer.blend.to_u32());
+            opacities.push(layer.opacity);
         }
 
         // Fill with dummy
-        for _ in 0..CHUNKS - chunked_layers.len() as u32 {
+        for _ in 0..self.handle.chunks - chunked_layers.len() as u32 {
             mask_views.push(default_view(&self.filled_clipping_mask));
             layer_views.push(default_view(&self.filled_clipping_mask));
-            ctxs.push(LayerContext {
-                opacity: 0.0,
-                blend: 0,
-                _padding: [0.0; 2],
-            });
+            blends.push(0);
+            opacities.push(0.0);
         }
 
         let ctx_buffer = self
@@ -512,8 +500,16 @@ impl<'device> Compositor<'device> {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Context"),
-                contents: bytemuck::cast_slice(&ctxs),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                contents: bytemuck::cast_slice(&blends),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let opacity_buffer = self
+            .handle
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Context"),
+                contents: bytemuck::cast_slice(&opacities),
+                usage: wgpu::BufferUsages::STORAGE,
             });
 
         let count_buffer =
@@ -522,7 +518,7 @@ impl<'device> Compositor<'device> {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Context"),
                     contents: bytemuck::cast_slice(&[chunked_layers.len()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::UNIFORM,
                 });
 
         let GpuTexture {
@@ -564,6 +560,10 @@ impl<'device> Compositor<'device> {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
+                            resource: opacity_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
                             resource: count_buffer.as_entire_binding(),
                         },
                     ],

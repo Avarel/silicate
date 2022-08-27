@@ -4,6 +4,7 @@ pub struct LogicalDevice {
     pub device: wgpu::Device,
     pub adapter: wgpu::Adapter,
     pub queue: wgpu::Queue,
+    pub chunks: u32
 }
 
 impl LogicalDevice {
@@ -33,16 +34,19 @@ impl LogicalDevice {
 
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
         dbg!(adapter.get_info());
+        dbg!(adapter.limits());
+        let chunks = (adapter.limits().max_sampled_textures_per_shader_stage - 1) / 2;
+        dbg!(chunks);
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     features: wgpu::Features::TEXTURE_BINDING_ARRAY
-                        | wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY
-                        | wgpu::Features::BUFFER_BINDING_ARRAY
+                        // | wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY
+                        // | wgpu::Features::BUFFER_BINDING_ARRAY
                         | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
                     limits: wgpu::Limits {
-                        max_sampled_textures_per_shader_stage: crate::gpu::CHUNKS * 2 + 1,
-                        max_storage_buffers_per_shader_stage: crate::gpu::CHUNKS,
+                        max_sampled_textures_per_shader_stage: chunks * 2 + 1,
+                        max_storage_buffers_per_shader_stage: chunks,
                         ..Default::default()
                     },
                     ..Default::default()
@@ -53,6 +57,7 @@ impl LogicalDevice {
             .ok()?;
 
         Some(Self {
+            chunks,
             instance,
             device,
             adapter,
