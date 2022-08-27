@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingMeta, ZipArchiveMmap};
-use crate::gpu::{dev::LogicalDevice, tex::GpuTexture};
+use crate::compositor::{dev::LogicalDevice, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use crate::silica::BlendingMode;
@@ -59,7 +59,7 @@ impl SilicaIRLayer<'_> {
             size.width,
             size.height,
             None,
-            GpuTexture::layer_usage(),
+            GpuTexture::LAYER_USAGE,
         );
 
         file_names
@@ -87,9 +87,11 @@ impl SilicaIRLayer<'_> {
                     }) as usize;
 
                 let mut chunk = archive.by_name(path)?;
-                let mut buf = Vec::new();
-                chunk.read_to_end(&mut buf)?;
+                
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
+                let data_len = tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
+                let mut buf = Vec::with_capacity(data_len);
+                chunk.read_to_end(&mut buf)?;
                 let dst = lzo.decompress_safe(
                     &buf[..],
                     tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),

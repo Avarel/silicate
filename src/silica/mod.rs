@@ -1,7 +1,7 @@
 mod ir;
 
 use self::ir::{SilicaIRHierarchy, SilicaIRLayer};
-use crate::gpu::{dev::LogicalDevice, tex::GpuTexture};
+use crate::compositor::{dev::LogicalDevice, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -25,6 +25,7 @@ pub enum SilicaError {
     #[error("invalid values in file")]
     InvalidValue,
     #[error("unknown decoding error")]
+    #[allow(dead_code)]
     Unknown,
 }
 
@@ -221,33 +222,20 @@ pub struct ProcreateFile {
     pub size: Size<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SilicaHierarchy {
     Layer(SilicaLayer),
     Group(SilicaGroup),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroup {
     pub hidden: bool,
     pub children: Vec<SilicaHierarchy>,
     pub name: String,
 }
 
-impl SilicaGroup {
-    pub fn count_layers(&self) -> u32 {
-        let mut count = 0;
-        for child in &self.children {
-            match child {
-                SilicaHierarchy::Layer(_) => count += 1,
-                SilicaHierarchy::Group(g) => count += g.count_layers(),
-            }
-        }
-        count
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?
     pub blend: BlendingMode,
@@ -287,7 +275,6 @@ impl ProcreateFile {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
-        // TODO: file locking for this unsafe memmap
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
         let mut archive = ZipArchive::new(Cursor::new(&mapping[..]))?;
 

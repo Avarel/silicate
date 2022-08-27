@@ -7,9 +7,7 @@ use image::{Pixel, Rgba};
 use std::num::NonZeroU32;
 use wgpu::{util::DeviceExt, CommandEncoder};
 
-const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
-const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-// const CHUNKS: u32 = 7;
+const INCLUDE_SHADERS: bool = false;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BufferDimensions {
@@ -17,6 +15,7 @@ pub struct BufferDimensions {
     pub height: u32,
     pub unpadded_bytes_per_row: u32,
     pub padded_bytes_per_row: u32,
+    pub extent: wgpu::Extent3d,
 }
 
 impl BufferDimensions {
@@ -36,6 +35,11 @@ impl BufferDimensions {
             height,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
+            extent: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         }
     }
 }
@@ -104,13 +108,12 @@ pub struct CompositeLayer<'a> {
     pub clipped: Option<usize>,
     pub opacity: f32,
     pub blend: BlendingMode,
-    pub name: Option<&'a str>,
 }
 
 pub struct Compositor<'device> {
-    pub handle: &'device LogicalDevice,
-    pub buffer_dimensions: BufferDimensions,
-    pub texture_extent: wgpu::Extent3d,
+    pub dev: &'device LogicalDevice,
+    pub dim: BufferDimensions,
+    // pub texture_extent: wgpu::Extent3d,
     vertices: [Vertex; 4],
     background: Option<[f32; 4]>,
     constant_bind_group: wgpu::BindGroup,
@@ -118,7 +121,7 @@ pub struct Compositor<'device> {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    filled_clipping_mask: wgpu::Texture,
+    filled_clipping_mask: Option<GpuTexture>,
 }
 
 impl<'device> Compositor<'device> {
@@ -156,63 +159,24 @@ impl<'device> Compositor<'device> {
         self.reload_vertices_buffer();
     }
 
-    pub fn tranpose_dimensions(&mut self) {
-        let buffer_dimensions =
-            BufferDimensions::new(self.buffer_dimensions.height, self.buffer_dimensions.width);
-
-        let texture_extent = wgpu::Extent3d {
-            width: buffer_dimensions.width,
-            height: buffer_dimensions.height,
-            depth_or_array_layers: 1,
-        };
-
-        let filled_clipping_mask = {
-            let texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("filled_clipping_mask"),
-                size: texture_extent,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TEX_DIM,
-                format: TEX_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-            });
-
-            let view = default_view(&texture);
-
-            self.handle.queue.submit(Some({
-                let mut encoder = self
-                    .handle
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-
-                encoder.finish()
-            }));
-
-            texture
-        };
-
-        self.buffer_dimensions = buffer_dimensions;
-        self.texture_extent = texture_extent;
-        self.filled_clipping_mask = filled_clipping_mask;
+    pub fn set_dimensions(&mut self, width: u32, height: u32) {
+        let buffer_dimensions = BufferDimensions::new(width, height);
+        self.dim = buffer_dimensions;
+        self.filled_clipping_mask = Some({
+            let tex = GpuTexture::empty_with_extent(
+                &self.dev.device,
+                self.dim.extent,
+                None,
+                GpuTexture::OUTPUT_USAGE,
+            );
+            tex.clear(self.dev, wgpu::Color::WHITE);
+            tex
+        });
     }
 
     pub fn reload_vertices_buffer(&mut self) {
         self.vertex_buffer =
-            self.handle
+            self.dev
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("vertex_buffer"),
@@ -221,20 +185,12 @@ impl<'device> Compositor<'device> {
                 });
     }
 
-    pub fn new(
-        width: u32,
-        height: u32,
-        background: Option<[f32; 4]>,
-        handle: &'device LogicalDevice,
-    ) -> Self {
-        let LogicalDevice {
-            ref device,
-            ref queue,
-            ..
-        } = handle;
+    pub fn new(background: Option<[f32; 4]>, dev: &'device LogicalDevice) -> Self {
+        let LogicalDevice { ref device, .. } = dev;
 
+        // Create the vertex buffer.
+        // This is a base
         let vertices = SQUARE_VERTICES;
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
             contents: bytemuck::cast_slice(&vertices),
@@ -272,18 +228,7 @@ impl<'device> Compositor<'device> {
             (layout, bind_group)
         };
 
-        let blending_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("blending_group_layout"),
-                entries: &[
-                    fragment_bgl_tex_entry(0, None),
-                    fragment_bgl_tex_entry(1, NonZeroU32::new(handle.chunks)),
-                    fragment_bgl_tex_entry(2, NonZeroU32::new(handle.chunks)),
-                    fragment_bgl_buffer_ro_entry(3, None),
-                    fragment_bgl_buffer_ro_entry(4, None),
-                    fragment_bgl_uniform_entry(5),
-                ],
-            });
+        let blending_group_layout = blending_group_layout(device, dev.chunks);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -292,22 +237,7 @@ impl<'device> Compositor<'device> {
                 push_constant_ranges: &[],
             });
 
-        // wgpu::include_wgsl!("shader.wgsl")
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Dynamically loaded shader module"),
-            source: wgpu::ShaderSource::Wgsl({
-                use std::fs::OpenOptions;
-                use std::io::Read;
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open("./src/shader.wgsl")
-                    .unwrap();
-
-                let mut buf = String::new();
-                file.read_to_string(&mut buf).unwrap();
-                buf.into()
-            }),
-        });
+        let shader = device.create_shader_module(shader_load());
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("render_pipeline"),
@@ -321,15 +251,15 @@ impl<'device> Compositor<'device> {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: TEX_FORMAT,
+                    format: tex::TEX_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip, // 1.
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // 2.
+                front_face: wgpu::FrontFace::Ccw,
                 cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -340,56 +270,11 @@ impl<'device> Compositor<'device> {
             multiview: None,
         });
 
-        let buffer_dimensions = BufferDimensions::new(width, height);
-        // The output buffer lets us retrieve the data as an array
-
-        let texture_extent = wgpu::Extent3d {
-            width: buffer_dimensions.width,
-            height: buffer_dimensions.height,
-            depth_or_array_layers: 1,
-        };
-
-        let filled_clipping_mask = {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("filled_clipping_mask"),
-                size: texture_extent,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TEX_DIM,
-                format: TEX_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-            });
-
-            let view = default_view(&texture);
-
-            queue.submit(Some({
-                let mut encoder =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-
-                encoder.finish()
-            }));
-
-            texture
-        };
+        let buffer_dimensions = BufferDimensions::new(0, 0);
 
         Self {
-            handle,
-            buffer_dimensions,
-            texture_extent,
+            dev,
+            dim: buffer_dimensions,
             constant_bind_group,
             blending_group_layout,
             background,
@@ -397,64 +282,45 @@ impl<'device> Compositor<'device> {
             vertices,
             vertex_buffer,
             index_buffer,
-            filled_clipping_mask,
+            filled_clipping_mask: None,
         }
     }
 
-    pub fn base_composite_texture(&self) -> wgpu::Texture {
-        let GpuTexture { texture, .. } = GpuTexture::empty_with_extent(
-            &self.handle.device,
-            self.texture_extent,
+    pub fn base_composite_texture(&self) -> GpuTexture {
+        let tex = GpuTexture::empty_with_extent(
+            &self.dev.device,
+            self.dim.extent,
             None,
-            GpuTexture::output_usage(),
+            GpuTexture::OUTPUT_USAGE,
         );
 
         if let Some([r, g, b, a]) = self.background {
-            let view = default_view(&texture);
-
-            self.handle.queue.submit(Some({
-                let mut encoder = self
-                    .handle
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: f64::from(r),
-                                g: f64::from(g),
-                                b: f64::from(b),
-                                a: f64::from(a),
-                            }),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-
-                encoder.finish()
-            }));
+            tex.clear(
+                self.dev,
+                wgpu::Color {
+                    r: f64::from(r),
+                    g: f64::from(g),
+                    b: f64::from(b),
+                    a: f64::from(a),
+                },
+            );
         }
 
-        texture
+        tex
     }
 
-    pub fn render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
+    pub fn render<'a, 'b>(&'a self, layers: &'b [CompositeLayer]) -> GpuTexture {
         let mut composite_texture = self.base_composite_texture();
 
-        self.handle.queue.submit(Some({
+        self.dev.queue.submit(Some({
             let mut encoder = self
-                .handle
+                .dev
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            for chunked_layers in layers.chunks(self.handle.chunks as usize) {
+            for chunked_layers in layers.chunks(self.dev.chunks as usize) {
                 composite_texture =
-                    self.render_pass(&mut encoder, composite_texture, layers, chunked_layers);
+                    self.render_chunk(&mut encoder, composite_texture, layers, chunked_layers);
             }
             encoder.finish()
         }));
@@ -462,118 +328,123 @@ impl<'device> Compositor<'device> {
         composite_texture
     }
 
-    fn render_pass(
+    fn render_chunk(
         &self,
         encoder: &mut CommandEncoder,
-        composite_texture: wgpu::Texture,
+        composite_texture: GpuTexture,
         layers: &[CompositeLayer],
         chunked_layers: &[CompositeLayer],
-    ) -> wgpu::Texture {
-        let prev_texture_view = default_view(&composite_texture);
+    ) -> GpuTexture {
+        let prev_texture_view = composite_texture.make_view();
 
-        let mut mask_views: Vec<wgpu::TextureView> = Vec::with_capacity(self.handle.chunks as usize);
-        let mut layer_views = Vec::with_capacity(self.handle.chunks as usize);
-        let mut blends = Vec::with_capacity(self.handle.chunks as usize);
-        let mut opacities = Vec::with_capacity(self.handle.chunks as usize);
+        let mut mask_views: Vec<wgpu::TextureView> = Vec::with_capacity(self.dev.chunks as usize);
+        let mut layer_views = Vec::with_capacity(self.dev.chunks as usize);
+        let mut blends = Vec::with_capacity(self.dev.chunks as usize);
+        let mut opacities = Vec::with_capacity(self.dev.chunks as usize);
+
+        let filled_clipping_mask = self
+            .filled_clipping_mask
+            .as_ref()
+            .expect("Compositor dimensions not configured?");
 
         for layer in chunked_layers.iter() {
-            mask_views.push(default_view(if let Some(mask_layer) = layer.clipped {
-                &layers[mask_layer].texture.texture
-            } else {
-                &self.filled_clipping_mask
-            }));
-            layer_views.push(default_view(&layer.texture.texture));
+            mask_views.push(
+                (if let Some(mask_layer) = layer.clipped {
+                    &layers[mask_layer].texture
+                } else {
+                    &filled_clipping_mask
+                })
+                .make_view(),
+            );
+            layer_views.push(layer.texture.make_view());
             blends.push(layer.blend.to_u32());
             opacities.push(layer.opacity);
         }
 
         // Fill with dummy
-        for _ in 0..self.handle.chunks - chunked_layers.len() as u32 {
-            mask_views.push(default_view(&self.filled_clipping_mask));
-            layer_views.push(default_view(&self.filled_clipping_mask));
+        for _ in 0..self.dev.chunks - chunked_layers.len() as u32 {
+            mask_views.push(filled_clipping_mask.make_view());
+            layer_views.push(filled_clipping_mask.make_view());
             blends.push(0);
             opacities.push(0.0);
         }
 
         let ctx_buffer = self
-            .handle
+            .dev
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Context"),
                 contents: bytemuck::cast_slice(&blends),
                 usage: wgpu::BufferUsages::STORAGE,
             });
-        let opacity_buffer = self
-            .handle
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&opacities),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-
-        let count_buffer =
-            self.handle
+        let opacity_buffer =
+            self.dev
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Context"),
-                    contents: bytemuck::cast_slice(&[chunked_layers.len()]),
-                    usage: wgpu::BufferUsages::UNIFORM,
+                    contents: bytemuck::cast_slice(&opacities),
+                    usage: wgpu::BufferUsages::STORAGE,
                 });
 
-        let GpuTexture {
-            texture: output_texture,
-            ..
-        } = GpuTexture::empty_with_extent(
-            &self.handle.device,
-            self.texture_extent,
+        let count_buffer = self
+            .dev
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Context"),
+                contents: bytemuck::cast_slice(&[chunked_layers.len()]),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+        let tex = GpuTexture::empty_with_extent(
+            &self.dev.device,
+            self.dim.extent,
             None,
-            GpuTexture::output_usage(),
+            GpuTexture::OUTPUT_USAGE,
         );
-        let output_texture_view = default_view(&output_texture);
+        let tex_view = tex.make_view();
 
-        let blending_bind_group =
-            self.handle
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &self.blending_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&prev_texture_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureViewArray(
-                                &mask_views.iter().collect::<Vec<_>>(),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureViewArray(
-                                &layer_views.iter().collect::<Vec<_>>(),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: ctx_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: opacity_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: count_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: Some("mixing_bind_group"),
-                });
+        let blending_bind_group = self
+            .dev
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.blending_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureViewArray(
+                            &mask_views.iter().collect::<Vec<_>>(),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureViewArray(
+                            &layer_views.iter().collect::<Vec<_>>(),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: ctx_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: opacity_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: count_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("mixing_bind_group"),
+            });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &output_texture_view,
+                view: &tex_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -591,12 +462,44 @@ impl<'device> Compositor<'device> {
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
         drop(render_pass);
 
-        output_texture
+        tex
     }
 }
 
-fn default_view(tex: &wgpu::Texture) -> wgpu::TextureView {
-    tex.create_view(&wgpu::TextureViewDescriptor::default())
+fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
+    if INCLUDE_SHADERS {
+        wgpu::include_wgsl!("../shader.wgsl")
+    } else {
+        wgpu::ShaderModuleDescriptor {
+            label: Some("Dynamically loaded shader module"),
+            source: wgpu::ShaderSource::Wgsl({
+                use std::fs::OpenOptions;
+                use std::io::Read;
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open("./src/shader.wgsl")
+                    .unwrap();
+
+                let mut buf = String::new();
+                file.read_to_string(&mut buf).unwrap();
+                buf.into()
+            }),
+        }
+    }
+}
+
+fn blending_group_layout(device: &wgpu::Device, chunks: u32) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("blending_group_layout"),
+        entries: &[
+            fragment_bgl_tex_entry(0, None),
+            fragment_bgl_tex_entry(1, NonZeroU32::new(chunks)),
+            fragment_bgl_tex_entry(2, NonZeroU32::new(chunks)),
+            fragment_bgl_buffer_ro_entry(3, None),
+            fragment_bgl_buffer_ro_entry(4, None),
+            fragment_bgl_uniform_entry(5),
+        ],
+    })
 }
 
 fn fragment_bgl_tex_entry(binding: u32, count: Option<NonZeroU32>) -> wgpu::BindGroupLayoutEntry {

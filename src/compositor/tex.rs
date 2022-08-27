@@ -1,6 +1,9 @@
 use std::num::NonZeroU32;
 
-use super::{TEX_DIM, TEX_FORMAT};
+use super::dev::LogicalDevice;
+
+const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
+pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[derive(Debug)]
 pub struct GpuTexture {
@@ -9,15 +12,11 @@ pub struct GpuTexture {
 }
 
 impl GpuTexture {
-    pub fn layer_usage() -> wgpu::TextureUsages {
-        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING
-    }
-
-    pub fn output_usage() -> wgpu::TextureUsages {
-        wgpu::TextureUsages::COPY_SRC
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::RENDER_ATTACHMENT
-    }
+    pub const LAYER_USAGE: wgpu::TextureUsages =
+        wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::TEXTURE_BINDING);
+    pub const OUTPUT_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_SRC
+        .union(wgpu::TextureUsages::TEXTURE_BINDING)
+        .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
     pub fn empty(
         device: &wgpu::Device,
@@ -53,6 +52,34 @@ impl GpuTexture {
         });
 
         Self { texture, size }
+    }
+
+    pub fn make_view(&self) -> wgpu::TextureView {
+        self.texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn clear(&self, dev: &LogicalDevice, color: wgpu::Color) {
+        dev.queue.submit(Some({
+            let mut encoder = dev
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.make_view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(color),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            encoder.finish()
+        }));
     }
 
     pub fn replace(
