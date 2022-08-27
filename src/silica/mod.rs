@@ -241,6 +241,19 @@ pub struct SilicaGroup {
     pub name: String,
 }
 
+impl SilicaGroup {
+    pub fn count_layers(&self) -> u32 {
+        let mut count = 0;
+        for child in &self.children {
+            match child {
+                SilicaHierarchy::Layer(_) => count += 1,
+                SilicaHierarchy::Group(g) => count += g.count_layers(),
+            }
+        }
+        count
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?

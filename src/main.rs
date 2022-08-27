@@ -37,6 +37,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let procreate = ProcreateFile::open(&args[1], &device)?;
 
+    dbg!(procreate.0.layers.count_layers());
+
     start_gui(procreate, device, window, event_loop);
     Ok(())
 }
@@ -254,6 +256,7 @@ fn start_gui(
             pc.size.height,
             (!pc.background_hidden).then_some(pc.background_color),
             dev,
+            pc.layers.count_layers()
         );
         state.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
         state

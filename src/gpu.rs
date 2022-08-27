@@ -43,7 +43,13 @@ impl LogicalDevice {
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
         dbg!(adapter.get_info());
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    features: wgpu::Features::default() | wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY | wgpu::Features::BUFFER_BINDING_ARRAY,
+                    ..Default::default()
+                },
+                None,
+            )
             .await
             .ok()?;
 
@@ -192,6 +198,7 @@ const INDICES: &[u16] = &[0, 1, 2, 3];
 struct LayerContext {
     opacity: f32,
     blend: u32,
+    _padding: [f32; 2]
 }
 
 impl Vertex {
@@ -239,7 +246,8 @@ pub struct RenderState<'device> {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    filled_clipping_mask_view: wgpu::TextureView,
+    filled_clipping_mask: wgpu::Texture,
+    max_layers: u32,
 }
 
 impl<'device> RenderState<'device> {
@@ -301,7 +309,7 @@ impl<'device> RenderState<'device> {
             depth_or_array_layers: 1,
         };
 
-        let filled_clipping_mask_view = {
+        let filled_clipping_mask = {
             let texture = self.handle.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("filled_clipping_mask"),
                 size: texture_extent,
@@ -337,12 +345,12 @@ impl<'device> RenderState<'device> {
                 encoder.finish()
             }));
 
-            view
+            texture
         };
 
         self.buffer_dimensions = buffer_dimensions;
         self.texture_extent = texture_extent;
-        self.filled_clipping_mask_view = filled_clipping_mask_view;
+        self.filled_clipping_mask = filled_clipping_mask;
     }
 
     pub fn reload_vertices_buffer(&mut self) {
@@ -364,6 +372,7 @@ impl<'device> RenderState<'device> {
         height: u32,
         background: Option<[f32; 4]>,
         handle: &'device LogicalDevice,
+        max_layers: u32,
     ) -> Self {
         let LogicalDevice {
             ref device,
@@ -414,11 +423,40 @@ impl<'device> RenderState<'device> {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("blending_group_layout"),
                 entries: &[
+                    // Self::texture_bind_group_layout_entry(0),
                     Self::texture_bind_group_layout_entry(0),
-                    Self::texture_bind_group_layout_entry(1),
-                    Self::texture_bind_group_layout_entry(2),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: NonZeroU32::new(1),
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: NonZeroU32::new(1),
+                    },
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: NonZeroU32::new(1),
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
@@ -494,7 +532,7 @@ impl<'device> RenderState<'device> {
             depth_or_array_layers: 1,
         };
 
-        let filled_clipping_mask_view = {
+        let filled_clipping_mask = {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("filled_clipping_mask"),
                 size: texture_extent,
@@ -528,7 +566,7 @@ impl<'device> RenderState<'device> {
                 encoder.finish()
             }));
 
-            view
+            texture
         };
 
         Self {
@@ -542,7 +580,8 @@ impl<'device> RenderState<'device> {
             vertices,
             vertex_buffer,
             index_buffer,
-            filled_clipping_mask_view,
+            filled_clipping_mask,
+            max_layers
         }
     }
 
@@ -617,27 +656,27 @@ impl<'device> RenderState<'device> {
         texture
     }
 
-    pub fn render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
-        let mut composite_texture = self.base_composite_texture();
-        for layer in layers.iter() {
-            composite_texture = self.render_layer(
-                composite_texture,
-                &layer.texture.view,
-                LayerContext {
-                    opacity: layer.opacity,
-                    blend: layer.blend.to_u32(),
-                },
-                if let Some(index) = layer.clipped {
-                    &layers[index].texture.view
-                } else {
-                    &self.filled_clipping_mask_view
-                },
-            );
+    // pub fn render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
+    //     let mut composite_texture = self.base_composite_texture();
+    //     for layer in layers.iter() {
+    //         composite_texture = self.render_layer(
+    //             composite_texture,
+    //             &layer.texture.view,
+    //             LayerContext {
+    //                 opacity: layer.opacity,
+    //                 blend: layer.blend.to_u32(),
+    //             },
+    //             if let Some(index) = layer.clipped {
+    //                 &layers[index].texture.view
+    //             } else {
+    //                 &self.filled_clipping_mask_view
+    //             },
+    //         );
 
-            // eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
-        }
-        composite_texture
-    }
+    //         // eprintln!("Finished layer {:?}: {}", layer.name, layer.blend);
+    //     }
+    //     composite_texture
+    // }
 
     pub fn second_gen_render(&self, layers: &[CompositeLayer]) -> wgpu::Texture {
         let mut composite_texture = self.base_composite_texture();
@@ -649,7 +688,10 @@ impl<'device> RenderState<'device> {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
             for layer in layers.iter() {
                 let prev_texture_view =
-                    composite_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    composite_texture.create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        ..Default::default()
+                    });
 
                 let ctx_buffer =
                     self.handle
@@ -659,9 +701,19 @@ impl<'device> RenderState<'device> {
                             contents: bytemuck::cast_slice(&[LayerContext {
                                 opacity: layer.opacity,
                                 blend: layer.blend.to_u32(),
+                                _padding: [0.0; 2]
                             }]),
-                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                         });
+
+                let count_buffer =
+                self.handle
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Context"),
+                        contents: bytemuck::cast_slice(&[1i32]),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    });
 
                 let GpuTexture {
                     texture: output_texture,
@@ -683,23 +735,41 @@ impl<'device> RenderState<'device> {
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(
-                                        if let Some(index) = layer.clipped {
-                                            &layers[index].texture.view
+                                    resource: wgpu::BindingResource::TextureViewArray(&[
+                                        &if let Some(index) = layer.clipped {
+                                            &layers[index].texture.texture
                                         } else {
-                                            &self.filled_clipping_mask_view
-                                        },
-                                    ),
+                                            &self.filled_clipping_mask
+                                        }
+                                        .create_view(
+                                            &wgpu::TextureViewDescriptor {
+                                                dimension: Some(
+                                                    wgpu::TextureViewDimension::D2Array,
+                                                ),
+                                                ..Default::default()
+                                            },
+                                        ),
+                                    ]),
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 2,
-                                    resource: wgpu::BindingResource::TextureView(
-                                        &layer.texture.view,
-                                    ),
+                                    resource: wgpu::BindingResource::TextureViewArray(&[&layer
+                                        .texture.texture.create_view(
+                                            &wgpu::TextureViewDescriptor {
+                                                dimension: Some(
+                                                    wgpu::TextureViewDimension::D2Array,
+                                                ),
+                                                ..Default::default()
+                                            },
+                                        )]),
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 3,
                                     resource: ctx_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 4,
+                                    resource: count_buffer.as_entire_binding(),
                                 },
                             ],
                             label: Some("mixing_bind_group"),
@@ -722,7 +792,8 @@ impl<'device> RenderState<'device> {
                 render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
                 render_pass.set_bind_group(1, &mixing_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
                 drop(render_pass);
 
@@ -733,87 +804,87 @@ impl<'device> RenderState<'device> {
         composite_texture
     }
 
-    fn render_layer(
-        &self,
-        composite_texture: wgpu::Texture,
-        layer_texture_view: &wgpu::TextureView,
-        layer_ctx: LayerContext,
-        mask_texture_view: &wgpu::TextureView,
-    ) -> wgpu::Texture {
-        let prev_texture_view =
-            composite_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    // fn render_layer(
+    //     &self,
+    //     composite_texture: wgpu::Texture,
+    //     layer_texture_view: &wgpu::TextureView,
+    //     layer_ctx: LayerContext,
+    //     mask_texture_view: &wgpu::TextureView,
+    // ) -> wgpu::Texture {
+    //     let prev_texture_view =
+    //         composite_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let ctx_buffer = self
-            .handle
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&[layer_ctx]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+    //     let ctx_buffer = self
+    //         .handle
+    //         .device
+    //         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    //             label: Some("Context"),
+    //             contents: bytemuck::cast_slice(&[layer_ctx]),
+    //             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    //         });
 
-        let GpuTexture {
-            texture: output_texture,
-            view: output_texture_view,
-            ..
-        } = self.new_output_texture();
+    //     let GpuTexture {
+    //         texture: output_texture,
+    //         view: output_texture_view,
+    //         ..
+    //     } = self.new_output_texture();
 
-        let mixing_bind_group = self
-            .handle
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.blending_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&mask_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&layer_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: ctx_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("mixing_bind_group"),
-            });
+    //     let mixing_bind_group = self
+    //         .handle
+    //         .device
+    //         .create_bind_group(&wgpu::BindGroupDescriptor {
+    //             layout: &self.blending_group_layout,
+    //             entries: &[
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 0,
+    //                     resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+    //                 },
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 1,
+    //                     resource: wgpu::BindingResource::TextureView(&mask_texture_view),
+    //                 },
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 2,
+    //                     resource: wgpu::BindingResource::TextureView(&layer_texture_view),
+    //                 },
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 3,
+    //                     resource: ctx_buffer.as_entire_binding(),
+    //                 },
+    //             ],
+    //             label: Some("mixing_bind_group"),
+    //         });
 
-        self.handle.queue.submit(Some({
-            let mut encoder = self
-                .handle
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    //     self.handle.queue.submit(Some({
+    //         let mut encoder = self
+    //             .handle
+    //             .device
+    //             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
+    //         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    //             label: None,
+    //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+    //                 view: &output_texture_view,
+    //                 resolve_target: None,
+    //                 ops: wgpu::Operations {
+    //                     load: wgpu::LoadOp::Load,
+    //                     store: true,
+    //                 },
+    //             })],
+    //             depth_stencil_attachment: None,
+    //         });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
-            render_pass.set_bind_group(1, &mixing_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-            drop(render_pass);
+    //         render_pass.set_pipeline(&self.render_pipeline);
+    //         render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
+    //         render_pass.set_bind_group(1, &mixing_bind_group, &[]);
+    //         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+    //         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+    //         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+    //         drop(render_pass);
 
-            encoder.finish()
-        }));
+    //         encoder.finish()
+    //     }));
 
-        output_texture
-    }
+    //     output_texture
+    // }
 }

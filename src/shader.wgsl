@@ -234,6 +234,7 @@ fn darker_color(b: vec3f, s: vec3f) -> vec3f {
 struct CtxInput {
     opacity: f32,
     blend: u32,
+    @size(8) padding: u32,
 };
 
 @group(0) @binding(0)
@@ -241,11 +242,13 @@ var splr: sampler;
 @group(1) @binding(0)
 var composite: texture_2d<f32>;
 @group(1) @binding(1)
-var clipping_mask: texture_2d<f32>;
+var clipping_mask: texture_2d_array<f32>;
 @group(1) @binding(2)
-var layer: texture_2d<f32>;
+var layer: texture_2d_array<f32>;
 @group(1) @binding(3)
-var<uniform> ctx: CtxInput;
+var<storage, read> ctx: array<CtxInput>;
+@group(1) @binding(4)
+var<uniform> layer_count: i32;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -258,54 +261,59 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    let bga = textureSample(composite, splr, in.bg_coords);
-    var fga = textureSample(layer, splr, in.fg_coords);
-    let maska = textureSample(clipping_mask, splr, in.fg_coords).a;
+    var bga = textureSample(composite, splr, in.bg_coords);
 
-    // Short circuit
-    // if (bga.a == 0.0) {
-    //     return fga;
-    // } else if (fga.a == 0.0) {
-    //     return bga;
-    // }
+    // let p: ptr<storage, array<CtxInput>, read> = &ctx;
+    for (var i: i32 = 0; i < layer_count; i++) {
+        var fga = textureSample(layer, splr, in.fg_coords, i);
+        let maska = textureSample(clipping_mask, splr, in.fg_coords, i).a;
 
-    // Procreate uses premultiplied alpha, so unpremultiply it.
-    let bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-    var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * ctx.opacity);
+        // Short circuit
+        // if (bga.a == 0.0) {
+        //     return fga;
+        // } else if (fga.a == 0.0) {
+        //     return bga;
+        // }
 
-    // Blend straight colors according to modes
-    var final_pixel = vec3(0.0);
-    switch (ctx.blend) {
-        case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
-        case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
-        case 3u: { final_pixel = add(bg.rgb, fg.rgb); }
-        case 4u: { final_pixel = lighten(bg.rgb, fg.rgb); }
-        case 5u: { final_pixel = exclusion(bg.rgb, fg.rgb); }
-        case 6u: { final_pixel = difference(bg.rgb, fg.rgb); }
-        case 7u: { final_pixel = subtract(bg.rgb, fg.rgb); }
-        case 8u: { final_pixel = linear_burn(bg.rgb, fg.rgb); }
-        case 9u: { final_pixel = color_dodge(bg.rgb, fg.rgb); }
-        case 10u: { final_pixel = color_burn(bg.rgb, fg.rgb); }
-        case 11u: { final_pixel = overlay(bg.rgb, fg.rgb); }
-        case 12u: { final_pixel = hard_light(bg.rgb, fg.rgb); }
-        case 13u: { final_pixel = color(bg.rgb, fg.rgb); }
-        case 14u: { final_pixel = luminosity(bg.rgb, fg.rgb); }
-        case 15u: { final_pixel = hue(bg.rgb, fg.rgb); }
-        case 16u: { final_pixel = saturation(bg.rgb, fg.rgb); }
-        case 17u: { final_pixel = soft_light(bg.rgb, fg.rgb); }
-        case 19u: { final_pixel = darken(bg.rgb, fg.rgb); }
-        case 20u: { final_pixel = hard_mix(bg.rgb, fg.rgb); }
-        case 21u: { final_pixel = vivid_light(bg.rgb, fg.rgb); }
-        case 22u: { final_pixel = linear_light(bg.rgb, fg.rgb); }
-        case 23u: { final_pixel = pin_light(bg.rgb, fg.rgb); }
-        case 24u: { final_pixel = lighter_color(bg.rgb, fg.rgb); }
-        case 25u: { final_pixel = darker_color(bg.rgb, fg.rgb); }
-        case 26u: { final_pixel = divide(bg.rgb, fg.rgb); }
-        default: { final_pixel = normal(bg.rgb, fg.rgb); }
+        // Procreate uses premultiplied alpha, so unpremultiply it.
+        let bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * ctx[0].opacity);
+
+        // Blend straight colors according to modes
+        var final_pixel = vec3(0.0);
+        switch (ctx[0].blend) {
+            case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
+            case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
+            case 3u: { final_pixel = add(bg.rgb, fg.rgb); }
+            case 4u: { final_pixel = lighten(bg.rgb, fg.rgb); }
+            case 5u: { final_pixel = exclusion(bg.rgb, fg.rgb); }
+            case 6u: { final_pixel = difference(bg.rgb, fg.rgb); }
+            case 7u: { final_pixel = subtract(bg.rgb, fg.rgb); }
+            case 8u: { final_pixel = linear_burn(bg.rgb, fg.rgb); }
+            case 9u: { final_pixel = color_dodge(bg.rgb, fg.rgb); }
+            case 10u: { final_pixel = color_burn(bg.rgb, fg.rgb); }
+            case 11u: { final_pixel = overlay(bg.rgb, fg.rgb); }
+            case 12u: { final_pixel = hard_light(bg.rgb, fg.rgb); }
+            case 13u: { final_pixel = color(bg.rgb, fg.rgb); }
+            case 14u: { final_pixel = luminosity(bg.rgb, fg.rgb); }
+            case 15u: { final_pixel = hue(bg.rgb, fg.rgb); }
+            case 16u: { final_pixel = saturation(bg.rgb, fg.rgb); }
+            case 17u: { final_pixel = soft_light(bg.rgb, fg.rgb); }
+            case 19u: { final_pixel = darken(bg.rgb, fg.rgb); }
+            case 20u: { final_pixel = hard_mix(bg.rgb, fg.rgb); }
+            case 21u: { final_pixel = vivid_light(bg.rgb, fg.rgb); }
+            case 22u: { final_pixel = linear_light(bg.rgb, fg.rgb); }
+            case 23u: { final_pixel = pin_light(bg.rgb, fg.rgb); }
+            case 24u: { final_pixel = lighter_color(bg.rgb, fg.rgb); }
+            case 25u: { final_pixel = darker_color(bg.rgb, fg.rgb); }
+            case 26u: { final_pixel = divide(bg.rgb, fg.rgb); }
+            default: { final_pixel = normal(bg.rgb, fg.rgb); }
+        }
+        // Clamp to avoid unwanted behavior down the road
+        final_pixel = clamp(final_pixel, vec3(0.0), vec3(1.0));
+
+        // Compute final premultiplied colors
+        bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
     }
-    // Clamp to avoid unwanted behavior down the road
-    final_pixel = clamp(final_pixel, vec3(0.0), vec3(1.0));
-
-    // Compute final premultiplied colors
-    return premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
+    return bga;
 }
