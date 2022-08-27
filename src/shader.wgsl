@@ -242,9 +242,9 @@ var splr: sampler;
 @group(1) @binding(0)
 var composite: texture_2d<f32>;
 @group(1) @binding(1)
-var clipping_mask: texture_2d_array<f32>;
+var clipping_mask: binding_array<texture_2d<f32>>;
 @group(1) @binding(2)
-var layer: texture_2d_array<f32>;
+var layer: binding_array<texture_2d<f32>>;
 @group(1) @binding(3)
 var<storage, read> ctx: array<CtxInput>;
 @group(1) @binding(4)
@@ -263,10 +263,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
     var bga = textureSample(composite, splr, in.bg_coords);
 
-    // let p: ptr<storage, array<CtxInput>, read> = &ctx;
     for (var i: i32 = 0; i < layer_count; i++) {
-        var fga = textureSample(layer, splr, in.fg_coords, i);
-        let maska = textureSample(clipping_mask, splr, in.fg_coords, i).a;
+        var fga = textureSample(layer[i], splr, in.fg_coords);
+        var maska = textureSample(clipping_mask[i], splr, in.fg_coords).a;
 
         // Short circuit
         // if (bga.a == 0.0) {
@@ -276,12 +275,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // }
 
         // Procreate uses premultiplied alpha, so unpremultiply it.
-        let bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * ctx[0].opacity);
+        var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * ctx[i].opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
-        switch (ctx[0].blend) {
+        switch (ctx[i].blend) {
             case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
             case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
             case 3u: { final_pixel = add(bg.rgb, fg.rgb); }

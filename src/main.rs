@@ -4,14 +4,14 @@ mod ns_archive;
 mod silica;
 
 use crate::{
-    gpu::RenderState,
+    gpu::Compositor,
     silica::{BlendingMode, SilicaHierarchy},
 };
 use gpu::{CompositeLayer, GpuTexture, LogicalDevice};
 use silica::{ProcreateFile, SilicaGroup};
 use std::{
     error::Error,
-    sync::{atomic::AtomicBool, Arc, RwLock}, num::NonZeroU32,
+    sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_decorations(true)
         .with_resizable(true)
         .with_transparent(false)
-        .with_title("egui-wgpu_winit example")
+        .with_title("Procreate Viewer")
         .with_inner_size(winit::dpi::PhysicalSize {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
@@ -44,11 +44,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn gpu_render(
-    state: &RenderState,
+    state: &Compositor,
     // pc: &ProcreateFile,
     gpu_textures: &[GpuTexture],
     layers: &SilicaGroup,
-    composite_reference: bool,
 ) -> wgpu::TextureView {
     // let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
     //     label: None,
@@ -142,12 +141,12 @@ pub fn gpu_render(
 }
 
 fn resolve<'a>(
-    state: &RenderState,
+    state: &Compositor,
     gpu_textures: &'a [GpuTexture],
     layers: &'a crate::silica::SilicaGroup,
 ) -> Vec<CompositeLayer<'a>> {
     fn inner<'a>(
-        state: &RenderState,
+        state: &Compositor,
         gpu_textures: &'a [GpuTexture],
         layers: &'a crate::silica::SilicaGroup,
         composite_layers: &mut Vec<CompositeLayer<'a>>,
@@ -251,12 +250,11 @@ fn start_gui(
     let dev = &*Box::leak(Box::new(dev));
 
     let state = Arc::new(RwLock::new({
-        let mut state = RenderState::new(
+        let mut state = Compositor::new(
             pc.size.width,
             pc.size.height,
             (!pc.background_hidden).then_some(pc.background_color),
             dev,
-            pc.layers.count_layers()
         );
         state.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
         state
@@ -312,7 +310,7 @@ fn start_gui(
                 let gpu_textures = &gpu_textures;
                 let layer_data = pc.read().unwrap().layers.clone();
                 *tex.write().unwrap() =
-                    gpu_render(&state.read().unwrap(), &gpu_textures, &layer_data, false);
+                    gpu_render(&state.read().unwrap(), &gpu_textures, &layer_data);
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         });
@@ -370,7 +368,7 @@ fn start_gui(
                             state.write().unwrap().rotate_vertices(true);
                             state.write().unwrap().tranpose_dimensions();
                         }
-                        if ui.button("Rotate CCW").clicked() {
+                        if ui.button("Rotate CW").clicked() {
                             state.write().unwrap().rotate_vertices(false);
                             state.write().unwrap().tranpose_dimensions();
                         }
@@ -406,8 +404,6 @@ fn start_gui(
 
                 let full_output = platform.end_frame(Some(&window));
 
-         
-
                 let paint_jobs = platform.context().tessellate(full_output.shapes);
 
                 let mut encoder =
@@ -419,7 +415,7 @@ fn start_gui(
                 // Upload all resources for the GPU.
                 let screen_descriptor = ScreenDescriptor {
                     size_in_pixels: [surface_config.width, surface_config.height],
-                    pixels_per_point: window.scale_factor() as f32
+                    pixels_per_point: window.scale_factor() as f32,
                 };
                 let tdelta: egui::TexturesDelta = full_output.textures_delta;
                 // egui_rpass
@@ -437,14 +433,13 @@ fn start_gui(
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
                 // Record all render passes.
-                egui_rpass
-                    .execute(
-                        &mut encoder,
-                        &output_view,
-                        &paint_jobs,
-                        &screen_descriptor,
-                        Some(wgpu::Color::BLACK),
-                    );
+                egui_rpass.execute(
+                    &mut encoder,
+                    &output_view,
+                    &paint_jobs,
+                    &screen_descriptor,
+                    Some(wgpu::Color::BLACK),
+                );
                 // Submit the commands.
                 dev.queue.submit(iter::once(encoder.finish()));
 
@@ -458,7 +453,11 @@ fn start_gui(
 
                 if let Ok(z) = tex.try_read() {
                     egui_rpass.free_texture(&egui_tex);
-                    egui_tex = egui_rpass.register_native_texture(&dev.device, &z, wgpu::FilterMode::Linear);
+                    egui_tex = egui_rpass.register_native_texture(
+                        &dev.device,
+                        &z,
+                        wgpu::FilterMode::Linear,
+                    );
                     // egui_rpass
                     //     .update_texture(&dev.device, &z, wgpu::FilterMode::Linear, egui_tex);
                 }
