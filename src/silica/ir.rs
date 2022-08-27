@@ -1,7 +1,7 @@
 use std::io::Read;
-use std::sync::{Arc, Mutex};
 
-use crate::gpu::{GpuTexture, LogicalDevice};
+use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingMeta, ZipArchiveMmap};
+use crate::gpu::{dev::LogicalDevice, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use crate::silica::BlendingMode;
@@ -9,10 +9,8 @@ use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
-use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
-
-use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingMeta, ZipArchiveMmap};
 
 pub(super) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
@@ -56,7 +54,13 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture = GpuTexture::empty(&render.device, size.width, size.height, None);
+        let gpu_texture = GpuTexture::empty(
+            &render.device,
+            size.width,
+            size.height,
+            None,
+            GpuTexture::layer_usage(),
+        );
 
         file_names
             .par_iter()

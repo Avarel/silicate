@@ -1,20 +1,14 @@
 mod ir;
 
-use crate::gpu::{GpuTexture, LogicalDevice};
+use self::ir::{SilicaIRHierarchy, SilicaIRLayer};
+use crate::gpu::{dev::LogicalDevice, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelIterator;
-
-use std::fmt::Pointer;
 use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use zip::read::ZipArchive;
-
-use self::ir::{SilicaIRHierarchy, SilicaIRLayer};
 
 #[derive(Error, Debug)]
 pub enum SilicaError {
@@ -188,7 +182,6 @@ pub struct Flipped {
 pub struct ProcreateFile {
     // animation:ValkyrieDocumentAnimation?
     pub author_name: Option<String>,
-    // pub backgroundColor: Data?
     pub background_hidden: bool,
     pub background_color: [f32; 4],
     //     backgroundColorHSBA:Data?

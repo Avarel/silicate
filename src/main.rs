@@ -7,12 +7,27 @@ use crate::{
     gpu::Compositor,
     silica::{BlendingMode, SilicaHierarchy},
 };
-use gpu::{CompositeLayer, GpuTexture, LogicalDevice};
+use egui::{
+    plot::{Plot, PlotPoint},
+    FontDefinitions,
+};
+use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
+use egui_winit_platform::{Platform, PlatformDescriptor};
+use gpu::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
+use parking_lot::RwLock;
 use silica::{ProcreateFile, SilicaGroup};
 use std::{
     error::Error,
-    sync::{atomic::AtomicBool, Arc, RwLock},
+    sync::{atomic::AtomicBool, Arc},
+    time::Instant,
 };
+use winit::{
+    event::Event::*,
+    event_loop::{ControlFlow, EventLoopBuilder},
+};
+
+const INITIAL_WIDTH: u32 = 1200;
+const INITIAL_HEIGHT: u32 = 700;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
@@ -66,7 +81,7 @@ pub fn gpu_render(
     //         name: Some("Composite"),
     //     }])
     // } else {
-    let result = state.second_gen_render(&resolve(&state, gpu_textures, &layers));
+    let result = state.render(&resolve(&state, gpu_textures, &layers));
     // };
 
     // state.handle.queue.submit(Some({
@@ -192,20 +207,6 @@ fn resolve<'a>(
     composite_layers
 }
 
-use std::iter;
-use std::time::Instant;
-
-use egui::{
-    plot::{Plot, PlotPoint},
-    FontDefinitions,
-};
-use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
-use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event_loop::ControlFlow;
-use winit::{event::Event::*, event_loop::EventLoopBuilder};
-const INITIAL_WIDTH: u32 = 1200;
-const INITIAL_HEIGHT: u32 = 700;
-
 fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
     for layer in &mut layers.children {
         *i += 1;
@@ -263,7 +264,6 @@ fn start_gui(
     let tex = Arc::new(RwLock::new(
         state
             .read()
-            .unwrap()
             .base_composite_texture()
             .create_view(&wgpu::TextureViewDescriptor::default()),
     ));
@@ -294,11 +294,8 @@ fn start_gui(
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let mut egui_tex = egui_rpass.register_native_texture(
-        &dev.device,
-        &tex.read().unwrap(),
-        wgpu::FilterMode::Linear,
-    );
+    let mut egui_tex =
+        egui_rpass.register_native_texture(&dev.device, &tex.read(), wgpu::FilterMode::Linear);
 
     {
         let state = state.clone();
@@ -308,9 +305,8 @@ fn start_gui(
         std::thread::spawn(move || {
             while running.load(std::sync::atomic::Ordering::SeqCst) {
                 let gpu_textures = &gpu_textures;
-                let layer_data = pc.read().unwrap().layers.clone();
-                *tex.write().unwrap() =
-                    gpu_render(&state.read().unwrap(), &gpu_textures, &layer_data);
+                let layer_data = pc.read().layers.clone();
+                *tex.write() = gpu_render(&state.read(), &gpu_textures, &layer_data);
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         });
@@ -347,64 +343,69 @@ fn start_gui(
                 // Begin to draw the UI frame.
                 platform.begin_frame();
 
-                egui::SidePanel::new(egui::panel::Side::Right, "Side Panel")
-                    .default_width(300.0)
-                    .show(&platform.context(), |ui| {
-                        if ui.button("Toggle Canvas").clicked() {
-                            show = !show;
-                        }
+                let context = platform.context();
 
-                        let mut pc = pc.write().unwrap();
+                {
+                    let mut pc = pc.write();
+                    let mut state = state.write();
 
-                        ui.separator();
+                    egui::SidePanel::new(egui::panel::Side::Right, "Side Panel")
+                        .default_width(300.0)
+                        .show(&context, |ui| {
+                            if ui.button("Toggle Canvas").clicked() {
+                                show = !show;
+                            }
 
-                        if ui.button("Horizontal Flip").clicked() {
-                            state.write().unwrap().flip_vertices((true, false));
-                        }
-                        if ui.button("Vertical Flip").clicked() {
-                            state.write().unwrap().flip_vertices((false, true));
-                        }
-                        if ui.button("Rotate CCW").clicked() {
-                            state.write().unwrap().rotate_vertices(true);
-                            state.write().unwrap().tranpose_dimensions();
-                        }
-                        if ui.button("Rotate CW").clicked() {
-                            state.write().unwrap().rotate_vertices(false);
-                            state.write().unwrap().tranpose_dimensions();
-                        }
+                            ui.separator();
 
-                        ui.separator();
+                            if ui.button("Horizontal Flip").clicked() {
+                                state.flip_vertices((true, false));
+                            }
+                            if ui.button("Vertical Flip").clicked() {
+                                state.flip_vertices((false, true));
+                            }
+                            if ui.button("Rotate CCW").clicked() {
+                                state.rotate_vertices(true);
+                                state.tranpose_dimensions();
+                            }
+                            if ui.button("Rotate CW").clicked() {
+                                state.rotate_vertices(false);
+                                state.tranpose_dimensions();
+                            }
 
-                        let mut i = 0;
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                layout_layers(ui, &mut pc.layers, &mut i);
-                            });
-                    });
+                            ui.separator();
 
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
-                    .show(&platform.context(), |ui| {
-                        let mut plot = Plot::new("lines_demo").data_aspect(1.0);
-
-                        if show {
-                            plot = plot.show_x(false).show_y(false).show_axes([false, false]);
-                        }
-
-                        plot.show(ui, |plot_ui| {
-                            let size = state.read().unwrap().buffer_dimensions;
-                            plot_ui.image(egui::plot::PlotImage::new(
-                                egui_tex,
-                                PlotPoint { x: 0.0, y: 0.0 },
-                                (size.width as f32, size.height as f32),
-                            ))
+                            let mut i = 0;
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    layout_layers(ui, &mut pc.layers, &mut i);
+                                });
                         });
-                    });
+
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::none())
+                        .show(&context, |ui| {
+                            let mut plot = Plot::new("Image View").data_aspect(1.0);
+
+                            if show {
+                                plot = plot.show_x(false).show_y(false).show_axes([false, false]);
+                            }
+
+                            plot.show(ui, |plot_ui| {
+                                let size = state.buffer_dimensions;
+                                plot_ui.image(egui::plot::PlotImage::new(
+                                    egui_tex,
+                                    PlotPoint { x: 0.0, y: 0.0 },
+                                    (size.width as f32, size.height as f32),
+                                ))
+                            });
+                        });
+                }
 
                 let full_output = platform.end_frame(Some(&window));
 
-                let paint_jobs = platform.context().tessellate(full_output.shapes);
+                let paint_jobs = context.tessellate(full_output.shapes);
 
                 let mut encoder =
                     dev.device
@@ -418,11 +419,6 @@ fn start_gui(
                     pixels_per_point: window.scale_factor() as f32,
                 };
                 let tdelta: egui::TexturesDelta = full_output.textures_delta;
-                // egui_rpass
-                //     .add_textures(&dev.device, &dev.queue, &tdelta)
-                //     .expect("add texture ok");
-                // egui_rpass.
-                // egui_rpass.update_texture(&dev.device, &dev.queue, id, image_delta)
 
                 for (id, image_delta) in &tdelta.set {
                     egui_rpass.update_texture(&dev.device, &dev.queue, *id, image_delta);
@@ -441,25 +437,20 @@ fn start_gui(
                     Some(wgpu::Color::BLACK),
                 );
                 // Submit the commands.
-                dev.queue.submit(iter::once(encoder.finish()));
+                dev.queue.submit(Some(encoder.finish()));
 
                 // Redraw egui
                 output_frame.present();
 
-                // egui_rpass
-                //     .remove_textures(tdelta)
-                //     .expect("remove texture ok");
                 tdelta.free.iter().for_each(|z| egui_rpass.free_texture(z));
 
-                if let Ok(z) = tex.try_read() {
+                if let Some(z) = tex.try_read() {
                     egui_rpass.free_texture(&egui_tex);
                     egui_tex = egui_rpass.register_native_texture(
                         &dev.device,
                         &z,
                         wgpu::FilterMode::Linear,
                     );
-                    // egui_rpass
-                    //     .update_texture(&dev.device, &z, wgpu::FilterMode::Linear, egui_tex);
                 }
             }
             MainEventsCleared => {
@@ -467,9 +458,6 @@ fn start_gui(
             }
             WindowEvent { event, .. } => match event {
                 winit::event::WindowEvent::Resized(size) => {
-                    // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-                    // See: https://github.com/rust-windowing/winit/issues/208
-                    // This solves an issue where the app would panic when minimizing on Windows.
                     if size.width > 0 && size.height > 0 {
                         surface_config.width = size.width;
                         surface_config.height = size.height;
