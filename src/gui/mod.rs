@@ -1,9 +1,8 @@
+mod layout;
+
 use crate::compositor::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
 use crate::silica::{ProcreateFile, SilicaGroup};
-use crate::{
-    compositor::Compositor,
-    silica::{BlendingMode, SilicaHierarchy},
-};
+use crate::{compositor::Compositor, silica::SilicaHierarchy};
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use parking_lot::RwLock;
@@ -12,6 +11,8 @@ use std::{
     time::Instant,
 };
 use winit::{event::Event::*, event_loop::ControlFlow};
+
+use self::layout::{CompositorState, EditorState};
 
 fn linearize<'a>(
     gpu_textures: &'a [GpuTexture],
@@ -50,173 +51,6 @@ fn linearize<'a>(
     }
 }
 
-fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
-    for layer in &mut layers.children {
-        *i += 1;
-        match layer {
-            SilicaHierarchy::Layer(l) => {
-                ui.push_id(*i, |ui| {
-                    *i += 1;
-                    ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
-                        ui.checkbox(&mut l.hidden, "Hidden");
-                        // TODO: only show if its not the first layer in its group
-                        ui.checkbox(&mut l.clipped, "Clipped");
-                        egui::ComboBox::from_label("Blending Mode")
-                            .selected_text(l.blend.to_str())
-                            .show_ui(ui, |ui| {
-                                for b in BlendingMode::all() {
-                                    ui.selectable_value(&mut l.blend, *b, b.to_str());
-                                }
-                            });
-                        ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("Opacity"));
-                    });
-                });
-            }
-            SilicaHierarchy::Group(h) => {
-                ui.push_id(*i, |ui| {
-                    *i += 1;
-                    ui.collapsing(h.name.to_string().as_str(), |ui| {
-                        ui.checkbox(&mut h.hidden, "Hidden");
-                        layout_layers(ui, h, i);
-                    })
-                });
-            }
-        }
-    }
-}
-
-fn layout_gui(context: &egui::Context, es: &mut EditorState) {
-    use egui::*;
-    let cs = &es.cs;
-    SidePanel::new(panel::Side::Right, "Side Panel")
-        .default_width(300.0)
-        .show(&context, |ui| {
-            Frame::group(&Style::default()).show(ui, |ui| {
-                ui.collapsing("File", |ui| {
-                    ui.separator();
-
-                    Grid::new("File Grid")
-                        .num_columns(2)
-                        .spacing([8.0, 10.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            let file = cs.file.read();
-                            ui.label("Name");
-                            ui.label(file.name.as_deref().unwrap_or("Not Specified"));
-                            ui.end_row();
-                            ui.label("Author");
-                            ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
-                            ui.end_row();
-                            ui.label("Stroke Count");
-                            ui.label(file.stroke_count.to_string());
-                            ui.end_row();
-                            ui.label("Canvas Size");
-                            ui.label(format!("{} by {}", file.size.width, file.size.height));
-                            ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
-                        });
-
-                    if ui.button("Export View").clicked() {
-                        cs.tex.read().export(es.dev, cs.compositor.read().dim);
-                    }
-                    ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
-                });
-                ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
-            });
-
-            Frame::group(&Style::default()).show(ui, |ui| {
-                ui.collapsing("View Control", |ui| {
-                    ui.separator();
-                    if ui.button("Toggle Grid").clicked() {
-                        es.show_grid = !es.show_grid;
-                    }
-                    if ui.checkbox(&mut es.smooth, "Smooth").changed() {
-                        cs.force_recomposit
-                            .store(true, std::sync::atomic::Ordering::SeqCst);
-                    }
-                    ui.separator();
-
-                    egui::Grid::new("Control Grid")
-                        .num_columns(2)
-                        .spacing([8.0, 10.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            let compositor = &mut *cs.compositor.write();
-
-                            ui.label("Flip");
-                            ui.horizontal(|ui| {
-                                if ui.button("Horizontal").clicked() {
-                                    compositor.flip_vertices((true, false));
-                                    cs.force_recomposit
-                                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                                if ui.button("Vertical").clicked() {
-                                    compositor.flip_vertices((false, true));
-                                    cs.force_recomposit
-                                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                            });
-                            ui.end_row();
-                            ui.label("Rotate");
-                            ui.horizontal(|ui| {
-                                if ui.button("CCW").clicked() {
-                                    compositor.rotate_vertices(true);
-                                    compositor.set_dimensions(
-                                        compositor.dim.height,
-                                        compositor.dim.width,
-                                    );
-                                    cs.force_recomposit
-                                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                                if ui.button("CW").clicked() {
-                                    compositor.rotate_vertices(false);
-                                    compositor.set_dimensions(
-                                        compositor.dim.height,
-                                        compositor.dim.width,
-                                    );
-                                    cs.force_recomposit
-                                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                            });
-                            ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
-                        });
-                    // ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
-                });
-                ui.allocate_space(vec2(ui.available_width(), 0.0))
-            });
-
-            let mut i = 0;
-            Frame::group(&Style::default()).show(ui, |ui| {
-                ui.label("Layers");
-                ui.separator();
-                ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        layout_layers(ui, &mut cs.file.write().layers, &mut i);
-                    });
-                ui.allocate_space(vec2(ui.available_width(), 0.0))
-            })
-        });
-
-    CentralPanel::default()
-        .frame(Frame::none())
-        .show(&context, |ui| {
-            let mut plot = plot::Plot::new("Image View").data_aspect(1.0);
-
-            if es.show_grid {
-                plot = plot.show_x(false).show_y(false).show_axes([false, false]);
-            }
-
-            plot.show(ui, |plot_ui| {
-                let size = cs.compositor.read().dim;
-                plot_ui.image(plot::PlotImage::new(
-                    es.egui_tex,
-                    plot::PlotPoint { x: 0.0, y: 0.0 },
-                    (size.width as f32, size.height as f32),
-                ))
-            });
-        });
-}
-
 struct FrameLimiter {
     delta: std::time::Duration,
     next_time: std::time::Instant,
@@ -238,7 +72,7 @@ impl FrameLimiter {
             // now ------------- next_frame
             //        diff
             std::thread::sleep(diff);
-        } else if let Some(diff) = now.checked_duration_since(self.next_time) {
+        } else {
             // We have waken up after the minimum time that we needed to wait to
             // begin drawing another frame.
             // Case 1 //////////////////////////////////////////////////
@@ -256,35 +90,20 @@ impl FrameLimiter {
             // next_frame ----------------------------------- now
             //                          diff
             // delta - diff == 0
-            self.next_time = now + self.delta.saturating_sub(diff);
-        } else {
-            // Times are equal? This is generally due to buggy monotonicity bugs.
-            self.next_time = now + self.delta;
+            self.next_time = now
+                + self.delta.saturating_sub(
+                    now.checked_duration_since(self.next_time)
+                        .unwrap_or_default(),
+                );
         }
     }
-}
-
-struct CompositorState<'dev> {
-    file: RwLock<ProcreateFile>,
-    compositor: RwLock<Compositor<'dev>>,
-    tex: RwLock<GpuTexture>,
-    active: AtomicBool,
-    force_recomposit: AtomicBool,
-}
-
-struct EditorState<'dev> {
-    dev: &'dev LogicalDevice,
-    egui_tex: egui::TextureId,
-    smooth: bool,
-    show_grid: bool,
-    cs: Arc<CompositorState<'dev>>,
 }
 
 fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
     let mut limiter = FrameLimiter::new(60);
     let mut resolved_layers = Vec::new();
     let mut old_layer_config = SilicaGroup::empty();
-    while cs.active.load(std::sync::atomic::Ordering::SeqCst) {
+    while cs.is_active() {
         let gpu_textures = &gpu_textures;
         resolved_layers.clear();
 
@@ -294,11 +113,7 @@ fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
 
         // Only force a recompute if we need to.
         let new_layer_config = cs.file.read().layers.clone();
-        if cs
-            .force_recomposit
-            .load(std::sync::atomic::Ordering::SeqCst)
-            || old_layer_config != new_layer_config
-        {
+        if cs.get_recomposit() || old_layer_config != new_layer_config {
             linearize(
                 gpu_textures,
                 &cs.file.read().layers.clone(),
@@ -306,8 +121,7 @@ fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
             );
             *cs.tex.write() = cs.compositor.read().render(&resolved_layers);
             old_layer_config = new_layer_config;
-            cs.force_recomposit
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            cs.set_recomposit(false);
         }
     }
 }
@@ -352,7 +166,6 @@ pub fn start_gui(
     };
     surface.configure(&dev.device, &surface_config);
 
-    // We use the egui_winit_platform crate as the platform.
     let mut platform = Platform::new(PlatformDescriptor {
         physical_width: size.width,
         physical_height: size.height,
@@ -419,17 +232,13 @@ pub fn start_gui(
 
                 let context = platform.context();
 
-                layout_gui(&context, &mut es);
+                es.layout_gui(&context);
 
                 let full_output = platform.end_frame(Some(&window));
 
                 let paint_jobs = context.tessellate(full_output.shapes);
 
-                let mut encoder =
-                    dev.device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("encoder"),
-                        });
+
 
                 // Upload all resources for the GPU.
                 let screen_descriptor = ScreenDescriptor {
@@ -446,6 +255,11 @@ pub fn start_gui(
                 }
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
+                let mut encoder =
+                dev.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("encoder"),
+                    });
                 // Record all render passes.
                 egui_rpass.execute(
                     &mut encoder,
@@ -488,9 +302,7 @@ pub fn start_gui(
                 }
                 winit::event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
-                    es.cs
-                        .active
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                    es.cs.deactivate()
                 }
                 _ => {}
             },
