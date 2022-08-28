@@ -235,6 +235,16 @@ pub struct SilicaGroup {
     pub name: String,
 }
 
+impl SilicaGroup {
+    pub fn empty() -> Self {
+        Self {
+            hidden: true,
+            children: Vec::new(),
+            name: String::new()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?

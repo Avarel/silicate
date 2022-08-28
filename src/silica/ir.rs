@@ -37,7 +37,7 @@ impl SilicaIRLayer<'_> {
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
         file_names: &[&str],
-        render: &LogicalDevice,
+        dev: &LogicalDevice,
         gpu_textures: &mut Vec<GpuTexture>,
     ) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
@@ -55,7 +55,7 @@ impl SilicaIRLayer<'_> {
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
         let gpu_texture = GpuTexture::empty(
-            &render.device,
+            &dev,
             size.width,
             size.height,
             None,
@@ -87,7 +87,7 @@ impl SilicaIRLayer<'_> {
                     }) as usize;
 
                 let mut chunk = archive.by_name(path)?;
-                
+
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data_len = tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
                 let mut buf = Vec::with_capacity(data_len);
@@ -97,7 +97,7 @@ impl SilicaIRLayer<'_> {
                     tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
                 )?;
                 gpu_texture.replace(
-                    &render.queue,
+                    &dev,
                     col * meta.tile_size,
                     row * meta.tile_size,
                     tile_width as u32,

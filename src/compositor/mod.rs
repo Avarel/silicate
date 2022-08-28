@@ -113,7 +113,6 @@ pub struct CompositeLayer<'a> {
 pub struct Compositor<'device> {
     pub dev: &'device LogicalDevice,
     pub dim: BufferDimensions,
-    // pub texture_extent: wgpu::Extent3d,
     vertices: [Vertex; 4],
     background: Option<[f32; 4]>,
     constant_bind_group: wgpu::BindGroup,
@@ -164,7 +163,7 @@ impl<'device> Compositor<'device> {
         self.dim = buffer_dimensions;
         self.filled_clipping_mask = Some({
             let tex = GpuTexture::empty_with_extent(
-                &self.dev.device,
+                &self.dev,
                 self.dim.extent,
                 None,
                 GpuTexture::OUTPUT_USAGE,
@@ -288,7 +287,7 @@ impl<'device> Compositor<'device> {
 
     pub fn base_composite_texture(&self) -> GpuTexture {
         let tex = GpuTexture::empty_with_extent(
-            &self.dev.device,
+            &self.dev,
             self.dim.extent,
             None,
             GpuTexture::OUTPUT_USAGE,
@@ -396,7 +395,7 @@ impl<'device> Compositor<'device> {
             });
 
         let tex = GpuTexture::empty_with_extent(
-            &self.dev.device,
+            &self.dev,
             self.dim.extent,
             None,
             GpuTexture::OUTPUT_USAGE,

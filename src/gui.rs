@@ -13,102 +13,6 @@ use std::{
 };
 use winit::{event::Event::*, event_loop::ControlFlow};
 
-// fn gpu_render(
-//     state: &Compositor,
-//     gpu_textures: &[GpuTexture],
-//     layers: &SilicaGroup,
-// ) -> wgpu::TextureView {
-//     // let output_buffer = state.handle.device.create_buffer(&wgpu::BufferDescriptor {
-//     //     label: None,
-//     //     size: (state.buffer_dimensions.padded_bytes_per_row * state.buffer_dimensions.height)
-//     //         as u64,
-//     //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-//     //     mapped_at_creation: false,
-//     // });
-
-//     // let result = if composite_reference {
-//     //     state.render(&[CompositeLayer {
-//     //         texture: &pc.composite.image,
-//     //         clipped: None,
-//     //         opacity: 1.0,
-//     //         blend: BlendingMode::Normal,
-//     //         name: Some("Composite"),
-//     //     }])
-//     // } else {
-//     let result = state.render(&linearize(&state, gpu_textures, &layers));
-//     // };
-
-//     // state.handle.queue.submit(Some({
-//     //     let mut encoder = state
-//     //         .handle
-//     //         .device
-//     //         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-//     //     // Copy the data from the texture to the buffer
-//     //     encoder.copy_texture_to_buffer(
-//     //         state.composite_texture.as_image_copy(),
-//     //         wgpu::ImageCopyBuffer {
-//     //             buffer: &output_buffer,
-//     //             layout: wgpu::ImageDataLayout {
-//     //                 offset: 0,
-//     //                 bytes_per_row: NonZeroU32::new(state.buffer_dimensions.padded_bytes_per_row),
-//     //                 rows_per_image: None,
-//     //             },
-//     //         },
-//     //         state.texture_extent,
-//     //     );
-
-//     //     encoder.finish()
-//     // }));
-
-//     // let buffer_slice = output_buffer.slice(..);
-
-//     // // NOTE: We have to create the mapping THEN device.poll() before await
-//     // // the future. Otherwise the application will freeze.
-//     // let (tx, rx) = futures::channel::oneshot::channel();
-//     // buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-//     // state.handle.device.poll(wgpu::Maintain::Wait);
-//     // block_on(rx).unwrap().unwrap();
-
-//     // let data = buffer_slice.get_mapped_range();
-
-//     // // eprintln!("Loading data to CPU");
-//     // // let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-//     // //     state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
-//     // //     state.buffer_dimensions.height as u32,
-//     // //     data,
-//     // // )
-//     // // .unwrap();
-//     // // eprintln!("Writing image");
-
-//     // eprintln!("Loading data to CPU");
-//     // let mut buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-//     //     state.buffer_dimensions.padded_bytes_per_row as u32 / 4,
-//     //     state.buffer_dimensions.height as u32,
-//     //     data.to_vec(),
-//     // )
-//     // .unwrap();
-//     // eprintln!("Rotating image");
-
-//     // buffer = image::imageops::crop_imm(&buffer, 0, 0, pc.size.width, pc.size.height).to_image();
-//     // match pc.orientation {
-//     //     0 => {}
-//     //     1 | 4 => buffer = image::imageops::rotate90(&buffer),
-//     //     2 => buffer = image::imageops::rotate180(&buffer),
-//     //     3 => buffer = image::imageops::rotate270(&buffer),
-//     //     _ => println!("Unknown orientation!"),
-//     // };
-//     // eprintln!("Writing image");
-
-//     // buffer.save(out_path).unwrap();
-
-//     // eprintln!("Finished");
-//     // drop(buffer);
-//     // drop(buffer_slice);
-
-//     // output_buffer.unmap();
-//     result.make_view()
-// }
-
 fn linearize<'a>(
     gpu_textures: &'a [GpuTexture],
     layers: &crate::silica::SilicaGroup,
@@ -183,8 +87,11 @@ fn layout_gui(
     context: &egui::Context,
     show_grid: &mut bool,
     egui_tex: egui::TextureId,
-    state: &mut Compositor,
+    compositor: &mut Compositor,
     pc: &mut ProcreateFile,
+    force_recomposit: &AtomicBool,
+    dev: &LogicalDevice,
+    tex: &Arc<RwLock<GpuTexture>>,
 ) {
     use egui::*;
     SidePanel::new(panel::Side::Right, "Side Panel")
@@ -212,6 +119,10 @@ fn layout_gui(
                             ui.label(format!("{} by {}", pc.size.width, pc.size.height));
                             ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
                         });
+                    
+                    if ui.button("Export View").clicked() {
+                        tex.read().export(dev, compositor.dim);
+                    }
                     ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
                 });
                 ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
@@ -233,22 +144,30 @@ fn layout_gui(
                             ui.label("Flip");
                             ui.horizontal(|ui| {
                                 if ui.button("Horizontal").clicked() {
-                                    state.flip_vertices((true, false));
+                                    compositor.flip_vertices((true, false));
+                                    force_recomposit
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 if ui.button("Vertical").clicked() {
-                                    state.flip_vertices((false, true));
+                                    compositor.flip_vertices((false, true));
+                                    force_recomposit
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                             });
                             ui.end_row();
                             ui.label("Rotate");
                             ui.horizontal(|ui| {
                                 if ui.button("CCW").clicked() {
-                                    state.rotate_vertices(true);
-                                    state.set_dimensions(state.dim.height, state.dim.width);
+                                    compositor.rotate_vertices(true);
+                                    compositor.set_dimensions(compositor.dim.height, compositor.dim.width);
+                                    force_recomposit
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 if ui.button("CW").clicked() {
-                                    state.rotate_vertices(false);
-                                    state.set_dimensions(state.dim.height, state.dim.width);
+                                    compositor.rotate_vertices(false);
+                                    compositor.set_dimensions(compositor.dim.height, compositor.dim.width);
+                                    force_recomposit
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                             });
                             ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
@@ -281,7 +200,7 @@ fn layout_gui(
             }
 
             plot.show(ui, |plot_ui| {
-                let size = state.dim;
+                let size = compositor.dim;
                 plot_ui.image(plot::PlotImage::new(
                     egui_tex,
                     plot::PlotPoint { x: 0.0, y: 0.0 },
@@ -289,6 +208,53 @@ fn layout_gui(
                 ))
             });
         });
+}
+
+struct FrameLimiter {
+    delta: std::time::Duration,
+    next_time: std::time::Instant,
+}
+
+impl FrameLimiter {
+    pub fn new(target_fps: u32) -> Self {
+        Self {
+            delta: std::time::Duration::from_secs(1).div_f64(f64::from(target_fps)),
+            next_time: std::time::Instant::now(),
+        }
+    }
+
+    pub fn wait(&mut self) {
+        let now = std::time::Instant::now();
+        if let Some(diff) = self.next_time.checked_duration_since(now) {
+            // We have woken up before the minimum time that we needed to wait
+            // before drawing another frame.
+            // now ------------- next_frame
+            //        diff
+            std::thread::sleep(diff);
+        } else if let Some(diff) = now.checked_duration_since(self.next_time) {
+            // We have waken up after the minimum time that we needed to wait to
+            // begin drawing another frame.
+            // Case 1 //////////////////////////////////////////////////
+            //                   delta
+            // next_frame ------------------ next_frame + delta
+            // next_frame --------- now
+            //               diff
+            //                      now ---- next_frame + delta
+            //                       delta - diff
+            // delta - diff > 0
+            // Case 2 //////////////////////////////////////////////////
+            //              delta
+            // next_frame -------- next_frame + delta
+            //                     next_frame + delta ------- now
+            // next_frame ----------------------------------- now
+            //                          diff
+            // delta - diff == 0
+            self.next_time = now + self.delta.saturating_sub(diff);
+        } else {
+            // Times are equal? This is generally due to buggy monotonicity bugs.
+            self.next_time = now + self.delta;
+        }
+    }
 }
 
 pub fn start_gui(
@@ -302,16 +268,14 @@ pub fn start_gui(
     let dev = &*Box::leak(Box::new(dev));
 
     let compositor = Arc::new(RwLock::new({
-        let mut state =
+        let mut compositor =
             Compositor::new((!pc.background_hidden).then_some(pc.background_color), dev);
-        state.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
-        state.set_dimensions(pc.size.width, pc.size.height);
-        state
+        compositor.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
+        compositor.set_dimensions(pc.size.width, pc.size.height);
+        compositor
     }));
 
-    let tex = Arc::new(RwLock::new(
-        compositor.read().base_composite_texture().make_view(),
-    ));
+    let tex = Arc::new(RwLock::new(compositor.read().base_composite_texture()));
 
     let size = window.inner_size();
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
@@ -335,30 +299,49 @@ pub fn start_gui(
 
     let pc = Arc::new(RwLock::new(pc));
     let running = Arc::new(AtomicBool::new(true));
+    let force_recomposit = Arc::new(AtomicBool::new(false));
 
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let mut egui_tex =
-        egui_rpass.register_native_texture(&dev.device, &tex.read(), wgpu::FilterMode::Linear);
+    let mut egui_tex = egui_rpass.register_native_texture(
+        &dev.device,
+        &tex.read().make_view(),
+        wgpu::FilterMode::Linear,
+    );
 
     std::thread::spawn({
         let compositor = compositor.clone();
         let tex = tex.clone();
         let running = running.clone();
         let pc = pc.clone();
+        let force_recomposit = Arc::clone(&force_recomposit);
         move || {
+            let mut limiter = FrameLimiter::new(60);
             let mut resolved_layers = Vec::new();
+            let mut old_layer_config = SilicaGroup::empty();
             while running.load(std::sync::atomic::Ordering::SeqCst) {
                 let gpu_textures = &gpu_textures;
                 resolved_layers.clear();
-                linearize(
-                    gpu_textures,
-                    &pc.read().layers.clone(),
-                    &mut resolved_layers,
-                );
-                *tex.write() = compositor.read().render(&resolved_layers).make_view();
-                std::thread::sleep(std::time::Duration::from_millis(10));
+
+                // Ensures that we are not generating frames faster than 60FPS
+                // to avoid putting unnecessary computational pressure on the GPU.
+                limiter.wait();
+
+                // Only force a recompute if we need to.
+                let new_layer_config = pc.read().layers.clone();
+                if force_recomposit.load(std::sync::atomic::Ordering::SeqCst)
+                    || old_layer_config != new_layer_config
+                {
+                    linearize(
+                        gpu_textures,
+                        &pc.read().layers.clone(),
+                        &mut resolved_layers,
+                    );
+                    *tex.write() = compositor.read().render(&resolved_layers);
+                    old_layer_config = new_layer_config;
+                    force_recomposit.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
             }
         }
     });
@@ -402,6 +385,9 @@ pub fn start_gui(
                     egui_tex,
                     &mut compositor.write(),
                     &mut pc.write(),
+                    &force_recomposit,
+                    &dev,
+                    &tex,
                 );
 
                 let full_output = platform.end_frame(Some(&window));
@@ -449,7 +435,7 @@ pub fn start_gui(
                     egui_rpass.free_texture(&egui_tex);
                     egui_tex = egui_rpass.register_native_texture(
                         &dev.device,
-                        &z,
+                        &z.make_view(),
                         wgpu::FilterMode::Linear,
                     );
                 }
