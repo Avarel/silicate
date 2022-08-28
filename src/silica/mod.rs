@@ -328,7 +328,7 @@ impl ProcreateFile {
 
         Ok((
             Self {
-                author_name: nka.decode::<Option<String>>(root, "authorName")?,
+                author_name: nka.decode_nullable::<String>(root, "authorName")?,
                 background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
                 stroke_count: nka.decode::<usize>(root, "strokeCount")?,
                 background_color: <[f32; 4]>::try_from(
@@ -342,7 +342,7 @@ impl ProcreateFile {
                         .collect::<Result<Vec<f32>, _>>()?,
                 )
                 .unwrap(),
-                name: nka.decode::<Option<String>>(root, "name")?,
+                name: nka.decode_nullable::<String>(root, "name")?,
                 orientation: nka.decode::<u32>(root, "orientation")?,
                 flipped: Flipped {
                     horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
@@ -353,6 +353,7 @@ impl ProcreateFile {
                 composite: nka.decode::<SilicaIRLayer>(root, "composite")?.load(
                     &meta,
                     &archive,
+                    size,
                     &file_names,
                     dev,
                     &mut gpu_textures,
@@ -364,7 +365,7 @@ impl ProcreateFile {
                         .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
                         .objects
                         .into_iter()
-                        .map(|ir| ir.load(&meta, &archive, &file_names, dev, &mut gpu_textures))
+                        .map(|ir| ir.load(&meta, &archive, size, &file_names, dev, &mut gpu_textures))
                         .collect::<Result<_, _>>()?,
                 },
             },

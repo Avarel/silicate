@@ -42,6 +42,10 @@ impl BufferDimensions {
             },
         }
     }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
 }
 
 #[repr(C)]
@@ -108,6 +112,17 @@ pub struct CompositeLayer<'a> {
     pub clipped: Option<usize>,
     pub opacity: f32,
     pub blend: BlendingMode,
+}
+
+impl std::fmt::Debug for CompositeLayer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompositeLayer")
+            // .field("texture", &self.texture)
+            .field("clipped", &self.clipped)
+            .field("opacity", &self.opacity)
+            .field("blend", &self.blend)
+            .finish()
+    }
 }
 
 pub struct Compositor<'device> {
@@ -309,6 +324,8 @@ impl<'device> Compositor<'device> {
     }
 
     pub fn render<'a, 'b>(&'a self, layers: &'b [CompositeLayer]) -> GpuTexture {
+        assert!(!self.dim.is_empty(), "set_dimensions required");
+
         let mut composite_texture = self.base_composite_texture();
 
         self.dev.queue.submit(Some({
@@ -467,7 +484,8 @@ impl<'device> Compositor<'device> {
 
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     if INCLUDE_SHADERS {
-        wgpu::include_wgsl!("../shader.wgsl")
+        // wgpu::include_wgsl!("../shader.wgsl")
+        todo!()
     } else {
         wgpu::ShaderModuleDescriptor {
             label: Some("Dynamically loaded shader module"),

@@ -12,15 +12,14 @@ use winit::event_loop::ControlFlow;
 
 fn linearize<'a>(
     gpu_textures: &'a [GpuTexture],
-    layers: &crate::silica::SilicaGroup,
+    layers: &'a crate::silica::SilicaGroup,
     composite_layers: &mut Vec<CompositeLayer<'a>>,
+    mask_layer: &mut Option<(usize, &'a crate::silica::SilicaLayer)>,
 ) {
-    let mut mask_layer: Option<(usize, &crate::silica::SilicaLayer)> = None;
-
-    for (index, layer) in layers.children.iter().rev().enumerate() {
+    for layer in layers.children.iter().rev() {
         match layer {
             SilicaHierarchy::Group(group) if !group.hidden => {
-                linearize(gpu_textures, group, composite_layers);
+                linearize(gpu_textures, group, composite_layers, mask_layer);
             }
             SilicaHierarchy::Layer(layer) if !layer.hidden => {
                 if let Some((_, mask_layer)) = mask_layer {
@@ -31,16 +30,16 @@ fn linearize<'a>(
 
                 let gpu_texture = &gpu_textures[layer.image];
 
+                if !layer.clipped {
+                    *mask_layer = Some((composite_layers.len(), layer));
+                }
+                
                 composite_layers.push(CompositeLayer {
                     texture: gpu_texture,
                     clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                     opacity: layer.opacity,
                     blend: layer.blend,
                 });
-
-                if !layer.clipped {
-                    mask_layer = Some((index, layer));
-                }
             }
             _ => continue,
         }
@@ -95,26 +94,31 @@ impl FrameLimiter {
     }
 }
 
-fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
+fn rendering_thread(cs: Arc<CompositorState>) {
     let mut limiter = FrameLimiter::new(60);
-    let mut resolved_layers = Vec::new();
     let mut old_layer_config = SilicaGroup::empty();
     while cs.is_active() {
-        let gpu_textures = &gpu_textures;
-        resolved_layers.clear();
-
         // Ensures that we are not generating frames faster than 60FPS
         // to avoid putting unnecessary computational pressure on the GPU.
         limiter.wait();
 
+        if cs.compositor.read().dim.is_empty() || cs.file.read().is_none() {
+            continue;
+        }
+
         // Only force a recompute if we need to.
-        let new_layer_config = cs.file.read().layers.clone();
+        let new_layer_config = cs.file.read().as_ref().map(|z| z.layers.clone()).unwrap();
         if cs.get_recomposit() || old_layer_config != new_layer_config {
+            let mut resolved_layers = Vec::new();
+            let gpu_textures = cs.gpu_textures.read();
+            let mut mask_layer = None;
             linearize(
-                gpu_textures,
-                &cs.file.read().layers.clone(),
+                &gpu_textures.as_ref().unwrap(),
+                &new_layer_config,
                 &mut resolved_layers,
+                &mut mask_layer
             );
+
             *cs.tex.write() = cs.compositor.read().render(&resolved_layers);
             old_layer_config = new_layer_config;
             cs.set_recomposit(false);
@@ -123,35 +127,14 @@ fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
 }
 
 pub fn start_gui(
-    (pc, gpu_textures): (ProcreateFile, Vec<GpuTexture>),
     dev: LogicalDevice,
+    surface: wgpu::Surface,
     window: winit::window::Window,
     event_loop: winit::event_loop::EventLoop<()>,
 ) {
     let dev = &*Box::leak(Box::new(dev));
 
-    let compositor = RwLock::new({
-        let mut compositor =
-            Compositor::new((!pc.background_hidden).then_some(pc.background_color), dev);
-        compositor.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
-        compositor.set_dimensions(pc.size.width, pc.size.height);
-        compositor
-    });
-
-    let tex = RwLock::new(GpuTexture::empty_with_extent(
-        &dev,
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-        None,
-        GpuTexture::OUTPUT_USAGE,
-    ));
-
     let window_size = window.inner_size();
-
-    let surface = unsafe { dev.instance.create_surface(&window) };
 
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
 
@@ -173,9 +156,19 @@ pub fn start_gui(
     context.set_pixels_per_point(window.scale_factor() as f32);
 
     let cs = Arc::new(CompositorState {
-        file: RwLock::new(pc),
-        compositor,
-        tex,
+        file: RwLock::new(None),
+        gpu_textures: RwLock::new(None),
+        compositor: RwLock::new(Compositor::new(None, dev)),
+        tex: RwLock::new(GpuTexture::empty_with_extent(
+            &dev,
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            None,
+            GpuTexture::OUTPUT_USAGE,
+        )),
         active: AtomicBool::new(true),
         force_recomposit: AtomicBool::new(false),
     });
@@ -196,7 +189,10 @@ pub fn start_gui(
         cs: Arc::clone(&cs),
     };
 
-    std::thread::spawn(move || rendering_thread(cs, gpu_textures));
+    std::thread::spawn({
+        let cs = Arc::clone(&cs);
+        move || rendering_thread(cs)
+    });
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -218,6 +214,19 @@ pub fn start_gui(
                     }
                     WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
+
+                        let cs = Arc::clone(&cs);
+                        std::thread::spawn(move || {
+                            let (pf, pt) = ProcreateFile::open(file, &dev).unwrap();
+                            let mut file = cs.file.write();
+                            let mut textures = cs.gpu_textures.write();
+                            let mut compositor = cs.compositor.write();
+                            compositor
+                                .flip_vertices((pf.flipped.horizontally, pf.flipped.vertically));
+                            compositor.set_dimensions(pf.size.width, pf.size.height);
+                            *file = Some(pf);
+                            *textures = Some(pt);
+                        });
                     }
                     _ => {
                         state.on_event(&context, &event);

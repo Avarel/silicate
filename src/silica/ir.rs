@@ -23,7 +23,7 @@ pub(super) struct SilicaIRLayer<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
         Ok(Self {
             nka,
             coder: <&'a Dictionary>::decode(nka, val)?,
@@ -36,6 +36,7 @@ impl SilicaIRLayer<'_> {
         self,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
+        size: Size<u32>,
         file_names: &[&str],
         dev: &LogicalDevice,
         gpu_textures: &mut Vec<GpuTexture>,
@@ -43,10 +44,11 @@ impl SilicaIRLayer<'_> {
         let nka = self.nka;
         let coder = self.coder;
         let uuid = nka.decode::<String>(coder, "UUID")?;
-        let size = Size {
-            width: nka.decode::<u32>(coder, "sizeWidth")?,
-            height: nka.decode::<u32>(coder, "sizeHeight")?,
-        };
+        // Older procreate files do not have this... go figure
+        // let size = Size {
+        //     width: nka.decode::<u32>(coder, "sizeWidth")?,
+        //     height: nka.decode::<u32>(coder, "sizeHeight")?,
+        // };
 
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
@@ -54,13 +56,8 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture = GpuTexture::empty(
-            &dev,
-            size.width,
-            size.height,
-            None,
-            GpuTexture::LAYER_USAGE,
-        );
+        let gpu_texture =
+            GpuTexture::empty(&dev, size.width, size.height, None, GpuTexture::LAYER_USAGE);
 
         file_names
             .par_iter()
@@ -114,11 +111,15 @@ impl SilicaIRLayer<'_> {
         };
 
         Ok(SilicaLayer {
-            blend: BlendingMode::from_u32(nka.decode::<u32>(coder, "extendedBlend")?)?,
+            blend: BlendingMode::from_u32(
+                nka.decode_nullable::<u32>(coder, "extendedBlend")
+                    .transpose()
+                    .unwrap_or_else(|| nka.decode::<u32>(coder, "blend"))?,
+            )?,
             clipped: nka.decode::<bool>(coder, "clipped")?,
             hidden: nka.decode::<bool>(coder, "hidden")?,
             mask: None,
-            name: nka.decode::<Option<String>>(coder, "name")?,
+            name: nka.decode_nullable::<String>(coder, "name")?,
             opacity: nka.decode::<f32>(coder, "opacity")?,
             size,
             uuid,
@@ -135,7 +136,7 @@ pub(super) struct SilicaIRGroup<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
         let coder = <&'a Dictionary>::decode(nka, val)?;
         Ok(Self {
             nka,
@@ -148,7 +149,7 @@ impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: Option<&'a Value>) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
         let coder = <&'a Dictionary>::decode(nka, val)?;
         let class = nka.decode::<NsClass>(coder, "$class")?;
 
@@ -165,6 +166,7 @@ impl SilicaIRGroup<'_> {
         self,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
+        size: Size<u32>,
         file_names: &[&str],
         render: &LogicalDevice,
         gpu_textures: &mut Vec<GpuTexture>,
@@ -178,7 +180,7 @@ impl SilicaIRGroup<'_> {
                 .children
                 // .into_par_iter()
                 .into_iter()
-                .map(|ir| ir.load(meta, archive, file_names, render, gpu_textures))
+                .map(|ir| ir.load(meta, archive, size, file_names, render, gpu_textures))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -189,6 +191,7 @@ impl SilicaIRHierarchy<'_> {
         self,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
+        size: Size<u32>,
         file_names: &[&str],
         render: &LogicalDevice,
         gpu_textures: &mut Vec<GpuTexture>,
@@ -197,6 +200,7 @@ impl SilicaIRHierarchy<'_> {
             SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(
                 meta,
                 archive,
+                size,
                 file_names,
                 render,
                 gpu_textures,
@@ -204,6 +208,7 @@ impl SilicaIRHierarchy<'_> {
             SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(group.load(
                 meta,
                 archive,
+                size,
                 file_names,
                 render,
                 gpu_textures,

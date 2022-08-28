@@ -22,7 +22,7 @@ impl LogicalDevice {
         Self::from_adapter(instance, adapter).await
     }
 
-    pub async fn with_window(window: &winit::window::Window) -> Option<Self> {
+    pub async fn with_window(window: &winit::window::Window) -> Option<(Self, wgpu::Surface)> {
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
@@ -31,7 +31,7 @@ impl LogicalDevice {
                 ..Self::ADAPTER_OPTIONS
             })
             .await?;
-        Self::from_adapter(instance, adapter).await
+        Self::from_adapter(instance, adapter).await.map(|dev| (dev, surface))
     }
 
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {

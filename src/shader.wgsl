@@ -277,18 +277,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = textureSample(composite, splr, in.bg_coords);
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var fga = textureSample(layer[i], splr, in.fg_coords);
         var maska = textureSample(clipping_mask[i], splr, in.fg_coords).a;
+        var fga = textureSample(layer[i], splr, in.fg_coords) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {
-        //     return fga;
-        // } else if (fga.a == 0.0) {
+        //     bga = vec4(fga.rgb, min(fga.a, maska) * opacities[i]);
+        //     continue;
+        // } 
+        //else if (fga.a == 0.0) {
         //     return bga;
-        // }
+        // }    
 
         var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), min(fga.a, maska) * opacities[i]);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * opacities[i]);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);

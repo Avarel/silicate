@@ -9,7 +9,8 @@ use parking_lot::RwLock;
 use std::sync::{atomic::AtomicBool, Arc};
 
 pub struct CompositorState<'dev> {
-    pub file: RwLock<ProcreateFile>,
+    pub file: RwLock<Option<ProcreateFile>>,
+    pub gpu_textures: RwLock<Option<Vec<GpuTexture>>>,
     pub compositor: RwLock<Compositor<'dev>>,
     pub tex: RwLock<GpuTexture>,
     pub active: AtomicBool,
@@ -56,19 +57,22 @@ impl<'dev> EditorState<'dev> {
                     .spacing([8.0, 10.0])
                     .striped(true)
                     .show(ui, |ui| {
-                        let file = cs.file.read();
-                        ui.label("Name");
-                        ui.label(file.name.as_deref().unwrap_or("Not Specified"));
-                        ui.end_row();
-                        ui.label("Author");
-                        ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
-                        ui.end_row();
-                        ui.label("Stroke Count");
-                        ui.label(file.stroke_count.to_string());
-                        ui.end_row();
-                        ui.label("Canvas Size");
-                        ui.label(format!("{} by {}", file.size.width, file.size.height));
-                        ui.allocate_space(vec2(ui.available_width(), 0.0))
+                        if let Some(file) = cs.file.read().as_ref() {
+                            ui.label("Name");
+                            ui.label(file.name.as_deref().unwrap_or("Not Specified"));
+                            ui.end_row();
+                            ui.label("Author");
+                            ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
+                            ui.end_row();
+                            ui.label("Stroke Count");
+                            ui.label(file.stroke_count.to_string());
+                            ui.end_row();
+                            ui.label("Canvas Size");
+                            ui.label(format!("{} by {}", file.size.width, file.size.height));
+                        } else {
+                            ui.label("No file loaded...");
+                        }
+                        ui.allocate_space(vec2(ui.available_width(), 0.0));
                     });
 
                 if ui.button("Export View").clicked() {
@@ -136,7 +140,6 @@ impl<'dev> EditorState<'dev> {
     }
 
     fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, i: &mut usize) {
-        let mut first = true;
         for layer in &mut layers.children {
             *i += 1;
             match layer {
@@ -145,9 +148,9 @@ impl<'dev> EditorState<'dev> {
                         *i += 1;
                         ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
                             ui.checkbox(&mut l.hidden, "Hidden");
-                            if !first {
-                                ui.checkbox(&mut l.clipped, "Clipped");
-                            }
+                            // TODO: last child layer cannot have clipped
+                            ui.checkbox(&mut l.clipped, "Clipped");
+                            
                             ComboBox::from_label("Blending Mode")
                                 .selected_text(l.blend.to_str())
                                 .show_ui(ui, |ui| {
@@ -169,7 +172,6 @@ impl<'dev> EditorState<'dev> {
                     });
                 }
             }
-            first = false;
         }
     }
 
@@ -183,7 +185,11 @@ impl<'dev> EditorState<'dev> {
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    Self::layout_layers_sub(ui, &mut cs.file.write().layers, &mut i);
+                    if let Some(file) = cs.file.write().as_mut() {
+                        Self::layout_layers_sub(ui, &mut file.layers, &mut i);
+                    } else {
+                        ui.label("No file loaded...");
+                    }
                 });
             ui.allocate_space(vec2(ui.available_width(), 0.0))
         });
