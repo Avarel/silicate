@@ -1,16 +1,14 @@
 mod layout;
 
+use self::layout::{CompositorState, EditorState};
 use crate::compositor::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
 use crate::silica::{ProcreateFile, SilicaGroup};
 use crate::{compositor::Compositor, silica::SilicaHierarchy};
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use parking_lot::RwLock;
-use std::{
-    sync::{atomic::AtomicBool, Arc},
-};
-use winit::{event_loop::ControlFlow};
-
-use self::layout::{CompositorState, EditorState};
+use std::sync::{atomic::AtomicBool, Arc};
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::ControlFlow;
 
 fn linearize<'a>(
     gpu_textures: &'a [GpuTexture],
@@ -201,13 +199,14 @@ pub fn start_gui(
     std::thread::spawn(move || rendering_thread(cs, gpu_textures));
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
         match event {
-            winit::event::Event::WindowEvent { event, .. } => {
+            Event::WindowEvent { event, .. } => {
                 match event {
-                    winit::event::WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    winit::event::WindowEvent::Resized(size) => {
+                    WindowEvent::CloseRequested => {
+                        es.cs.deactivate();
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    WindowEvent::Resized(size) => {
                         // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
                         // See: https://github.com/rust-windowing/winit/issues/208
                         // This solves an issue where the app would panic when minimizing on Windows.
@@ -217,7 +216,7 @@ pub fn start_gui(
                             surface.configure(&dev.device, &surface_config);
                         }
                     }
-                    winit::event::WindowEvent::DroppedFile(file) => {
+                    WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
                     }
                     _ => {
@@ -225,11 +224,22 @@ pub fn start_gui(
                     }
                 }
             }
-            winit::event::Event::MainEventsCleared => window.request_redraw(),
-            winit::event::Event::RedrawRequested(..) => {
-                let output_frame = surface
-                    .get_current_texture()
-                    .expect("Failed to get surface output texture");
+            Event::MainEventsCleared => window.request_redraw(),
+            Event::RedrawRequested(..) => {
+                let output_frame = match surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(wgpu::SurfaceError::Outdated) => {
+                        // This error occurs when the app is minimized on Windows.
+                        // Silently return here to prevent spamming the console with:
+                        // "The underlying surface has changed, and therefore the swap chain must be updated"
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Dropped frame with error: {}", e);
+                        return;
+                    }
+                };
+
                 let output_view = output_frame
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
@@ -257,7 +267,8 @@ pub fn start_gui(
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
                 {
-                    let mut encoder = dev.device
+                    let mut encoder = dev
+                        .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                     egui_rpass.execute(
