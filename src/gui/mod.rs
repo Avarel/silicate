@@ -4,13 +4,11 @@ use crate::compositor::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
 use crate::silica::{ProcreateFile, SilicaGroup};
 use crate::{compositor::Compositor, silica::SilicaHierarchy};
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
-use egui_winit_platform::{Platform, PlatformDescriptor};
 use parking_lot::RwLock;
 use std::{
     sync::{atomic::AtomicBool, Arc},
-    time::Instant,
 };
-use winit::{event::Event::*, event_loop::ControlFlow};
+use winit::{event_loop::ControlFlow};
 
 use self::layout::{CompositorState, EditorState};
 
@@ -132,8 +130,6 @@ pub fn start_gui(
     window: winit::window::Window,
     event_loop: winit::event_loop::EventLoop<()>,
 ) {
-    let surface = unsafe { dev.instance.create_surface(&window) };
-
     let dev = &*Box::leak(Box::new(dev));
 
     let compositor = RwLock::new({
@@ -155,24 +151,28 @@ pub fn start_gui(
         GpuTexture::OUTPUT_USAGE,
     ));
 
-    let size = window.inner_size();
+    let window_size = window.inner_size();
+
+    let surface = unsafe { dev.instance.create_surface(&window) };
+
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
+
+    let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: surface_format,
-        width: size.width,
-        height: size.height,
+        format: swap_chain_format,
+        width: window_size.width,
+        height: window_size.height,
         present_mode: wgpu::PresentMode::Fifo,
     };
+
     surface.configure(&dev.device, &surface_config);
 
-    let mut platform = Platform::new(PlatformDescriptor {
-        physical_width: size.width,
-        physical_height: size.height,
-        scale_factor: window.scale_factor(),
-        font_definitions: egui::FontDefinitions::default(),
-        style: Default::default(),
-    });
+    let mut state = egui_winit::State::new(&event_loop);
+    state.set_pixels_per_point(window.scale_factor() as f32);
+    let context = egui::Context::default();
+    context.set_pixels_per_point(window.scale_factor() as f32);
 
     let cs = Arc::new(CompositorState {
         file: RwLock::new(pc),
@@ -182,7 +182,6 @@ pub fn start_gui(
         force_recomposit: AtomicBool::new(false),
     });
 
-    // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
     let egui_tex = egui_rpass.register_native_texture(
@@ -201,80 +200,76 @@ pub fn start_gui(
 
     std::thread::spawn(move || rendering_thread(cs, gpu_textures));
 
-    let start_time = Instant::now();
     event_loop.run(move |event, _, control_flow| {
-        // Pass the winit events to the platform integration.
-        platform.handle_event(&event);
+        *control_flow = ControlFlow::Poll;
 
         match event {
-            RedrawRequested(..) => {
-                platform.update_time(start_time.elapsed().as_secs_f64());
-
-                let output_frame = match surface.get_current_texture() {
-                    Ok(frame) => frame,
-                    Err(wgpu::SurfaceError::Outdated) => {
-                        // This error occurs when the app is minimized on Windows.
-                        // Silently return here to prevent spamming the console with:
-                        // "The underlying surface has changed, and therefore the swap chain must be updated"
-                        return;
+            winit::event::Event::WindowEvent { event, .. } => {
+                match event {
+                    winit::event::WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    winit::event::WindowEvent::Resized(size) => {
+                        // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
+                        // See: https://github.com/rust-windowing/winit/issues/208
+                        // This solves an issue where the app would panic when minimizing on Windows.
+                        if size.width > 0 && size.height > 0 {
+                            surface_config.width = size.width;
+                            surface_config.height = size.height;
+                            surface.configure(&dev.device, &surface_config);
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("Dropped frame with error: {}", e);
-                        return;
+                    winit::event::WindowEvent::DroppedFile(file) => {
+                        println!("File dropped: {:?}", file.as_path().display().to_string());
                     }
-                };
+                    _ => {
+                        state.on_event(&context, &event);
+                    }
+                }
+            }
+            winit::event::Event::MainEventsCleared => window.request_redraw(),
+            winit::event::Event::RedrawRequested(..) => {
+                let output_frame = surface
+                    .get_current_texture()
+                    .expect("Failed to get surface output texture");
                 let output_view = output_frame
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                // Begin to draw the UI frame.
-                platform.begin_frame();
+                let input = state.take_egui_input(&window);
 
-                let context = platform.context();
-
+                context.begin_frame(input);
                 es.layout_gui(&context);
+                let output = context.end_frame();
 
-                let full_output = platform.end_frame(Some(&window));
-
-                let paint_jobs = context.tessellate(full_output.shapes);
-
-
+                let paint_jobs = context.tessellate(output.shapes);
 
                 // Upload all resources for the GPU.
                 let screen_descriptor = ScreenDescriptor {
                     size_in_pixels: [surface_config.width, surface_config.height],
                     pixels_per_point: window.scale_factor() as f32,
                 };
-                let tdelta: egui::TexturesDelta = full_output.textures_delta;
 
-                for (id, image_delta) in &tdelta.set {
+                for (id, image_delta) in &output.textures_delta.set {
                     egui_rpass.update_texture(&dev.device, &dev.queue, *id, image_delta);
                 }
-                for id in &tdelta.free {
+                for id in &output.textures_delta.free {
                     egui_rpass.free_texture(id);
                 }
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
-                let mut encoder =
-                dev.device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("encoder"),
-                    });
-                // Record all render passes.
-                egui_rpass.execute(
-                    &mut encoder,
-                    &output_view,
-                    &paint_jobs,
-                    &screen_descriptor,
-                    Some(wgpu::Color::BLACK),
-                );
-                // Submit the commands.
-                dev.queue.submit(Some(encoder.finish()));
+                {
+                    let mut encoder = dev.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-                // Redraw egui
+                    egui_rpass.execute(
+                        &mut encoder,
+                        &output_view,
+                        &paint_jobs,
+                        &screen_descriptor,
+                        Some(wgpu::Color::BLACK),
+                    );
+                    dev.queue.submit(Some(encoder.finish()));
+                }
                 output_frame.present();
-
-                tdelta.free.iter().for_each(|z| egui_rpass.free_texture(z));
 
                 if let Some(z) = es.cs.tex.try_read() {
                     egui_rpass.free_texture(&es.egui_tex);
@@ -289,23 +284,6 @@ pub fn start_gui(
                     );
                 }
             }
-            MainEventsCleared => {
-                window.request_redraw();
-            }
-            WindowEvent { event, .. } => match event {
-                winit::event::WindowEvent::Resized(size) => {
-                    if size.width > 0 && size.height > 0 {
-                        surface_config.width = size.width;
-                        surface_config.height = size.height;
-                        surface.configure(&dev.device, &surface_config);
-                    }
-                }
-                winit::event::WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                    es.cs.deactivate()
-                }
-                _ => {}
-            },
             _ => (),
         }
     });

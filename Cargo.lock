@@ -687,16 +687,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_winit_platform"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34fb1c870207c14b99fb7ed9a8760fd7be9a0d96b3516ead3a5e3abe7bb88400"
-dependencies = [
- "egui",
- "winit",
-]
-
-[[package]]
 name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1807,7 +1797,6 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
- "egui_winit_platform",
  "futures",
  "image",
  "memmap2",
