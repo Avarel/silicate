@@ -58,9 +58,11 @@ fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
                 ui.push_id(*i, |ui| {
                     *i += 1;
                     ui.collapsing(l.name.as_deref().unwrap_or(""), |ui| {
-                        ui.checkbox(&mut l.hidden, "Hidden").changed();
+                        ui.checkbox(&mut l.hidden, "Hidden");
+                        // TODO: only show if its not the first layer in its group
+                        ui.checkbox(&mut l.clipped, "Clipped");
                         egui::ComboBox::from_label("Blending Mode")
-                            .selected_text(format!("{:?}", l.blend))
+                            .selected_text(l.blend.to_str())
                             .show_ui(ui, |ui| {
                                 for b in BlendingMode::all() {
                                     ui.selectable_value(&mut l.blend, *b, b.to_str());
@@ -74,7 +76,7 @@ fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
                 ui.push_id(*i, |ui| {
                     *i += 1;
                     ui.collapsing(h.name.to_string().as_str(), |ui| {
-                        ui.checkbox(&mut h.hidden, "Hidden").changed();
+                        ui.checkbox(&mut h.hidden, "Hidden");
                         layout_layers(ui, h, i);
                     })
                 });
@@ -83,17 +85,9 @@ fn layout_layers(ui: &mut egui::Ui, layers: &mut SilicaGroup, i: &mut usize) {
     }
 }
 
-fn layout_gui(
-    context: &egui::Context,
-    show_grid: &mut bool,
-    egui_tex: egui::TextureId,
-    compositor: &mut Compositor,
-    pc: &mut ProcreateFile,
-    force_recomposit: &AtomicBool,
-    dev: &LogicalDevice,
-    tex: &Arc<RwLock<GpuTexture>>,
-) {
+fn layout_gui(context: &egui::Context, es: &mut EditorState) {
     use egui::*;
+    let cs = &es.cs;
     SidePanel::new(panel::Side::Right, "Side Panel")
         .default_width(300.0)
         .show(&context, |ui| {
@@ -106,22 +100,23 @@ fn layout_gui(
                         .spacing([8.0, 10.0])
                         .striped(true)
                         .show(ui, |ui| {
+                            let file = cs.file.read();
                             ui.label("Name");
-                            ui.label(pc.name.as_deref().unwrap_or("Not Specified"));
+                            ui.label(file.name.as_deref().unwrap_or("Not Specified"));
                             ui.end_row();
                             ui.label("Author");
-                            ui.label(pc.author_name.as_deref().unwrap_or("Not Specified"));
+                            ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
                             ui.end_row();
                             ui.label("Stroke Count");
-                            ui.label(pc.stroke_count.to_string());
+                            ui.label(file.stroke_count.to_string());
                             ui.end_row();
                             ui.label("Canvas Size");
-                            ui.label(format!("{} by {}", pc.size.width, pc.size.height));
+                            ui.label(format!("{} by {}", file.size.width, file.size.height));
                             ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
                         });
-                    
+
                     if ui.button("Export View").clicked() {
-                        tex.read().export(dev, compositor.dim);
+                        cs.tex.read().export(es.dev, cs.compositor.read().dim);
                     }
                     ui.allocate_space(egui::vec2(ui.available_width(), 0.0))
                 });
@@ -132,7 +127,11 @@ fn layout_gui(
                 ui.collapsing("View Control", |ui| {
                     ui.separator();
                     if ui.button("Toggle Grid").clicked() {
-                        *show_grid = !*show_grid;
+                        es.show_grid = !es.show_grid;
+                    }
+                    if ui.checkbox(&mut es.smooth, "Smooth").changed() {
+                        cs.force_recomposit
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
                     }
                     ui.separator();
 
@@ -141,16 +140,18 @@ fn layout_gui(
                         .spacing([8.0, 10.0])
                         .striped(true)
                         .show(ui, |ui| {
+                            let compositor = &mut *cs.compositor.write();
+
                             ui.label("Flip");
                             ui.horizontal(|ui| {
                                 if ui.button("Horizontal").clicked() {
                                     compositor.flip_vertices((true, false));
-                                    force_recomposit
+                                    cs.force_recomposit
                                         .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 if ui.button("Vertical").clicked() {
                                     compositor.flip_vertices((false, true));
-                                    force_recomposit
+                                    cs.force_recomposit
                                         .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                             });
@@ -159,14 +160,20 @@ fn layout_gui(
                             ui.horizontal(|ui| {
                                 if ui.button("CCW").clicked() {
                                     compositor.rotate_vertices(true);
-                                    compositor.set_dimensions(compositor.dim.height, compositor.dim.width);
-                                    force_recomposit
+                                    compositor.set_dimensions(
+                                        compositor.dim.height,
+                                        compositor.dim.width,
+                                    );
+                                    cs.force_recomposit
                                         .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 if ui.button("CW").clicked() {
                                     compositor.rotate_vertices(false);
-                                    compositor.set_dimensions(compositor.dim.height, compositor.dim.width);
-                                    force_recomposit
+                                    compositor.set_dimensions(
+                                        compositor.dim.height,
+                                        compositor.dim.width,
+                                    );
+                                    cs.force_recomposit
                                         .store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                             });
@@ -184,7 +191,7 @@ fn layout_gui(
                 ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        layout_layers(ui, &mut pc.layers, &mut i);
+                        layout_layers(ui, &mut cs.file.write().layers, &mut i);
                     });
                 ui.allocate_space(vec2(ui.available_width(), 0.0))
             })
@@ -195,14 +202,14 @@ fn layout_gui(
         .show(&context, |ui| {
             let mut plot = plot::Plot::new("Image View").data_aspect(1.0);
 
-            if *show_grid {
+            if es.show_grid {
                 plot = plot.show_x(false).show_y(false).show_axes([false, false]);
             }
 
             plot.show(ui, |plot_ui| {
-                let size = compositor.dim;
+                let size = cs.compositor.read().dim;
                 plot_ui.image(plot::PlotImage::new(
-                    egui_tex,
+                    es.egui_tex,
                     plot::PlotPoint { x: 0.0, y: 0.0 },
                     (size.width as f32, size.height as f32),
                 ))
@@ -257,6 +264,54 @@ impl FrameLimiter {
     }
 }
 
+struct CompositorState<'dev> {
+    file: RwLock<ProcreateFile>,
+    compositor: RwLock<Compositor<'dev>>,
+    tex: RwLock<GpuTexture>,
+    active: AtomicBool,
+    force_recomposit: AtomicBool,
+}
+
+struct EditorState<'dev> {
+    dev: &'dev LogicalDevice,
+    egui_tex: egui::TextureId,
+    smooth: bool,
+    show_grid: bool,
+    cs: Arc<CompositorState<'dev>>,
+}
+
+fn rendering_thread(cs: Arc<CompositorState>, gpu_textures: Vec<GpuTexture>) {
+    let mut limiter = FrameLimiter::new(60);
+    let mut resolved_layers = Vec::new();
+    let mut old_layer_config = SilicaGroup::empty();
+    while cs.active.load(std::sync::atomic::Ordering::SeqCst) {
+        let gpu_textures = &gpu_textures;
+        resolved_layers.clear();
+
+        // Ensures that we are not generating frames faster than 60FPS
+        // to avoid putting unnecessary computational pressure on the GPU.
+        limiter.wait();
+
+        // Only force a recompute if we need to.
+        let new_layer_config = cs.file.read().layers.clone();
+        if cs
+            .force_recomposit
+            .load(std::sync::atomic::Ordering::SeqCst)
+            || old_layer_config != new_layer_config
+        {
+            linearize(
+                gpu_textures,
+                &cs.file.read().layers.clone(),
+                &mut resolved_layers,
+            );
+            *cs.tex.write() = cs.compositor.read().render(&resolved_layers);
+            old_layer_config = new_layer_config;
+            cs.force_recomposit
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
 pub fn start_gui(
     (pc, gpu_textures): (ProcreateFile, Vec<GpuTexture>),
     dev: LogicalDevice,
@@ -267,15 +322,24 @@ pub fn start_gui(
 
     let dev = &*Box::leak(Box::new(dev));
 
-    let compositor = Arc::new(RwLock::new({
+    let compositor = RwLock::new({
         let mut compositor =
             Compositor::new((!pc.background_hidden).then_some(pc.background_color), dev);
         compositor.flip_vertices((pc.flipped.horizontally, pc.flipped.vertically));
         compositor.set_dimensions(pc.size.width, pc.size.height);
         compositor
-    }));
+    });
 
-    let tex = Arc::new(RwLock::new(compositor.read().base_composite_texture()));
+    let tex = RwLock::new(GpuTexture::empty_with_extent(
+        &dev,
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        None,
+        GpuTexture::OUTPUT_USAGE,
+    ));
 
     let size = window.inner_size();
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
@@ -297,56 +361,32 @@ pub fn start_gui(
         style: Default::default(),
     });
 
-    let pc = Arc::new(RwLock::new(pc));
-    let running = Arc::new(AtomicBool::new(true));
-    let force_recomposit = Arc::new(AtomicBool::new(false));
+    let cs = Arc::new(CompositorState {
+        file: RwLock::new(pc),
+        compositor,
+        tex,
+        active: AtomicBool::new(true),
+        force_recomposit: AtomicBool::new(false),
+    });
 
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let mut egui_tex = egui_rpass.register_native_texture(
+    let egui_tex = egui_rpass.register_native_texture(
         &dev.device,
-        &tex.read().make_view(),
+        &cs.tex.read().make_view(),
         wgpu::FilterMode::Linear,
     );
 
-    std::thread::spawn({
-        let compositor = compositor.clone();
-        let tex = tex.clone();
-        let running = running.clone();
-        let pc = pc.clone();
-        let force_recomposit = Arc::clone(&force_recomposit);
-        move || {
-            let mut limiter = FrameLimiter::new(60);
-            let mut resolved_layers = Vec::new();
-            let mut old_layer_config = SilicaGroup::empty();
-            while running.load(std::sync::atomic::Ordering::SeqCst) {
-                let gpu_textures = &gpu_textures;
-                resolved_layers.clear();
+    let mut es = EditorState {
+        dev,
+        egui_tex,
+        smooth: false,
+        show_grid: true,
+        cs: Arc::clone(&cs),
+    };
 
-                // Ensures that we are not generating frames faster than 60FPS
-                // to avoid putting unnecessary computational pressure on the GPU.
-                limiter.wait();
-
-                // Only force a recompute if we need to.
-                let new_layer_config = pc.read().layers.clone();
-                if force_recomposit.load(std::sync::atomic::Ordering::SeqCst)
-                    || old_layer_config != new_layer_config
-                {
-                    linearize(
-                        gpu_textures,
-                        &pc.read().layers.clone(),
-                        &mut resolved_layers,
-                    );
-                    *tex.write() = compositor.read().render(&resolved_layers);
-                    old_layer_config = new_layer_config;
-                    force_recomposit.store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-            }
-        }
-    });
-
-    let mut show_grid = true;
+    std::thread::spawn(move || rendering_thread(cs, gpu_textures));
 
     let start_time = Instant::now();
     event_loop.run(move |event, _, control_flow| {
@@ -379,16 +419,7 @@ pub fn start_gui(
 
                 let context = platform.context();
 
-                layout_gui(
-                    &context,
-                    &mut show_grid,
-                    egui_tex,
-                    &mut compositor.write(),
-                    &mut pc.write(),
-                    &force_recomposit,
-                    &dev,
-                    &tex,
-                );
+                layout_gui(&context, &mut es);
 
                 let full_output = platform.end_frame(Some(&window));
 
@@ -431,12 +462,16 @@ pub fn start_gui(
 
                 tdelta.free.iter().for_each(|z| egui_rpass.free_texture(z));
 
-                if let Some(z) = tex.try_read() {
-                    egui_rpass.free_texture(&egui_tex);
-                    egui_tex = egui_rpass.register_native_texture(
+                if let Some(z) = es.cs.tex.try_read() {
+                    egui_rpass.free_texture(&es.egui_tex);
+                    es.egui_tex = egui_rpass.register_native_texture(
                         &dev.device,
                         &z.make_view(),
-                        wgpu::FilterMode::Linear,
+                        if es.smooth {
+                            wgpu::FilterMode::Linear
+                        } else {
+                            wgpu::FilterMode::Nearest
+                        },
                     );
                 }
             }
@@ -453,7 +488,9 @@ pub fn start_gui(
                 }
                 winit::event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
-                    running.store(false, std::sync::atomic::Ordering::SeqCst);
+                    es.cs
+                        .active
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
                 }
                 _ => {}
             },
