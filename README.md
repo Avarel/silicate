@@ -10,6 +10,10 @@ The compositor produces accurate blending results except for:
 * Saturation
 * Hue
 
+## Work in Progress
+* **Blocked by WGPU:** When textures can have views that does not match the
+  underlying formats, change it so that we don't perform linear-sRGB conversion in shader.
+
 ## Procreate File Format
 All `.procreate` files are actually standard ZIP files.
 ```

@@ -253,14 +253,16 @@ var splr: sampler;
 @group(1) @binding(0)
 var composite: texture_2d<f32>;
 @group(1) @binding(1)
-var clipping_mask: binding_array<texture_2d<f32>>;
+var textures: binding_array<texture_2d<f32>>;
 @group(1) @binding(2)
-var layer: binding_array<texture_2d<f32>>;
+var<storage, read> layers: array<u32>;
 @group(1) @binding(3)
-var<storage, read> blends: array<u32>;
+var<storage, read> masks: array<i32>;
 @group(1) @binding(4)
-var<storage, read> opacities: array<f32>;
+var<storage, read> blends: array<u32>;
 @group(1) @binding(5)
+var<storage, read> opacities: array<f32>;
+@group(1) @binding(6)
 var<uniform> layer_count: i32;
 
 // Blend alpha straight colors
@@ -271,14 +273,22 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ), vec4(0.0), vec4(1.0));
 }
 
+fn srgb_to_linear(c: vec4f) -> vec4f {
+    return pow(c, vec4(vec3(1.0 / 2.2), 1.0));
+}
+
+fn linear_to_srgb(c: vec4f) -> vec4f {
+    return pow(c, vec4(vec3(2.2), 1.0));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    var bga = textureSample(composite, splr, in.bg_coords);
+    var bga = srgb_to_linear(textureSample(composite, splr, in.bg_coords));
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = textureSample(clipping_mask[i], splr, in.fg_coords).a;
-        var fga = textureSample(layer[i], splr, in.fg_coords) * maska;
+        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == -1);
+        var fga = srgb_to_linear(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {
@@ -328,5 +338,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // Compute final premultiplied colors
         bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
     }
-    return bga;
+    return linear_to_srgb(bga);
 }

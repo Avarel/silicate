@@ -4,7 +4,7 @@ pub mod tex;
 use self::{dev::LogicalDevice, tex::GpuTexture};
 use crate::silica::BlendingMode;
 use image::{Pixel, Rgba};
-use std::num::NonZeroU32;
+use std::{collections::HashMap, num::NonZeroU32};
 use wgpu::{util::DeviceExt, CommandEncoder};
 
 const INCLUDE_SHADERS: bool = false;
@@ -107,23 +107,24 @@ impl Vertex {
     }
 }
 
-pub struct CompositeLayer<'a> {
-    pub texture: &'a GpuTexture,
+#[derive(Debug)]
+pub struct CompositeLayer {
+    pub texture: usize,
     pub clipped: Option<usize>,
     pub opacity: f32,
     pub blend: BlendingMode,
 }
 
-impl std::fmt::Debug for CompositeLayer<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompositeLayer")
-            // .field("texture", &self.texture)
-            .field("clipped", &self.clipped)
-            .field("opacity", &self.opacity)
-            .field("blend", &self.blend)
-            .finish()
-    }
-}
+// impl std::fmt::Debug for CompositeLayer<'_> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.debug_struct("CompositeLayer")
+//             // .field("texture", &self.texture)
+//             .field("clipped", &self.clipped)
+//             .field("opacity", &self.opacity)
+//             .field("blend", &self.blend)
+//             .finish()
+//     }
+// }
 
 pub struct Compositor<'device> {
     pub dev: &'device LogicalDevice,
@@ -313,6 +314,7 @@ impl<'device> Compositor<'device> {
         &mut self,
         background: Option<[f32; 4]>,
         layers: &[CompositeLayer],
+        textures: &[GpuTexture],
     ) -> GpuTexture {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
@@ -324,14 +326,18 @@ impl<'device> Compositor<'device> {
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            for chunked_layers in layers.chunks(self.dev.chunks as usize) {
-                composite_texture = self.render_chunk(
+            let mut count = 0;
+            while count < layers.len() {
+                let (result_texture, delta) = self.render_chunk(
                     &mut encoder,
                     background,
                     composite_texture,
-                    layers,
-                    chunked_layers,
+                    &layers,
+                    count,
+                    textures,
                 );
+                count += delta as usize;
+                composite_texture = result_texture;
             }
 
             encoder.finish()
@@ -345,44 +351,92 @@ impl<'device> Compositor<'device> {
         encoder: &mut CommandEncoder,
         background: Option<[f32; 4]>,
         composite_texture: GpuTexture,
-        layers: &[CompositeLayer],
-        chunked_layers: &[CompositeLayer],
-    ) -> GpuTexture {
+        composite_layers: &[CompositeLayer],
+        start: usize,
+        textures: &[GpuTexture],
+    ) -> (GpuTexture, u32) {
         let prev_texture_view = composite_texture.make_view();
 
-        let mut mask_views: Vec<wgpu::TextureView> = Vec::with_capacity(self.dev.chunks as usize);
-        let mut layer_views = Vec::with_capacity(self.dev.chunks as usize);
-        let mut blends = Vec::with_capacity(self.dev.chunks as usize);
-        let mut opacities = Vec::with_capacity(self.dev.chunks as usize);
+        let mut texture_views = Vec::with_capacity(self.dev.chunks as usize);
+        let mut blends = vec![0; self.dev.chunks as usize];
+        let mut opacities = vec![0.0f32; self.dev.chunks as usize];
+        let mut masks = vec![-1; self.dev.chunks as usize];
+        let mut layers = vec![0; self.dev.chunks as usize];
+        let mut count = 0u32;
 
-        let filled_clipping_mask = self
-            .filled_clipping_mask
-            .as_ref()
-            .expect("Compositor dimensions not configured?");
+        let mut mapped_texture_views = HashMap::new();
 
-        for layer in chunked_layers.iter() {
-            mask_views.push(
-                (if let Some(mask_layer) = layer.clipped {
-                    &layers[mask_layer].texture
+        for (index, layer) in composite_layers[start..].into_iter().enumerate() {
+            assert_eq!(index, count as usize);
+
+            if let Some(clip_layer) = layer.clipped {
+                if let Some(&clip_index) = mapped_texture_views.get(&clip_layer) {
+                    if (mapped_texture_views.len() as u32) + 1 > self.dev.chunks {
+                        break;
+                    }
+
+                    layers[index] = mapped_texture_views.len() as u32;
+                    texture_views.push(textures[layer.texture].make_view());
+                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+
+                    masks[index] = clip_index as i32;
                 } else {
-                    &filled_clipping_mask
-                })
-                .make_view(),
-            );
-            layer_views.push(layer.texture.make_view());
-            blends.push(layer.blend.to_u32());
-            opacities.push(layer.opacity);
+                    if (mapped_texture_views.len() as u32) + 2 > self.dev.chunks {
+                        break;
+                    }
+
+                    masks[index] = mapped_texture_views.len() as i32;
+                    texture_views.push(textures[composite_layers[clip_layer].texture].make_view());
+                    mapped_texture_views.insert(composite_layers[clip_layer].texture, mapped_texture_views.len() as u32);
+
+                    layers[index] = mapped_texture_views.len() as u32;
+                    texture_views.push(textures[layer.texture].make_view());
+                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                }
+            } else {
+                if (mapped_texture_views.len() as u32) + 1 > self.dev.chunks {
+                    break;
+                }
+
+                layers[index] = mapped_texture_views.len() as u32;
+                texture_views.push(textures[layer.texture].make_view());
+                mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+
+                masks[index] = -1;
+            }
+
+            blends[index] = layer.blend.to_u32();
+            opacities[index] = layer.opacity;
+
+            count += 1;
         }
 
-        // Fill with dummy
-        for _ in 0..self.dev.chunks - chunked_layers.len() as u32 {
-            mask_views.push(filled_clipping_mask.make_view());
-            layer_views.push(filled_clipping_mask.make_view());
-            blends.push(0);
-            opacities.push(0.0);
+        assert!(texture_views.len() <= self.dev.chunks as usize);
+
+        // Fill with dummy views
+        for _ in 0..self.dev.chunks - mapped_texture_views.len() as u32 {
+            texture_views.push(textures[0].make_view());
         }
 
-        let ctx_buffer = self
+        assert_eq!(texture_views.len(), self.dev.chunks as usize);
+
+        let layer_buffer = self
+            .dev
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Context"),
+                contents: bytemuck::cast_slice(&layers),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let mask_buffer = self
+            .dev
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Context"),
+                contents: bytemuck::cast_slice(&masks),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let blend_buffer = self
             .dev
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -404,7 +458,7 @@ impl<'device> Compositor<'device> {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Context"),
-                contents: bytemuck::cast_slice(&[chunked_layers.len()]),
+                contents: bytemuck::cast_slice(&[count]),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
@@ -429,25 +483,27 @@ impl<'device> Compositor<'device> {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureViewArray(
-                            &mask_views.iter().collect::<Vec<_>>(),
+                            &texture_views.iter().collect::<Vec<_>>(),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureViewArray(
-                            &layer_views.iter().collect::<Vec<_>>(),
-                        ),
+                        resource: layer_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx_buffer.as_entire_binding(),
+                        resource: mask_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: opacity_buffer.as_entire_binding(),
+                        resource: blend_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
+                        resource: opacity_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
                         resource: count_buffer.as_entire_binding(),
                     },
                 ],
@@ -494,7 +550,7 @@ impl<'device> Compositor<'device> {
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
         drop(render_pass);
 
-        tex
+        (tex, count)
     }
 }
 
@@ -527,10 +583,11 @@ fn blending_group_layout(device: &wgpu::Device, chunks: u32) -> wgpu::BindGroupL
         entries: &[
             fragment_bgl_tex_entry(0, None),
             fragment_bgl_tex_entry(1, NonZeroU32::new(chunks)),
-            fragment_bgl_tex_entry(2, NonZeroU32::new(chunks)),
+            fragment_bgl_buffer_ro_entry(2, None),
             fragment_bgl_buffer_ro_entry(3, None),
             fragment_bgl_buffer_ro_entry(4, None),
-            fragment_bgl_uniform_entry(5),
+            fragment_bgl_buffer_ro_entry(5, None),
+            fragment_bgl_uniform_entry(6),
         ],
     })
 }

@@ -4,7 +4,7 @@ pub struct LogicalDevice {
     pub device: wgpu::Device,
     pub adapter: wgpu::Adapter,
     pub queue: wgpu::Queue,
-    pub chunks: u32
+    pub chunks: u32,
 }
 
 const CHUNKS_LIMIT: u32 = 32;
@@ -23,7 +23,13 @@ impl LogicalDevice {
     }
 
     pub async fn with_window(window: &winit::window::Window) -> Option<(Self, wgpu::Surface)> {
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let instance = wgpu::Instance::new(if cfg!(windows) {
+            wgpu::Backends::DX12
+        } else if cfg!(target_os = "macos") {
+            wgpu::Backends::METAL
+        } else {
+            wgpu::Backends::PRIMARY
+        });
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -31,13 +37,15 @@ impl LogicalDevice {
                 ..Self::ADAPTER_OPTIONS
             })
             .await?;
-        Self::from_adapter(instance, adapter).await.map(|dev| (dev, surface))
+        Self::from_adapter(instance, adapter)
+            .await
+            .map(|dev| (dev, surface))
     }
 
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
         dbg!(adapter.get_info());
         dbg!(adapter.limits());
-        let chunks = ((adapter.limits().max_sampled_textures_per_shader_stage - 1) / 2).min(CHUNKS_LIMIT);
+        let chunks = (adapter.limits().max_sampled_textures_per_shader_stage - 1).min(CHUNKS_LIMIT);
         dbg!(chunks);
         let (device, queue) = adapter
             .request_device(
@@ -45,8 +53,7 @@ impl LogicalDevice {
                     features: wgpu::Features::TEXTURE_BINDING_ARRAY
                         | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
                     limits: wgpu::Limits {
-                        max_sampled_textures_per_shader_stage: chunks * 2 + 1,
-                        max_storage_buffers_per_shader_stage: chunks,
+                        max_sampled_textures_per_shader_stage: chunks + 1,
                         ..Default::default()
                     },
                     ..Default::default()

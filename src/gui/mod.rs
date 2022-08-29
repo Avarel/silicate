@@ -11,15 +11,14 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 
 fn linearize<'a>(
-    gpu_textures: &'a [GpuTexture],
     layers: &'a crate::silica::SilicaGroup,
-    composite_layers: &mut Vec<CompositeLayer<'a>>,
+    composite_layers: &mut Vec<CompositeLayer>,
     mask_layer: &mut Option<(usize, &'a crate::silica::SilicaLayer)>,
 ) {
     for layer in layers.children.iter().rev() {
         match layer {
             SilicaHierarchy::Group(group) if !group.hidden => {
-                linearize(gpu_textures, group, composite_layers, mask_layer);
+                linearize(group, composite_layers, mask_layer);
             }
             SilicaHierarchy::Layer(layer) if !layer.hidden => {
                 if let Some((_, mask_layer)) = mask_layer {
@@ -28,14 +27,12 @@ fn linearize<'a>(
                     }
                 }
 
-                let gpu_texture = &gpu_textures[layer.image];
-
                 if !layer.clipped {
                     *mask_layer = Some((composite_layers.len(), layer));
                 }
 
                 composite_layers.push(CompositeLayer {
-                    texture: gpu_texture,
+                    texture: layer.image,
                     clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                     opacity: layer.opacity,
                     blend: layer.blend,
@@ -113,7 +110,6 @@ fn rendering_thread(cs: Arc<CompositorState>) {
             let gpu_textures = cs.gpu_textures.read();
             let mut mask_layer = None;
             linearize(
-                &gpu_textures.as_ref().unwrap(),
                 &new_layer_config,
                 &mut resolved_layers,
                 &mut mask_layer,
@@ -125,7 +121,10 @@ fn rendering_thread(cs: Arc<CompositorState>) {
                 (!file.background_hidden).then_some(file.background_color)
             };
 
-            *cs.tex.write() = cs.compositor.write().render(background, &resolved_layers);
+            *cs.tex.write() =
+                cs.compositor
+                    .write()
+                    .render(background, &resolved_layers, &gpu_textures.as_ref().unwrap());
             old_layer_config = new_layer_config;
             cs.set_recomposit(false);
         }
