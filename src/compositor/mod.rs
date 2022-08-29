@@ -387,7 +387,10 @@ impl<'device> Compositor<'device> {
 
                     masks[index] = mapped_texture_views.len() as i32;
                     texture_views.push(textures[composite_layers[clip_layer].texture].make_view());
-                    mapped_texture_views.insert(composite_layers[clip_layer].texture, mapped_texture_views.len() as u32);
+                    mapped_texture_views.insert(
+                        composite_layers[clip_layer].texture,
+                        mapped_texture_views.len() as u32,
+                    );
 
                     layers[index] = mapped_texture_views.len() as u32;
                     texture_views.push(textures[layer.texture].make_view());
@@ -420,39 +423,9 @@ impl<'device> Compositor<'device> {
 
         assert_eq!(texture_views.len(), self.dev.chunks as usize);
 
-        let layer_buffer = self
-            .dev
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&layers),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-        let mask_buffer = self
-            .dev
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&masks),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-        let blend_buffer = self
-            .dev
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&blends),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-        let opacity_buffer =
-            self.dev
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Context"),
-                    contents: bytemuck::cast_slice(&opacities),
-                    usage: wgpu::BufferUsages::STORAGE,
-                });
-
+        let mask_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&masks));
+        let blend_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&blends));
+        let opacity_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&opacities));
         let count_buffer = self
             .dev
             .device
@@ -488,7 +461,7 @@ impl<'device> Compositor<'device> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: layer_buffer.as_entire_binding(),
+                        resource: storage_buffer(&self.dev, bytemuck::cast_slice(&layers)).as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -632,4 +605,13 @@ fn fragment_bgl_uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
+}
+
+fn storage_buffer(dev: &LogicalDevice, contents: &[u8]) -> wgpu::Buffer {
+    dev.device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents,
+            usage: wgpu::BufferUsages::STORAGE,
+        })
 }

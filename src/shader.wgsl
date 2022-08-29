@@ -231,23 +231,6 @@ fn darker_color(b: vec3f, s: vec3f) -> vec3f {
 // Fragment shader /////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-struct CtxInput {
-    opacity: f32,
-    blend: u32,
-    @size(8) padding: u32,
-};
-
-struct Why {
-    a0: CtxInput,
-    a1: CtxInput,
-    a2: CtxInput,
-    a3: CtxInput,
-    a4: CtxInput,
-    a5: CtxInput,
-    a6: CtxInput,
-    // a7: CtxInput,
-};
-
 @group(0) @binding(0)
 var splr: sampler;
 @group(1) @binding(0)
