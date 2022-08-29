@@ -18,7 +18,7 @@ futures = "0.3"
 bytemuck = { version = "1.12", features = ["derive"] }
 memmap2 = "0.5"
 # Display GUI
-egui = { version = "0.19", features = ["bytemuck"] }
+egui = "0.19"
 egui-wgpu = "0.19"
 egui-winit = "0.19"
 winit = "0.27"

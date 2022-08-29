@@ -107,11 +107,11 @@ impl<'dev> EditorState<'dev> {
                         ui.label("Flip");
                         ui.horizontal(|ui| {
                             if ui.button("Horizontal").clicked() {
-                                compositor.flip_vertices((true, false));
+                                compositor.flip_vertices((false, true));
                                 cs.set_recomposit(true);
                             }
                             if ui.button("Vertical").clicked() {
-                                compositor.flip_vertices((false, true));
+                                compositor.flip_vertices((true, false));
                                 cs.set_recomposit(true);
                             }
                         });

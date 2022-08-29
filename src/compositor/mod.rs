@@ -129,7 +129,6 @@ pub struct Compositor<'device> {
     pub dev: &'device LogicalDevice,
     pub dim: BufferDimensions,
     vertices: [Vertex; 4],
-    background: Option<[f32; 4]>,
     constant_bind_group: wgpu::BindGroup,
     blending_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
@@ -199,7 +198,7 @@ impl<'device> Compositor<'device> {
                 });
     }
 
-    pub fn new(background: Option<[f32; 4]>, dev: &'device LogicalDevice) -> Self {
+    pub fn new(dev: &'device LogicalDevice) -> Self {
         let LogicalDevice { ref device, .. } = dev;
 
         // Create the vertex buffer.
@@ -264,11 +263,18 @@ impl<'device> Compositor<'device> {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: tex::TEX_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: tex::TEX_FORMAT,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: tex::TEX_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -291,7 +297,6 @@ impl<'device> Compositor<'device> {
             dim: buffer_dimensions,
             constant_bind_group,
             blending_group_layout,
-            background,
             render_pipeline,
             vertices,
             vertex_buffer,
@@ -301,29 +306,14 @@ impl<'device> Compositor<'device> {
     }
 
     pub fn base_composite_texture(&self) -> GpuTexture {
-        let tex = GpuTexture::empty_with_extent(
-            &self.dev,
-            self.dim.extent,
-            None,
-            GpuTexture::OUTPUT_USAGE,
-        );
-
-        if let Some([r, g, b, a]) = self.background {
-            tex.clear(
-                self.dev,
-                wgpu::Color {
-                    r: f64::from(r),
-                    g: f64::from(g),
-                    b: f64::from(b),
-                    a: f64::from(a),
-                },
-            );
-        }
-
-        tex
+        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, None, GpuTexture::OUTPUT_USAGE)
     }
 
-    pub fn render<'a, 'b>(&'a self, layers: &'b [CompositeLayer]) -> GpuTexture {
+    pub fn render(
+        &mut self,
+        background: Option<[f32; 4]>,
+        layers: &[CompositeLayer],
+    ) -> GpuTexture {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
         let mut composite_texture = self.base_composite_texture();
@@ -335,9 +325,15 @@ impl<'device> Compositor<'device> {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
             for chunked_layers in layers.chunks(self.dev.chunks as usize) {
-                composite_texture =
-                    self.render_chunk(&mut encoder, composite_texture, layers, chunked_layers);
+                composite_texture = self.render_chunk(
+                    &mut encoder,
+                    background,
+                    composite_texture,
+                    layers,
+                    chunked_layers,
+                );
             }
+
             encoder.finish()
         }));
 
@@ -347,6 +343,7 @@ impl<'device> Compositor<'device> {
     fn render_chunk(
         &self,
         encoder: &mut CommandEncoder,
+        background: Option<[f32; 4]>,
         composite_texture: GpuTexture,
         layers: &[CompositeLayer],
         chunked_layers: &[CompositeLayer],
@@ -459,14 +456,33 @@ impl<'device> Compositor<'device> {
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &tex_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: true,
-                },
-            })],
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &tex_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(
+                            background
+                                .map(|[r, g, b, _]| wgpu::Color {
+                                    r: f64::from(r),
+                                    g: f64::from(g),
+                                    b: f64::from(b),
+                                    a: 1.0,
+                                })
+                                .unwrap_or(wgpu::Color::TRANSPARENT),
+                        ),
+                        store: true,
+                    },
+                }),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &tex_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }),
+            ],
             depth_stencil_attachment: None,
         });
 

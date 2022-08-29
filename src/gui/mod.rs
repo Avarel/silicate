@@ -33,7 +33,7 @@ fn linearize<'a>(
                 if !layer.clipped {
                     *mask_layer = Some((composite_layers.len(), layer));
                 }
-                
+
                 composite_layers.push(CompositeLayer {
                     texture: gpu_texture,
                     clipped: layer.clipped.then(|| mask_layer.unwrap().0),
@@ -107,7 +107,7 @@ fn rendering_thread(cs: Arc<CompositorState>) {
         }
 
         // Only force a recompute if we need to.
-        let new_layer_config = cs.file.read().as_ref().map(|z| z.layers.clone()).unwrap();
+        let new_layer_config = cs.file.read().as_ref().unwrap().layers.clone();
         if cs.get_recomposit() || old_layer_config != new_layer_config {
             let mut resolved_layers = Vec::new();
             let gpu_textures = cs.gpu_textures.read();
@@ -116,10 +116,16 @@ fn rendering_thread(cs: Arc<CompositorState>) {
                 &gpu_textures.as_ref().unwrap(),
                 &new_layer_config,
                 &mut resolved_layers,
-                &mut mask_layer
+                &mut mask_layer,
             );
 
-            *cs.tex.write() = cs.compositor.read().render(&resolved_layers);
+            let background = {
+                let file = cs.file.read();
+                let file = file.as_ref().unwrap();
+                (!file.background_hidden).then_some(file.background_color)
+            };
+
+            *cs.tex.write() = cs.compositor.write().render(background, &resolved_layers);
             old_layer_config = new_layer_config;
             cs.set_recomposit(false);
         }
@@ -158,7 +164,7 @@ pub fn start_gui(
     let cs = Arc::new(CompositorState {
         file: RwLock::new(None),
         gpu_textures: RwLock::new(None),
-        compositor: RwLock::new(Compositor::new(None, dev)),
+        compositor: RwLock::new(Compositor::new(dev)),
         tex: RwLock::new(GpuTexture::empty_with_extent(
             &dev,
             wgpu::Extent3d {
