@@ -375,9 +375,13 @@ impl<'device> Compositor<'device> {
                         break;
                     }
 
-                    layers[index] = mapped_texture_views.len() as u32;
-                    texture_views.push(textures[layer.texture].make_view());
-                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                    if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                        layers[index] = mapped_texture;
+                    } else {
+                        layers[index] = mapped_texture_views.len() as u32;
+                        texture_views.push(textures[layer.texture].make_view());
+                        mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                    }
 
                     masks[index] = clip_index as i32;
                 } else {
@@ -392,18 +396,26 @@ impl<'device> Compositor<'device> {
                         mapped_texture_views.len() as u32,
                     );
 
-                    layers[index] = mapped_texture_views.len() as u32;
-                    texture_views.push(textures[layer.texture].make_view());
-                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                    if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                        layers[index] = mapped_texture;
+                    } else {
+                        layers[index] = mapped_texture_views.len() as u32;
+                        texture_views.push(textures[layer.texture].make_view());
+                        mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                    }
                 }
             } else {
                 if (mapped_texture_views.len() as u32) + 1 > self.dev.chunks {
                     break;
                 }
 
-                layers[index] = mapped_texture_views.len() as u32;
-                texture_views.push(textures[layer.texture].make_view());
-                mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                    layers[index] = mapped_texture;
+                } else {
+                    layers[index] = mapped_texture_views.len() as u32;
+                    texture_views.push(textures[layer.texture].make_view());
+                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                }
 
                 masks[index] = -1;
             }
