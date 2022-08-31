@@ -28,7 +28,7 @@ fn linearize<'a>(
                 }
 
                 if !layer.clipped {
-                    *mask_layer = Some((composite_layers.len(), layer));
+                    *mask_layer = Some((layer.image, layer));
                 }
 
                 composite_layers.push(CompositeLayer {

@@ -333,8 +333,7 @@ impl<'device> Compositor<'device> {
                     background,
                     composite_texture,
                     &layers,
-                    count,
-                    textures,
+                    &textures[count..],
                 );
                 count += delta as usize;
                 composite_texture = result_texture;
@@ -352,7 +351,6 @@ impl<'device> Compositor<'device> {
         background: Option<[f32; 4]>,
         composite_texture: GpuTexture,
         composite_layers: &[CompositeLayer],
-        start: usize,
         textures: &[GpuTexture],
     ) -> (GpuTexture, u32) {
         let prev_texture_view = composite_texture.make_view();
@@ -366,7 +364,7 @@ impl<'device> Compositor<'device> {
 
         let mut mapped_texture_views = HashMap::new();
 
-        for (index, layer) in composite_layers[start..].into_iter().enumerate() {
+        for (index, layer) in composite_layers.into_iter().enumerate() {
             assert_eq!(index, count as usize);
 
             if let Some(clip_layer) = layer.clipped {
@@ -375,12 +373,12 @@ impl<'device> Compositor<'device> {
                         break;
                     }
 
-                    if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                    if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
                         layers[index] = mapped_texture;
                     } else {
                         layers[index] = mapped_texture_views.len() as u32;
                         texture_views.push(textures[layer.texture].make_view());
-                        mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                        mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
                     }
 
                     masks[index] = clip_index as i32;
@@ -396,12 +394,12 @@ impl<'device> Compositor<'device> {
                         mapped_texture_views.len() as u32,
                     );
 
-                    if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                    if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
                         layers[index] = mapped_texture;
                     } else {
                         layers[index] = mapped_texture_views.len() as u32;
                         texture_views.push(textures[layer.texture].make_view());
-                        mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                        mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
                     }
                 }
             } else {
@@ -409,12 +407,12 @@ impl<'device> Compositor<'device> {
                     break;
                 }
 
-                if let Some(&mapped_texture) = mapped_texture_views.get(&(start + index)) {
+                if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
                     layers[index] = mapped_texture;
                 } else {
                     layers[index] = mapped_texture_views.len() as u32;
                     texture_views.push(textures[layer.texture].make_view());
-                    mapped_texture_views.insert(start + index, mapped_texture_views.len() as u32);
+                    mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
                 }
 
                 masks[index] = -1;
