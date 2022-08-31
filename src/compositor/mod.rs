@@ -332,8 +332,8 @@ impl<'device> Compositor<'device> {
                     &mut encoder,
                     background,
                     composite_texture,
-                    &layers,
-                    &textures[count..],
+                    &layers[count..],
+                    textures,
                 );
                 count += delta as usize;
                 composite_texture = result_texture;
@@ -378,7 +378,8 @@ impl<'device> Compositor<'device> {
                     } else {
                         layers[index] = mapped_texture_views.len() as u32;
                         texture_views.push(textures[layer.texture].make_view());
-                        mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
+                        mapped_texture_views
+                            .insert(layer.texture, mapped_texture_views.len() as u32);
                     }
 
                     masks[index] = clip_index as i32;
@@ -388,18 +389,16 @@ impl<'device> Compositor<'device> {
                     }
 
                     masks[index] = mapped_texture_views.len() as i32;
-                    texture_views.push(textures[composite_layers[clip_layer].texture].make_view());
-                    mapped_texture_views.insert(
-                        composite_layers[clip_layer].texture,
-                        mapped_texture_views.len() as u32,
-                    );
+                    texture_views.push(textures[clip_layer].make_view());
+                    mapped_texture_views.insert(clip_layer, mapped_texture_views.len() as u32);
 
                     if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
                         layers[index] = mapped_texture;
                     } else {
                         layers[index] = mapped_texture_views.len() as u32;
                         texture_views.push(textures[layer.texture].make_view());
-                        mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
+                        mapped_texture_views
+                            .insert(layer.texture, mapped_texture_views.len() as u32);
                     }
                 }
             } else {
@@ -433,6 +432,7 @@ impl<'device> Compositor<'device> {
 
         assert_eq!(texture_views.len(), self.dev.chunks as usize);
 
+        let layer_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&layers));
         let mask_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&masks));
         let blend_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&blends));
         let opacity_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&opacities));
@@ -471,7 +471,7 @@ impl<'device> Compositor<'device> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer(&self.dev, bytemuck::cast_slice(&layers)).as_entire_binding(),
+                        resource: layer_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -534,6 +534,84 @@ impl<'device> Compositor<'device> {
         drop(render_pass);
 
         (tex, count)
+    }
+}
+
+struct ShaderBindings {
+    texture_views: Vec<wgpu::TextureView>,
+    blends: Vec<u32>,
+    opacities: Vec<f32>,
+    masks: Vec<i32>,
+    layers: Vec<u32>,
+    count: u32,
+}
+
+struct ShaderBuffers<'dev> {
+    dev: &'dev LogicalDevice,
+    blends: wgpu::Buffer,
+    opacities: wgpu::Buffer,
+    masks: wgpu::Buffer,
+    layers: wgpu::Buffer,
+    // count: wgpu::Buffer,
+}
+
+impl ShaderBindings {
+    fn new(chunks: u32) -> Self {
+        let chunks = chunks as usize;
+
+        Self {
+            texture_views: Vec::with_capacity(chunks),
+            blends: vec![0; chunks],
+            opacities: vec![0.0f32; chunks],
+            masks: vec![-1; chunks],
+            layers: vec![0; chunks],
+            count: 0u32,
+        }
+    }
+
+    fn compare_and_update(&self, new: &ShaderBindings, buffers: &mut ShaderBuffers) {
+        if self.blends != new.blends {
+            buffers.update_buffer(&buffers.blends, bytemuck::cast_slice(&new.blends));
+        }
+        if self.opacities != new.opacities {
+            buffers.update_buffer(&buffers.opacities, bytemuck::cast_slice(&new.opacities));
+        }
+        if self.masks != new.masks {
+            buffers.update_buffer(&buffers.masks, bytemuck::cast_slice(&new.masks));
+        }
+        if self.layers != new.layers {
+            buffers.update_buffer(&buffers.layers, bytemuck::cast_slice(&new.layers));
+        }
+    }
+}
+
+impl<'dev> ShaderBuffers<'dev> {
+    fn new(dev: &'dev LogicalDevice, chunks: u32) -> Self {
+        let chunks = u64::from(chunks);
+        let storage_desc: wgpu::BufferDescriptor = wgpu::BufferDescriptor {
+            label: None,
+            size: 4 * chunks,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        };
+        ShaderBuffers {
+            dev,
+            blends: dev.device.create_buffer(&storage_desc),
+            opacities: dev.device.create_buffer(&storage_desc),
+            masks: dev.device.create_buffer(&storage_desc),
+            layers: dev.device.create_buffer(&storage_desc),
+            // count: dev.device.create_buffer(&storage_desc),
+        }
+    }
+
+    fn update_buffer(&self, buffer: &wgpu::Buffer, content: &[u8]) {
+        let buffer_slice = buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+        self.dev.device.poll(wgpu::Maintain::Wait);
+        futures::executor::block_on(rx).unwrap().unwrap();
+        buffer_slice.get_mapped_range_mut()[..].copy_from_slice(content);
+        buffer.unmap();
     }
 }
 
