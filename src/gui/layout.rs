@@ -15,6 +15,7 @@ pub struct CompositorState<'dev> {
     pub tex: RwLock<GpuTexture>,
     pub active: AtomicBool,
     pub force_recomposit: AtomicBool,
+    pub changed: AtomicBool,
 }
 
 impl<'dev> CompositorState<'dev> {
@@ -34,6 +35,14 @@ impl<'dev> CompositorState<'dev> {
 
     pub fn set_recomposit(&self, b: bool) {
         self.force_recomposit.store(b, Self::ORDERING);
+    }
+
+    pub fn get_changed(&self) -> bool {
+        self.changed.load(Self::ORDERING)
+    }
+
+    pub fn set_changed(&self, b: bool) {
+        self.changed.store(b, Self::ORDERING);
     }
 }
 
@@ -109,10 +118,12 @@ impl<'dev> EditorState<'dev> {
                             if ui.button("Horizontal").clicked() {
                                 compositor.flip_vertices((false, true));
                                 cs.set_recomposit(true);
+                                cs.set_changed(true);
                             }
                             if ui.button("Vertical").clicked() {
                                 compositor.flip_vertices((true, false));
                                 cs.set_recomposit(true);
+                                cs.set_changed(true);
                             }
                         });
                         ui.end_row();
@@ -123,12 +134,14 @@ impl<'dev> EditorState<'dev> {
                                 compositor
                                     .set_dimensions(compositor.dim.height, compositor.dim.width);
                                 cs.set_recomposit(true);
+                                cs.set_changed(true);
                             }
                             if ui.button("CW").clicked() {
                                 compositor.rotate_vertices(false);
                                 compositor
                                     .set_dimensions(compositor.dim.height, compositor.dim.width);
                                 cs.set_recomposit(true);
+                                cs.set_changed(true);
                             }
                         });
                         ui.allocate_space(vec2(ui.available_width(), 0.0))

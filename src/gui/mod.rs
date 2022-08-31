@@ -109,11 +109,7 @@ fn rendering_thread(cs: Arc<CompositorState>) {
             let mut resolved_layers = Vec::new();
             let gpu_textures = cs.gpu_textures.read();
             let mut mask_layer = None;
-            linearize(
-                &new_layer_config,
-                &mut resolved_layers,
-                &mut mask_layer,
-            );
+            linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
 
             let background = {
                 let file = cs.file.read();
@@ -121,10 +117,12 @@ fn rendering_thread(cs: Arc<CompositorState>) {
                 (!file.background_hidden).then_some(file.background_color)
             };
 
-            *cs.tex.write() =
-                cs.compositor
-                    .write()
-                    .render(background, &resolved_layers, &gpu_textures.as_ref().unwrap());
+            // *cs.tex.write() =
+            cs.compositor.write().render(
+                background,
+                &resolved_layers,
+                &gpu_textures.as_ref().unwrap(),
+            );
             old_layer_config = new_layer_config;
             cs.set_recomposit(false);
         }
@@ -176,6 +174,7 @@ pub fn start_gui(
         )),
         active: AtomicBool::new(true),
         force_recomposit: AtomicBool::new(false),
+        changed: AtomicBool::new(false),
     });
 
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
@@ -229,6 +228,7 @@ pub fn start_gui(
                             compositor
                                 .flip_vertices((pf.flipped.horizontally, pf.flipped.vertically));
                             compositor.set_dimensions(pf.size.width, pf.size.height);
+                            cs.set_changed(true);
                             *file = Some(pf);
                             *textures = Some(pt);
                         });
@@ -296,11 +296,16 @@ pub fn start_gui(
                 }
                 output_frame.present();
 
-                if let Some(z) = es.cs.tex.try_read() {
+                if es.cs.get_changed() {
                     egui_rpass.free_texture(&es.egui_tex);
                     es.egui_tex = egui_rpass.register_native_texture(
                         &dev.device,
-                        &z.make_view(),
+                        &cs.compositor
+                            .read()
+                            .output_texture
+                            .as_ref()
+                            .unwrap()
+                            .make_view(),
                         if es.smooth {
                             wgpu::FilterMode::Linear
                         } else {
