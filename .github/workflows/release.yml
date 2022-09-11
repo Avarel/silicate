@@ -5,6 +5,9 @@ on:
     branches:
       - master
 
+env:
+  BIN_NAME: procreate-rs
+
 jobs:
   dist:
     name: Dist
@@ -57,8 +60,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
-          override: true
+          target: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       # - name: Run cargo test
       #   uses: actions-rs/cargo@v1
