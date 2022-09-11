@@ -17,9 +17,15 @@ wgpu = "0.13"
 futures = "0.3"
 bytemuck = { version = "1.12", features = ["derive"] }
 memmap2 = "0.5"
+parking_lot = "0.12"
 # Display GUI
 egui = "0.19"
 egui-wgpu = "0.19"
 egui-winit = "0.19"
 winit = "0.27"
-parking_lot = "0.12"
+egui_dock = "0.2.1"
+
+[profile.release]
+# strip = true
+# lto = true
+panic = "abort"

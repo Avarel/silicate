@@ -1,6 +1,6 @@
 mod layout;
 
-use self::layout::{CompositorState, EditorState};
+use self::layout::{CompositorState, EditorState, ViewerState};
 use crate::compositor::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
 use crate::silica::{ProcreateFile, SilicaGroup};
 use crate::{compositor::Compositor, silica::SilicaHierarchy};
@@ -186,11 +186,20 @@ pub fn start_gui(
     );
 
     let mut es = EditorState {
-        dev,
-        egui_tex,
-        smooth: false,
-        show_grid: true,
-        cs: Arc::clone(&cs),
+        viewer: ViewerState {
+            dev,
+            egui_tex,
+            smooth: false,
+            show_grid: true,
+            cs: Arc::clone(&cs),
+        },
+        tree: {
+            use egui_dock::{NodeIndex, Tree};
+            let mut tree = Tree::new(vec!["Viewer"]);
+            let [_, b] = tree.split_right(NodeIndex::root(), 0.65, vec!["Information", "View Controls"]);
+            let [_, _] = tree.split_below(b, 0.4, vec!["Hierarchy"]);
+            tree
+        },
     };
 
     std::thread::spawn({
@@ -203,7 +212,7 @@ pub fn start_gui(
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CloseRequested => {
-                        es.cs.deactivate();
+                        es.viewer.cs.deactivate();
                         *control_flow = ControlFlow::Exit;
                     }
                     WindowEvent::Resized(size) => {
@@ -296,9 +305,9 @@ pub fn start_gui(
                 }
                 output_frame.present();
 
-                if es.cs.get_changed() {
-                    egui_rpass.free_texture(&es.egui_tex);
-                    es.egui_tex = egui_rpass.register_native_texture(
+                if es.viewer.cs.get_changed() {
+                    egui_rpass.free_texture(&es.viewer.egui_tex);
+                    es.viewer.egui_tex = egui_rpass.register_native_texture(
                         &dev.device,
                         &cs.compositor
                             .read()
@@ -306,7 +315,7 @@ pub fn start_gui(
                             .as_ref()
                             .unwrap()
                             .make_view(),
-                        if es.smooth {
+                        if es.viewer.smooth {
                             wgpu::FilterMode::Linear
                         } else {
                             wgpu::FilterMode::Nearest
