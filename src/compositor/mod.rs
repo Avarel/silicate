@@ -7,8 +7,6 @@ use image::{Pixel, Rgba};
 use std::{collections::HashMap, num::NonZeroU32};
 use wgpu::{util::DeviceExt, CommandEncoder};
 
-const INCLUDE_SHADERS: bool = false;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferDimensions {
     pub width: u32,
@@ -626,10 +624,10 @@ impl<'dev> ShaderBuffers<'dev> {
 }
 
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
-    if INCLUDE_SHADERS {
-        // wgpu::include_wgsl!("../shader.wgsl")
-        todo!()
-    } else {
+    #[cfg(feature = "include_shaders")] {
+        wgpu::include_wgsl!("../shader.wgsl")
+    }
+    #[cfg(not(feature = "include_shaders"))] {
         wgpu::ShaderModuleDescriptor {
             label: Some("Dynamically loaded shader module"),
             source: wgpu::ShaderSource::Wgsl({
