@@ -26,8 +26,8 @@ winit = "0.27"
 egui_dock = "0.2.1"
 
 [profile.release]
-# strip = true
-# lto = true
+strip = true
+lto = true
 panic = "abort"
 
 [features]
