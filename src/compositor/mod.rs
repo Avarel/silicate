@@ -134,6 +134,7 @@ pub struct Compositor<'device> {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     pub output_texture: Option<GpuTexture>,
+    stages: Vec<CompositorStage<'device>>
 }
 
 impl<'device> Compositor<'device> {
@@ -189,6 +190,7 @@ impl<'device> Compositor<'device> {
             tex.clear(self.dev, wgpu::Color::WHITE);
             tex
         });
+        self.stages.clear()
     }
 
     pub fn reload_vertices_buffer(&mut self) {
@@ -306,6 +308,7 @@ impl<'device> Compositor<'device> {
             vertex_buffer,
             index_buffer,
             output_texture: None,
+            stages: Vec::new(),
         }
     }
 
@@ -321,10 +324,6 @@ impl<'device> Compositor<'device> {
     ) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
-        // let mut composite_texture = self.base_composite_texture();
-
-        let mut stages = Vec::new();
-
         self.dev.queue.submit(Some({
             let mut encoder = self
                 .dev
@@ -334,14 +333,13 @@ impl<'device> Compositor<'device> {
             let mut stage_idx = 0;
             let mut count = 0;
             while count < layers.len() {
-                if stages.len() <= stage_idx {
-                    stages.push(CompositorStage::new(self));
+                if self.stages.len() <= stage_idx {
+                    self.stages.push(CompositorStage::new(self));
                 }
 
                 let delta = self.render_chunk(
                     &mut encoder,
                     background,
-                    stages.as_mut_slice(),
                     stage_idx,
                     &layers[count..],
                     textures,
@@ -350,14 +348,16 @@ impl<'device> Compositor<'device> {
                 stage_idx += 1;
             }
 
+            self.stages.truncate(stage_idx);
+
             encoder.copy_texture_to_texture(
-                stages[stage_idx - 1].output.texture.as_image_copy(),
+                self.stages[stage_idx - 1].output.texture.as_image_copy(),
                 self.output_texture
                     .as_ref()
                     .unwrap()
                     .texture
                     .as_image_copy(),
-                    stages[stage_idx - 1].output.size,
+                    self.stages[stage_idx - 1].output.size,
             );
 
             encoder.finish()
@@ -365,23 +365,24 @@ impl<'device> Compositor<'device> {
     }
 
     fn render_chunk(
-        &self,
+        &mut self,
         encoder: &mut CommandEncoder,
         background: Option<[f32; 4]>,
-        stages: &mut [CompositorStage],
         stage_idx: usize,
         composite_layers: &[CompositeLayer],
         textures: &[GpuTexture],
     ) -> u32 {
         let prev_texture_view = if stage_idx > 0 {
-            stages[stage_idx - 1].output.make_view()
+            self.stages[stage_idx - 1].output.make_view()
         } else {
             self.base_composite_texture().make_view()
         };
 
         let mut texture_views = Vec::new();
         texture_views.resize_with(self.dev.chunks as usize, || textures[0].make_view());
-        let bind = &mut stages[stage_idx].bindings;
+        let stage = &mut self.stages[stage_idx];
+        let bind = &mut stage.bindings;
+        bind.reset();
 
         let mut mapped_texture_views = HashMap::new();
 
@@ -446,9 +447,9 @@ impl<'device> Compositor<'device> {
 
         assert_eq!(texture_views.len(), self.dev.chunks as usize);
 
-        let tex_view = stages[stage_idx].output.make_view();
+        let tex_view = stage.output.make_view();
 
-        let buffers = &stages[stage_idx].buffers;
+        let buffers = &stage.buffers;
         bind.update(&buffers);
 
         let blending_bind_group = self
@@ -556,10 +557,10 @@ impl<'dev> CompositorStage<'dev> {
 
 #[derive(Debug)]
 struct ShaderBindings {
-    blends: Vec<u32>,
-    opacities: Vec<f32>,
-    masks: Vec<i32>,
-    layers: Vec<u32>,
+    blends: Box<[u32]>,
+    opacities: Box<[f32]>,
+    masks: Box<[i32]>,
+    layers: Box<[u32]>,
     count: u32,
 }
 
@@ -578,30 +579,28 @@ impl ShaderBindings {
 
         Self {
             // texture_views: Vec::with_capacity(chunks),
-            blends: vec![0; chunks],
-            opacities: vec![0.0f32; chunks],
-            masks: vec![-1; chunks],
-            layers: vec![0; chunks],
+            blends: vec![0; chunks].into_boxed_slice(),
+            opacities: vec![0.0f32; chunks].into_boxed_slice(),
+            masks: vec![-1; chunks].into_boxed_slice(),
+            layers: vec![0; chunks].into_boxed_slice(),
             count: 0u32,
         }
     }
 
+    fn reset(&mut self) {
+        self.blends.fill(0);
+        self.opacities.fill(0.0);
+        self.masks.fill(-1);
+        self.layers.fill(0);
+        self.count = 0;
+    }
+
     fn update(&self, buffers: &ShaderBuffers) {
-        // if self.blends != new.blends {
-            buffers.update_buffer(&buffers.blends, bytemuck::cast_slice(&self.blends));
-        // }
-        // if self.opacities != new.opacities {
-            buffers.update_buffer(&buffers.opacities, bytemuck::cast_slice(&self.opacities));
-        // }
-        // if self.masks != new.masks {
-            buffers.update_buffer(&buffers.masks, bytemuck::cast_slice(&self.masks));
-        // }
-        // if self.layers != new.layers {
-            buffers.update_buffer(&buffers.layers, bytemuck::cast_slice(&self.layers));
-        // }
-        // if self.count != new.count {
-            buffers.update_buffer(&buffers.count, bytemuck::cast_slice(&[self.count]));
-        // }
+        buffers.update_buffer(&buffers.blends, bytemuck::cast_slice(&self.blends));
+        buffers.update_buffer(&buffers.opacities, bytemuck::cast_slice(&self.opacities));
+        buffers.update_buffer(&buffers.masks, bytemuck::cast_slice(&self.masks));
+        buffers.update_buffer(&buffers.layers, bytemuck::cast_slice(&self.layers));
+        buffers.update_buffer(&buffers.count, bytemuck::cast_slice(&[self.count]));
     }
 }
 
@@ -635,11 +634,11 @@ impl<'dev> ShaderBuffers<'dev> {
 }
 
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
-    #[cfg(feature = "include_shaders")]
+    #[cfg(not(debug_assertions))]
     {
         wgpu::include_wgsl!("../shader.wgsl")
     }
-    #[cfg(not(feature = "include_shaders"))]
+    #[cfg(debug_assertions)]
     {
         wgpu::ShaderModuleDescriptor {
             label: Some("Dynamically loaded shader module"),
