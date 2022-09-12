@@ -134,7 +134,7 @@ pub struct Compositor<'device> {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     pub output_texture: Option<GpuTexture>,
-    stages: Vec<CompositorStage<'device>>
+    stages: Vec<CompositorStage<'device>>,
 }
 
 impl<'device> Compositor<'device> {
@@ -357,7 +357,7 @@ impl<'device> Compositor<'device> {
                     .unwrap()
                     .texture
                     .as_image_copy(),
-                    self.stages[stage_idx - 1].output.size,
+                self.stages[stage_idx - 1].output.size,
             );
 
             encoder.finish()
@@ -378,79 +378,11 @@ impl<'device> Compositor<'device> {
             self.base_composite_texture().make_view()
         };
 
-        let mut texture_views = Vec::new();
-        texture_views.resize_with(self.dev.chunks as usize, || textures[0].make_view());
         let stage = &mut self.stages[stage_idx];
-        let bind = &mut stage.bindings;
-        bind.reset();
 
-        let mut mapped_texture_views = HashMap::new();
-
-        for (index, layer) in composite_layers.into_iter().enumerate() {
-            assert_eq!(index, bind.count as usize);
-
-            if let Some(clip_layer) = layer.clipped {
-                if let Some(&clip_index) = mapped_texture_views.get(&clip_layer) {
-                    if (mapped_texture_views.len() as u32) + 1 > self.dev.chunks {
-                        break;
-                    }
-
-                    if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
-                        bind.layers[index] = mapped_texture;
-                    } else {
-                        bind.layers[index] = mapped_texture_views.len() as u32;
-                        texture_views[index] = textures[layer.texture].make_view();
-                        mapped_texture_views
-                            .insert(layer.texture, mapped_texture_views.len() as u32);
-                    }
-
-                    bind.masks[index] = clip_index as i32;
-                } else {
-                    if (mapped_texture_views.len() as u32) + 2 > self.dev.chunks {
-                        break;
-                    }
-
-                    bind.masks[index] = mapped_texture_views.len() as i32;
-                    texture_views[index] = textures[clip_layer].make_view();
-                    mapped_texture_views.insert(clip_layer, mapped_texture_views.len() as u32);
-
-                    if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
-                        bind.layers[index] = mapped_texture;
-                    } else {
-                        bind.layers[index] = mapped_texture_views.len() as u32;
-                        texture_views[index] = textures[layer.texture].make_view();
-                        mapped_texture_views
-                            .insert(layer.texture, mapped_texture_views.len() as u32);
-                    }
-                }
-            } else {
-                if (mapped_texture_views.len() as u32) + 1 > self.dev.chunks {
-                    break;
-                }
-
-                if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
-                    bind.layers[index] = mapped_texture;
-                } else {
-                    bind.layers[index] = mapped_texture_views.len() as u32;
-                    texture_views[index] = textures[layer.texture].make_view();
-                    mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
-                }
-
-                bind.masks[index] = -1;
-            }
-
-            bind.blends[index] = layer.blend.to_u32();
-            bind.opacities[index] = layer.opacity;
-            bind.count += 1;
-        }
-        let count = bind.count;
-
-        assert_eq!(texture_views.len(), self.dev.chunks as usize);
+        let texture_views = stage.process(composite_layers, textures);
 
         let tex_view = stage.output.make_view();
-
-        let buffers = &stage.buffers;
-        bind.update(&buffers);
 
         let blending_bind_group = self
             .dev
@@ -465,31 +397,28 @@ impl<'device> Compositor<'device> {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureViewArray(
-                            texture_views
-                                .iter()
-                                .collect::<Vec<_>>()
-                                .as_slice(),
+                            texture_views.iter().collect::<Vec<_>>().as_slice(),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.layers.as_entire_binding(),
+                        resource: stage.buffers.layers.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.masks.as_entire_binding(),
+                        resource: stage.buffers.masks.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: buffers.blends.as_entire_binding(),
+                        resource: stage.buffers.blends.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: buffers.opacities.as_entire_binding(),
+                        resource: stage.buffers.opacities.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
-                        resource: buffers.count.as_entire_binding(),
+                        resource: stage.buffers.count.as_entire_binding(),
                     },
                 ],
                 label: Some("mixing_bind_group"),
@@ -535,23 +464,95 @@ impl<'device> Compositor<'device> {
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
         drop(render_pass);
 
-        count
+        stage.bindings.count
     }
 }
 
 struct CompositorStage<'dev> {
     bindings: ShaderBindings,
     buffers: ShaderBuffers<'dev>,
-    output: GpuTexture
+    output: GpuTexture,
 }
 
 impl<'dev> CompositorStage<'dev> {
-    pub fn new(compositor: &Compositor<'dev> ) -> Self {
+    pub fn new(compositor: &Compositor<'dev>) -> Self {
         Self {
             bindings: ShaderBindings::new(compositor.dev.chunks),
             buffers: ShaderBuffers::new(&compositor.dev),
-            output: compositor.base_composite_texture()
+            output: compositor.base_composite_texture(),
         }
+    }
+
+    fn map_texture(
+        &mut self,
+        mapped: &mut HashMap<usize, u32>,
+        texture_views: &mut [wgpu::TextureView],
+        index: usize,
+        layer: &CompositeLayer,
+        textures: &[GpuTexture],
+    ) {
+        if let Some(&mapped_texture) = mapped.get(&layer.texture) {
+            self.bindings.layers[index] = mapped_texture;
+        } else {
+            self.bindings.layers[index] = mapped.len() as u32;
+            texture_views[index] = textures[layer.texture].make_view();
+            mapped.insert(layer.texture, mapped.len() as u32);
+        }
+    }
+
+    pub fn process(
+        &mut self,
+        composite_layers: &[CompositeLayer],
+        textures: &[GpuTexture],
+    ) -> Vec<wgpu::TextureView> {
+        let mut views = Vec::new();
+        let chunks = self.buffers.dev.chunks;
+        views.resize_with(chunks as usize, || textures[0].make_view());
+        self.bindings.reset();
+
+        let mut mapped = HashMap::with_capacity(chunks as usize);
+
+        for (index, layer) in composite_layers.into_iter().enumerate() {
+            assert_eq!(index, self.bindings.count as usize);
+
+            if let Some(clip_layer) = layer.clipped {
+                if let Some(&clip_index) = mapped.get(&clip_layer) {
+                    if (mapped.len() as u32) + 1 > chunks {
+                        break;
+                    }
+                    self.map_texture(&mut mapped, &mut views, index, layer, textures);
+                    self.bindings.masks[index] = clip_index as i32;
+                } else {
+                    if (mapped.len() as u32) + 2 > chunks {
+                        break;
+                    }
+
+                    self.bindings.masks[index] = mapped.len() as i32;
+                    views[index] = textures[clip_layer].make_view();
+                    mapped.insert(clip_layer, mapped.len() as u32);
+
+                    self.map_texture(&mut mapped, &mut views, index, layer, textures);
+                }
+            } else {
+                if (mapped.len() as u32) + 1 > chunks {
+                    break;
+                }
+
+                self.map_texture(&mut mapped, &mut views, index, layer, textures);
+
+                self.bindings.masks[index] = -1;
+            }
+
+            self.bindings.blends[index] = layer.blend.to_u32();
+            self.bindings.opacities[index] = layer.opacity;
+            self.bindings.count += 1;
+        }
+
+        assert_eq!(views.len(), chunks as usize);
+
+        self.bindings.update(&self.buffers);
+
+        views
     }
 }
 
