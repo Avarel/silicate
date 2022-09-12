@@ -16,6 +16,7 @@ impl LogicalDevice {
         force_fallback_adapter: false,
     };
 
+    #[allow(dead_code)]
     pub async fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await?;

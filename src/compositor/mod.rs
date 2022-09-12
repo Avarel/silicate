@@ -321,7 +321,9 @@ impl<'device> Compositor<'device> {
     ) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
-        let mut composite_texture = self.base_composite_texture();
+        // let mut composite_texture = self.base_composite_texture();
+
+        let mut stages = Vec::new();
 
         self.dev.queue.submit(Some({
             let mut encoder = self
@@ -329,55 +331,62 @@ impl<'device> Compositor<'device> {
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
+            let mut stage_idx = 0;
             let mut count = 0;
             while count < layers.len() {
-                let (result_texture, delta) = self.render_chunk(
+                if stages.len() <= stage_idx {
+                    stages.push(CompositorStage::new(self));
+                }
+
+                let delta = self.render_chunk(
                     &mut encoder,
                     background,
-                    composite_texture,
+                    stages.as_mut_slice(),
+                    stage_idx,
                     &layers[count..],
                     textures,
                 );
                 count += delta as usize;
-                composite_texture = result_texture;
+                stage_idx += 1;
             }
 
             encoder.copy_texture_to_texture(
-                composite_texture.texture.as_image_copy(),
+                stages[stage_idx - 1].output.texture.as_image_copy(),
                 self.output_texture
                     .as_ref()
                     .unwrap()
                     .texture
                     .as_image_copy(),
-                composite_texture.size,
+                    stages[stage_idx - 1].output.size,
             );
 
             encoder.finish()
         }));
-
-        // composite_texture
     }
 
     fn render_chunk(
         &self,
         encoder: &mut CommandEncoder,
         background: Option<[f32; 4]>,
-        composite_texture: GpuTexture,
+        stages: &mut [CompositorStage],
+        stage_idx: usize,
         composite_layers: &[CompositeLayer],
         textures: &[GpuTexture],
-    ) -> (GpuTexture, u32) {
-        let prev_texture_view = composite_texture.make_view();
+    ) -> u32 {
+        let prev_texture_view = if stage_idx > 0 {
+            stages[stage_idx - 1].output.make_view()
+        } else {
+            self.base_composite_texture().make_view()
+        };
 
-        let mut texture_views = Vec::with_capacity(self.dev.chunks as usize);
-        let empty_bind = ShaderBindings::new(0);
-        let mut bind = ShaderBindings::new(self.dev.chunks);
-        let buffers = ShaderBuffers::new(self.dev, self.dev.chunks);
-        let mut count = 0u32;
+        let mut texture_views = Vec::new();
+        texture_views.resize_with(self.dev.chunks as usize, || textures[0].make_view());
+        let bind = &mut stages[stage_idx].bindings;
 
         let mut mapped_texture_views = HashMap::new();
 
         for (index, layer) in composite_layers.into_iter().enumerate() {
-            assert_eq!(index, count as usize);
+            assert_eq!(index, bind.count as usize);
 
             if let Some(clip_layer) = layer.clipped {
                 if let Some(&clip_index) = mapped_texture_views.get(&clip_layer) {
@@ -389,7 +398,7 @@ impl<'device> Compositor<'device> {
                         bind.layers[index] = mapped_texture;
                     } else {
                         bind.layers[index] = mapped_texture_views.len() as u32;
-                        texture_views.push(textures[layer.texture].make_view());
+                        texture_views[index] = textures[layer.texture].make_view();
                         mapped_texture_views
                             .insert(layer.texture, mapped_texture_views.len() as u32);
                     }
@@ -401,14 +410,14 @@ impl<'device> Compositor<'device> {
                     }
 
                     bind.masks[index] = mapped_texture_views.len() as i32;
-                    texture_views.push(textures[clip_layer].make_view());
+                    texture_views[index] = textures[clip_layer].make_view();
                     mapped_texture_views.insert(clip_layer, mapped_texture_views.len() as u32);
 
                     if let Some(&mapped_texture) = mapped_texture_views.get(&layer.texture) {
                         bind.layers[index] = mapped_texture;
                     } else {
                         bind.layers[index] = mapped_texture_views.len() as u32;
-                        texture_views.push(textures[layer.texture].make_view());
+                        texture_views[index] = textures[layer.texture].make_view();
                         mapped_texture_views
                             .insert(layer.texture, mapped_texture_views.len() as u32);
                     }
@@ -422,7 +431,7 @@ impl<'device> Compositor<'device> {
                     bind.layers[index] = mapped_texture;
                 } else {
                     bind.layers[index] = mapped_texture_views.len() as u32;
-                    texture_views.push(textures[layer.texture].make_view());
+                    texture_views[index] = textures[layer.texture].make_view();
                     mapped_texture_views.insert(layer.texture, mapped_texture_views.len() as u32);
                 }
 
@@ -431,41 +440,16 @@ impl<'device> Compositor<'device> {
 
             bind.blends[index] = layer.blend.to_u32();
             bind.opacities[index] = layer.opacity;
-
-            count += 1;
+            bind.count += 1;
         }
-
-        assert!(texture_views.len() <= self.dev.chunks as usize);
-
-        // Fill with dummy views
-        for _ in 0..self.dev.chunks - mapped_texture_views.len() as u32 {
-            texture_views.push(textures[0].make_view());
-        }
+        let count = bind.count;
 
         assert_eq!(texture_views.len(), self.dev.chunks as usize);
 
-        // let layer_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&layers));
-        // let mask_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&masks));
-        // let blend_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&blends));
-        // let opacity_buffer = storage_buffer(&self.dev, bytemuck::cast_slice(&opacities));
-        let count_buffer = self
-            .dev
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Context"),
-                contents: bytemuck::cast_slice(&[count]),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+        let tex_view = stages[stage_idx].output.make_view();
 
-        let tex = GpuTexture::empty_with_extent(
-            &self.dev,
-            self.dim.extent,
-            None,
-            GpuTexture::OUTPUT_USAGE,
-        );
-        let tex_view = tex.make_view();
-
-        empty_bind.compare_and_update(&bind, &buffers);
+        let buffers = &stages[stage_idx].buffers;
+        bind.update(&buffers);
 
         let blending_bind_group = self
             .dev
@@ -480,7 +464,10 @@ impl<'device> Compositor<'device> {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureViewArray(
-                            &texture_views.iter().collect::<Vec<_>>(),
+                            texture_views
+                                .iter()
+                                .collect::<Vec<_>>()
+                                .as_slice(),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -501,7 +488,7 @@ impl<'device> Compositor<'device> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
-                        resource: count_buffer.as_entire_binding(),
+                        resource: buffers.count.as_entire_binding(),
                     },
                 ],
                 label: Some("mixing_bind_group"),
@@ -547,17 +534,33 @@ impl<'device> Compositor<'device> {
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
         drop(render_pass);
 
-        (tex, count)
+        count
     }
 }
 
+struct CompositorStage<'dev> {
+    bindings: ShaderBindings,
+    buffers: ShaderBuffers<'dev>,
+    output: GpuTexture
+}
+
+impl<'dev> CompositorStage<'dev> {
+    pub fn new(compositor: &Compositor<'dev> ) -> Self {
+        Self {
+            bindings: ShaderBindings::new(compositor.dev.chunks),
+            buffers: ShaderBuffers::new(&compositor.dev),
+            output: compositor.base_composite_texture()
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ShaderBindings {
-    // texture_views: Vec<wgpu::TextureView>,
     blends: Vec<u32>,
     opacities: Vec<f32>,
     masks: Vec<i32>,
     layers: Vec<u32>,
-    // count: u32,
+    count: u32,
 }
 
 struct ShaderBuffers<'dev> {
@@ -566,7 +569,7 @@ struct ShaderBuffers<'dev> {
     opacities: wgpu::Buffer,
     masks: wgpu::Buffer,
     layers: wgpu::Buffer,
-    // count: wgpu::Buffer,
+    count: wgpu::Buffer,
 }
 
 impl ShaderBindings {
@@ -579,29 +582,32 @@ impl ShaderBindings {
             opacities: vec![0.0f32; chunks],
             masks: vec![-1; chunks],
             layers: vec![0; chunks],
-            // count: 0u32,
+            count: 0u32,
         }
     }
 
-    fn compare_and_update(&self, new: &ShaderBindings, buffers: &ShaderBuffers) {
-        if self.blends != new.blends {
-            buffers.update_buffer(&buffers.blends, bytemuck::cast_slice(&new.blends));
-        }
-        if self.opacities != new.opacities {
-            buffers.update_buffer(&buffers.opacities, bytemuck::cast_slice(&new.opacities));
-        }
-        if self.masks != new.masks {
-            buffers.update_buffer(&buffers.masks, bytemuck::cast_slice(&new.masks));
-        }
-        if self.layers != new.layers {
-            buffers.update_buffer(&buffers.layers, bytemuck::cast_slice(&new.layers));
-        }
+    fn update(&self, buffers: &ShaderBuffers) {
+        // if self.blends != new.blends {
+            buffers.update_buffer(&buffers.blends, bytemuck::cast_slice(&self.blends));
+        // }
+        // if self.opacities != new.opacities {
+            buffers.update_buffer(&buffers.opacities, bytemuck::cast_slice(&self.opacities));
+        // }
+        // if self.masks != new.masks {
+            buffers.update_buffer(&buffers.masks, bytemuck::cast_slice(&self.masks));
+        // }
+        // if self.layers != new.layers {
+            buffers.update_buffer(&buffers.layers, bytemuck::cast_slice(&self.layers));
+        // }
+        // if self.count != new.count {
+            buffers.update_buffer(&buffers.count, bytemuck::cast_slice(&[self.count]));
+        // }
     }
 }
 
 impl<'dev> ShaderBuffers<'dev> {
-    fn new(dev: &'dev LogicalDevice, chunks: u32) -> Self {
-        let chunks = u64::from(chunks);
+    fn new(dev: &'dev LogicalDevice) -> Self {
+        let chunks = u64::from(dev.chunks);
         let storage_desc: wgpu::BufferDescriptor = wgpu::BufferDescriptor {
             label: None,
             size: 4 * chunks,
@@ -614,7 +620,12 @@ impl<'dev> ShaderBuffers<'dev> {
             opacities: dev.device.create_buffer(&storage_desc),
             masks: dev.device.create_buffer(&storage_desc),
             layers: dev.device.create_buffer(&storage_desc),
-            // count: dev.device.create_buffer(&storage_desc),
+            count: dev.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                size: 4,
+                mapped_at_creation: false,
+            }),
         }
     }
 
@@ -624,10 +635,12 @@ impl<'dev> ShaderBuffers<'dev> {
 }
 
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
-    #[cfg(feature = "include_shaders")] {
+    #[cfg(feature = "include_shaders")]
+    {
         wgpu::include_wgsl!("../shader.wgsl")
     }
-    #[cfg(not(feature = "include_shaders"))] {
+    #[cfg(not(feature = "include_shaders"))]
+    {
         wgpu::ShaderModuleDescriptor {
             label: Some("Dynamically loaded shader module"),
             source: wgpu::ShaderSource::Wgsl({
@@ -701,13 +714,4 @@ fn fragment_bgl_uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
-}
-
-fn storage_buffer(dev: &LogicalDevice, contents: &[u8]) -> wgpu::Buffer {
-    dev.device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents,
-            usage: wgpu::BufferUsages::STORAGE,
-        })
 }
