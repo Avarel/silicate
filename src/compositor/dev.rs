@@ -24,13 +24,7 @@ impl LogicalDevice {
     }
 
     pub async fn with_window(window: &winit::window::Window) -> Option<(Self, wgpu::Surface)> {
-        let instance = wgpu::Instance::new(if cfg!(windows) {
-            wgpu::Backends::DX12
-        } else if cfg!(target_os = "macos") {
-            wgpu::Backends::METAL
-        } else {
-            wgpu::Backends::PRIMARY
-        });
+        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -52,6 +46,7 @@ impl LogicalDevice {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     features: wgpu::Features::TEXTURE_BINDING_ARRAY
+                        // | wgpu::Features::PUSH_CONSTANTS
                         | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
                     limits: wgpu::Limits {
                         max_sampled_textures_per_shader_stage: chunks + 1,

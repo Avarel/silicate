@@ -29,6 +29,4 @@ egui_dock = "0.2.1"
 strip = true
 lto = true
 panic = "abort"
-
-[features]
-include_shaders = []
+codegen-units = 1
