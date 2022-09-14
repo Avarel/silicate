@@ -77,7 +77,7 @@ jobs:
         with:
           use-cross: ${{ matrix.cross }}
           command: build
-          args: --release --locked --target ${{ matrix.target }} --features include_shaders
+          args: --release --locked --target ${{ matrix.target }}
 
       - name: Build archive
         shell: bash
