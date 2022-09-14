@@ -16,6 +16,8 @@ pub struct CpuBindings {
 }
 
 impl CpuBindings {
+    const MASK_NONE: u32 = u32::MAX;
+
     pub fn new(chunks: u32) -> Self {
         let chunks = chunks as usize;
 
@@ -32,7 +34,7 @@ impl CpuBindings {
     fn reset(&mut self) {
         self.blends.fill(0);
         self.opacities.fill(0.0);
-        self.masks.fill(0);
+        self.masks.fill(Self::MASK_NONE);
         self.layers.fill(0);
         self.count = 0;
     }
@@ -93,16 +95,13 @@ impl<'dev> BindingMapper<'dev> {
                 if (self.map.len() as u32) + 2 > self.chunks {
                     break;
                 }
-                self.bindings.layers[index] = self.map_texture(layer.texture);
                 self.bindings.masks[index] = self.map_texture(clip_layer);
-                // We map the mask after the layer so that the mask index can take 0
-                // for "not present"
-                debug_assert!(self.bindings.masks[index] > 0);
+                self.bindings.layers[index] = self.map_texture(layer.texture);
             } else {
                 if (self.map.len() as u32) + 1 > self.chunks {
                     break;
                 }
-                self.bindings.masks[index] = 0;
+                self.bindings.masks[index] = CpuBindings::MASK_NONE;
                 self.bindings.layers[index] = self.map_texture(layer.texture);
 
             }

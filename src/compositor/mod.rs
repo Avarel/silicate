@@ -431,7 +431,7 @@ impl<'device> Compositor<'device> {
         composite_layers: &[CompositeLayer],
         textures: &[GpuTexture],
     ) -> u32 {
-        let prev_texture_view = if stage_idx > 0 {
+        let composite_view = if stage_idx > 0 {
             self.stages[stage_idx - 1].output.make_view()
         } else {
             self.base_composite_texture().make_view()
@@ -452,7 +452,7 @@ impl<'device> Compositor<'device> {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&prev_texture_view),
+                        resource: wgpu::BindingResource::TextureView(&composite_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,

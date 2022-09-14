@@ -264,13 +264,15 @@ fn linear_to_srgb(c: vec4f) -> vec4f {
     return pow(c, vec4(vec3(2.2), 1.0));
 }
 
+let MASK_NONE: u32 = 0xFFFFFFFFu;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
     var bga = srgb_to_linear(textureSample(composite, splr, in.bg_coords));
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == 0u);
+        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == MASK_NONE);
         var fga = srgb_to_linear(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
 
         // Short circuit
