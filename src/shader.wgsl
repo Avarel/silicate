@@ -240,7 +240,7 @@ var textures: binding_array<texture_2d<f32>>;
 @group(1) @binding(2)
 var<storage, read> layers: array<u32>;
 @group(1) @binding(3)
-var<storage, read> masks: array<i32>;
+var<storage, read> masks: array<u32>;
 @group(1) @binding(4)
 var<storage, read> blends: array<u32>;
 @group(1) @binding(5)
@@ -270,7 +270,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = srgb_to_linear(textureSample(composite, splr, in.bg_coords));
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == -1);
+        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == 0u);
         var fga = srgb_to_linear(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
 
         // Short circuit
