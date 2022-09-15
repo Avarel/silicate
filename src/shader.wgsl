@@ -245,8 +245,8 @@ var<storage, read> masks: array<u32>;
 var<storage, read> blends: array<u32>;
 @group(1) @binding(5)
 var<storage, read> opacities: array<f32>;
-@group(1) @binding(6)
-var<uniform> layer_count: i32;
+
+var<push_constant> layer_count: i32;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {

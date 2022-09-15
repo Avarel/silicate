@@ -291,17 +291,6 @@ impl<'device> Compositor<'device> {
                     fragment_bgl_buffer_ro_entry(4, None),
                     // opacities
                     fragment_bgl_buffer_ro_entry(5, None),
-                    // count
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             })
         };
@@ -314,7 +303,10 @@ impl<'device> Compositor<'device> {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("render_pipeline_layout"),
                     bind_group_layouts: &[&constant_bind_group_layout, &blending_bind_group_layout],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[wgpu::PushConstantRange {
+                        stages: wgpu::ShaderStages::FRAGMENT,
+                        range: 0..4
+                    }],
                 });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("render_pipeline"),
@@ -476,10 +468,6 @@ impl<'device> Compositor<'device> {
                         binding: 5,
                         resource: stage.buffers.opacities.as_entire_binding(),
                     },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: stage.buffers.count.as_entire_binding(),
-                    },
                 ],
                 label: Some("mixing_bind_group"),
             });
@@ -518,12 +506,13 @@ impl<'device> Compositor<'device> {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, &stage.bindings.count.to_ne_bytes());
         render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
         render_pass.set_bind_group(1, &blending_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-        // render_pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, &[stage.bindings.count]);
+        
         drop(render_pass);
 
         stage.bindings.count
