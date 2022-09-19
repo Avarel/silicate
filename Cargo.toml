@@ -26,7 +26,7 @@ winit = "0.27"
 egui_dock = "0.2"
 egui-notify = "0.4.0"
 # Async runtime
-rfd = "0.10"
+rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
 tokio = { version = "1.21", features = ["rt", "rt-multi-thread", "time"] }
 
 [profile.release]
