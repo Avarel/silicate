@@ -3,6 +3,11 @@ name = "procreate-rs"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [
+    "libs/egui_dock"
+]
+
 [dependencies]
 zip = "0.6"
 minilzo-rs = "0.6.0"
@@ -14,7 +19,6 @@ image = { version = "0.24", features = ["png", "jpeg", "tga", "tiff", "webp", "b
 rayon = "1.5"
 once_cell = "1"
 wgpu = "0.13"
-futures = "0.3"
 bytemuck = { version = "1.12", features = ["derive"] }
 memmap2 = "0.5"
 parking_lot = "0.12"
@@ -23,11 +27,12 @@ egui = "0.19"
 egui-wgpu = "0.19"
 egui-winit = "0.19"
 winit = "0.27"
-egui_dock = "0.2"
+# egui_dock = "0.2"
+egui_dock = { path = "libs/egui_dock" }
 egui-notify = "0.4.0"
 # Async runtime
 rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
-tokio = { version = "1.21", features = ["rt", "rt-multi-thread", "time"] }
+tokio = { version = "1.21", features = ["sync", "rt", "rt-multi-thread", "time"] }
 
 [profile.release]
 strip = true

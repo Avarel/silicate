@@ -1,0 +1,3 @@
+[submodule "libs/egui_dock"]
+	path = libs/egui_dock
+	url = git@github.com:Avarel/egui_dock.git

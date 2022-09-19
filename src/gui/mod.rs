@@ -1,16 +1,22 @@
 mod canvas;
 mod layout;
 
-use self::layout::{CompositorHandle, EditorState, Instance, ViewOptions};
+use self::layout::{CompositorHandle, Instance, InstanceKey, ViewOptions, ViewerGui};
 use crate::{
     compositor::{dev::LogicalDevice, CompositeLayer, CompositorPipeline, CompositorTarget},
     gui::layout::ViewerTab,
-    silica::{ProcreateFile, SilicaGroup, SilicaHierarchy},
+    silica::{ProcreateFile, SilicaHierarchy},
 };
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use parking_lot::{Mutex, RwLock};
-use std::sync::atomic::AtomicBool;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    sync::atomic::{
+        AtomicBool, AtomicUsize,
+        Ordering::{Acquire, Release},
+    },
+};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 
@@ -97,41 +103,37 @@ impl FrameLimiter {
 
 async fn rendering_thread(cs: &CompositorHandle) {
     let mut limiter = FrameLimiter::new(60);
-    let mut old_layer_config = Vec::new();
     loop {
         // Ensures that we are not generating frames faster than 60FPS
         // to avoid putting unnecessary computational pressure on the GPU.
         limiter.wait().await;
 
-        let mut instances = cs.instances.write();
+        for (_, instance) in cs.instances.read().iter() {
+            let file = instance.file.read();
 
-        if old_layer_config.len() <= instances.len() {
-            old_layer_config.resize(instances.len(), SilicaGroup::empty());
-        }
-
-        for (idx, instance) in instances.iter_mut().enumerate() {
-            let new_layer_config = instance.file.layers.clone();
+            let new_layer_config = instance.file.read().layers.clone();
             // Only force a recompute if we need to.
+            let background = (!file.background_hidden).then_some(file.background_color);
 
-            if *instance.force_recomposit.get_mut() || old_layer_config[idx] != new_layer_config {
+            drop(file);
+
+            if instance.change_untick() {
                 let mut resolved_layers = Vec::new();
-                // let gpu_textures = cs.gpu_textures.read();
                 let mut mask_layer = None;
                 linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
 
-                let background = {
-                    let file = &instance.file;
-                    (!file.background_hidden).then_some(file.background_color)
-                };
-
-                instance.target.render(
+                let mut lock = instance.target.lock();
+                lock.render(
                     &cs.pipeline,
                     background,
                     &resolved_layers,
                     &instance.textures,
                 );
-                old_layer_config[idx] = new_layer_config;
-                *instance.force_recomposit.get_mut() = false;
+                // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+                // std::thread::sleep(std::time::Duration::from_secs(1));
+                // Debugging notes: if the GPU is highly contended, the main
+                // GUI rendering can still be somewhat sluggish.
+                drop(lock);
             }
         }
     }
@@ -154,13 +156,18 @@ pub async fn load_file(
             target.set_dimensions(target.dim.height, target.dim.width);
         }
 
-        compositor.instances.write().push(Instance {
-            file,
-            target,
-            textures,
-            new_texture: AtomicBool::new(true),
-            force_recomposit: AtomicBool::new(true),
-        });
+        let id = compositor.curr_id.load(Acquire);
+        compositor.curr_id.store(id + 1, Release);
+        compositor.instances.write().insert(
+            InstanceKey(id),
+            Instance {
+                file: RwLock::new(file),
+                target: Mutex::new(target),
+                textures,
+                new_texture: AtomicBool::new(true),
+                changed: AtomicBool::new(true),
+            },
+        );
 
         true
     } else {
@@ -172,25 +179,22 @@ fn leak<T>(value: T) -> &'static T {
     &*Box::leak(Box::new(value))
 }
 
-pub fn start_gui(
-    dev: LogicalDevice,
-    surface: wgpu::Surface,
-    window: winit::window::Window,
-    event_loop: winit::event_loop::EventLoop<()>,
-) {
+pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::EventLoop<()>) -> ! {
     // LEAK: obtain static reference because this will live for the rest of
     // the lifetime of the program.
-    let dev = leak(dev);
-    let compositor = leak(CompositorHandle {
-        instances: RwLock::new(Vec::new()),
-        pipeline: CompositorPipeline::new(dev),
-    });
     let rt = leak(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .unwrap(),
     );
+    let (dev, surface) = rt.block_on(LogicalDevice::with_window(&window)).unwrap();
+    let dev = leak(dev);
+    let compositor = leak(CompositorHandle {
+        instances: RwLock::new(HashMap::new()),
+        pipeline: CompositorPipeline::new(dev),
+        curr_id: AtomicUsize::new(0),
+    });
     let toasts = leak(Mutex::new(egui_notify::Toasts::default()));
 
     let window_size = window.inner_size();
@@ -212,10 +216,10 @@ pub fn start_gui(
 
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let mut editor = EditorState {
+    let mut editor = ViewerGui {
         dev,
         rt,
-        canvases: Vec::new(),
+        canvases: HashMap::new(),
         view_options: ViewOptions {
             smooth: false,
             grid: true,
@@ -223,9 +227,10 @@ pub fn start_gui(
             rotation: 0.0,
             bottom_bar: false,
         },
-        selected_canvas: 0,
+        selected_canvas: InstanceKey(0),
         compositor: &compositor,
-        tree: {
+        canvas_tree: egui_dock::Tree::default(),
+        viewer_tree: {
             use egui_dock::{NodeIndex, Tree};
             let mut tree = Tree::new(vec![
                 ViewerTab::Information,
@@ -262,10 +267,16 @@ pub fn start_gui(
                             surface.configure(&dev.device, &surface_config);
                         }
                     }
-                    // WindowEvent::DroppedFile(file) => {
-                    //     println!("File dropped: {:?}", file.as_path().display().to_string());
-                    //     rt.spawn(load_file(file, &dev, compositor));
-                    // }
+                    WindowEvent::DroppedFile(file) => {
+                        println!("File dropped: {:?}", file.as_path().display().to_string());
+                        rt.spawn(async move {
+                            if load_file(file, &dev, compositor).await {
+                                toasts.lock().success("Loaded file from drag/drop.");
+                            } else {
+                                toasts.lock().error("File from drag/drop failed to load.");
+                            }
+                        });
+                    }
                     _ => {
                         state.on_event(&context, &event);
                     }
@@ -334,36 +345,37 @@ pub fn start_gui(
                 output_frame.present();
 
                 if let Some(index) = editor.queued_remove.take() {
-                    if editor.selected_canvas >= index {
-                        editor.selected_canvas = editor.selected_canvas.saturating_sub(1);
-                    }
                     editor.remove_index(index);
                 }
 
+                // Updates textures bound for egui rendering
+                // Do not block on any locks/rwlocks since we do not want to block
+                // the GUI thread when the renderer is potentially taking a long
+                // time to render a frame
                 if let Some(instances) = compositor.instances.try_read() {
-                    if editor.canvases.len() <= instances.len() {
-                        editor.canvases.resize(instances.len(), None);
-                    }
-                    for (idx, instance) in instances.iter().enumerate() {
-                        if instance
-                            .new_texture
-                            .load(std::sync::atomic::Ordering::SeqCst)
-                        {
-                            if let Some(tex) = editor.canvases[idx] {
-                                egui_rpass.free_texture(&tex);
+                    for (idx, instance) in instances.iter() {
+                        if instance.new_texture.load(Acquire) {
+                            if let Some(target) = instance.target.try_lock() {
+                                if let Some((tex, _)) = editor.canvases.insert(
+                                    *idx,
+                                    (
+                                        egui_rpass.register_native_texture(
+                                            &dev.device,
+                                            &target.output_texture.as_ref().unwrap().make_view(),
+                                            if editor.view_options.smooth {
+                                                wgpu::FilterMode::Linear
+                                            } else {
+                                                wgpu::FilterMode::Nearest
+                                            },
+                                        ),
+                                        target.dim,
+                                    ),
+                                ) {
+                                    egui_rpass.free_texture(&tex);
+                                }
+
+                                instance.new_texture_untick();
                             }
-                            editor.canvases[idx] = Some(egui_rpass.register_native_texture(
-                                &dev.device,
-                                &instance.target.output_texture.as_ref().unwrap().make_view(),
-                                if editor.view_options.smooth {
-                                    wgpu::FilterMode::Linear
-                                } else {
-                                    wgpu::FilterMode::Nearest
-                                },
-                            ));
-                            instance
-                                .new_texture
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
                         }
                     }
                 }

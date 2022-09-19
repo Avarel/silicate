@@ -7,26 +7,50 @@ use crate::{
 };
 use egui::*;
 use parking_lot::{Mutex, RwLock};
-use std::sync::atomic::AtomicBool;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering::{Acquire, Release};
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use super::canvas;
 
+#[derive(Hash, Clone, Copy, PartialEq, Eq)]
+pub struct InstanceKey(pub usize);
+
 pub struct Instance {
-    pub file: ProcreateFile,
+    pub file: RwLock<ProcreateFile>,
     pub textures: Vec<GpuTexture>,
-    pub target: CompositorTarget<'static>,
+    pub target: Mutex<CompositorTarget<'static>>,
     pub new_texture: AtomicBool,
-    pub force_recomposit: AtomicBool,
+    pub changed: AtomicBool,
+}
+
+impl Instance {
+    pub fn store_change_or(&self, b: bool) {
+        self.changed.fetch_or(b, Release);
+    }
+
+    pub fn change_untick(&self) -> bool {
+        self.changed.swap(false, Acquire)
+    }
+
+    pub fn store_new_texture_or(&self, b: bool) {
+        self.new_texture.fetch_or(b, Release);
+    }
+
+    pub fn new_texture_untick(&self) -> bool {
+        self.new_texture.swap(false, Acquire)
+    }
 }
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        println!("Closing {:?}", self.file.name);
+        println!("Closing {:?}", self.file.get_mut().name);
     }
 }
 
 pub struct CompositorHandle {
-    pub instances: RwLock<Vec<Instance>>,
+    pub instances: RwLock<HashMap<InstanceKey, Instance>>,
+    pub curr_id: AtomicUsize,
     pub pipeline: CompositorPipeline,
 }
 
@@ -66,31 +90,30 @@ async fn save_dialog(
         .await
     {
         let dim = BufferDimensions::from_extent(copied_texture.size);
-        tokio::task::spawn_blocking(move || copied_texture.export(dev, dim, handle.path()))
-            .await
-            .unwrap();
+        let path = handle.path().to_path_buf();
+        copied_texture.export(dev, dim, path).await;
         toasts.lock().success("Export succeeded.");
     } else {
         toasts.lock().info("Load cancelled.");
     }
 }
 
-struct ViewerDock<'a> {
+struct ControlsGui<'a> {
     dev: &'static LogicalDevice,
     rt: &'static tokio::runtime::Runtime,
-    selected_canvas: &'a mut usize,
+    selected_canvas: &'a InstanceKey,
     compositor: &'static CompositorHandle,
     view_options: &'a mut ViewOptions,
-    queued_remove: &'a mut Option<usize>,
     toasts: &'static Mutex<egui_notify::Toasts>,
 }
 
-impl ViewerDock<'_> {
+impl ControlsGui<'_> {
     fn layout_info(&self, ui: &mut Ui) {
         Grid::new("File Grid").show(ui, |ui| {
             if let Some(Instance { file, .. }) =
-                self.compositor.instances.read().get(*self.selected_canvas)
+                self.compositor.instances.read().get(self.selected_canvas)
             {
+                let file = file.read();
                 ui.label("Name");
                 ui.label(file.name.as_deref().unwrap_or("Not Specified"));
                 ui.end_row();
@@ -109,43 +132,19 @@ impl ViewerDock<'_> {
     }
 
     fn layout_file_control(&mut self, ui: &mut Ui) {
-        let mut instances = self.compositor.instances.write();
-        Grid::new("File Grid").show(ui, |ui| {
-            ui.label("File");
-            ComboBox::from_id_source("File View")
-                .selected_text(if instances.is_empty() {
-                    "No file loaded..."
-                } else {
-                    instances[*self.selected_canvas]
-                        .file
-                        .name
-                        .as_deref()
-                        .unwrap_or("Untitled Artwork")
-                })
-                .show_ui(ui, |ui| {
-                    for (idx, instance) in instances.iter().enumerate() {
-                        ui.selectable_value(
-                            self.selected_canvas,
-                            idx,
-                            instance.file.name.as_deref().unwrap_or("Untitled Artwork"),
-                        );
-                    }
-                });
-
-            ui.end_row();
+        let instances = self.compositor.instances.read();
+        Grid::new("File Grid").num_columns(2).show(ui, |ui| {
             ui.label("Actions");
             ui.vertical(|ui| {
-                if !instances.is_empty() && ui.button("Close Current File").clicked() {
-                    *self.queued_remove = Some(*self.selected_canvas);
-                }
                 if ui.button("Open Other File").clicked() {
                     self.rt
                         .spawn(load_dialog(self.dev, self.compositor, self.toasts));
                 }
-                if let Some(instance) = instances.get_mut(*self.selected_canvas) {
+                if let Some(instance) = instances.get(self.selected_canvas) {
                     if ui.button("Export View").clicked() {
                         let copied_texture = instance
                             .target
+                            .lock()
                             .output_texture
                             .as_ref()
                             .unwrap()
@@ -175,9 +174,8 @@ impl ViewerDock<'_> {
                 .checkbox(&mut self.view_options.smooth, "Enable")
                 .changed()
             {
-                let mut instances = self.compositor.instances.write();
-                if let Some(instance) = instances.get_mut(*self.selected_canvas) {
-                    *instance.new_texture.get_mut() = true;
+                if let Some(instance) = self.compositor.instances.read().get(self.selected_canvas) {
+                    instance.store_new_texture_or(true);
                 }
             }
             ui.end_row();
@@ -191,91 +189,90 @@ impl ViewerDock<'_> {
     }
 
     fn layout_canvas_control(&mut self, ui: &mut Ui) {
-        if let Some(instance) = self
-            .compositor
-            .instances
-            .write()
-            .get_mut(*self.selected_canvas)
-        {
+        if let Some(instance) = self.compositor.instances.read().get(self.selected_canvas) {
             Grid::new("Canvas Grid").show(ui, |ui| {
                 ui.label("Flip");
                 ui.horizontal(|ui| {
                     if ui.button("Horizontal").clicked() {
-                        instance.target.flip_vertices((false, true));
-                        *instance.force_recomposit.get_mut() |= true;
-                        *instance.new_texture.get_mut() = true;
+                        instance.target.lock().flip_vertices((false, true));
+                        instance.store_change_or(true);
+                        instance.store_new_texture_or(true);
                     }
                     if ui.button("Vertical").clicked() {
-                        instance.target.flip_vertices((true, false));
-                        *instance.force_recomposit.get_mut() |= true;
-                        *instance.new_texture.get_mut() = true;
+                        instance.target.lock().flip_vertices((true, false));
+                        instance.store_change_or(true);
+                        instance.store_new_texture_or(true);
                     }
                 });
                 ui.end_row();
                 ui.label("Rotate");
                 ui.horizontal(|ui| {
                     if ui.button("CCW").clicked() {
-                        instance.target.rotate_vertices(true);
-                        *instance.new_texture.get_mut() = instance
-                            .target
-                            .set_dimensions(instance.target.dim.height, instance.target.dim.width);
-                        *instance.force_recomposit.get_mut() |= true;
+                        let mut target = instance.target.lock();
+                        let dim = target.dim;
+                        target.rotate_vertices(true);
+                        instance.store_new_texture_or(target.set_dimensions(dim.height, dim.width));
+                        instance.store_change_or(true);
                     }
                     if ui.button("CW").clicked() {
-                        instance.target.rotate_vertices(false);
-                        *instance.new_texture.get_mut() = instance
-                            .target
-                            .set_dimensions(instance.target.dim.height, instance.target.dim.width);
-                        *instance.force_recomposit.get_mut() |= true;
+                        let mut target = instance.target.lock();
+                        let dim = target.dim;
+                        target.rotate_vertices(false);
+                        instance.store_new_texture_or(target.set_dimensions(dim.height, dim.width));
+                        instance.store_change_or(true);
                     }
                 });
                 ui.end_row();
+                let mut file = instance.file.write();
                 ui.label("Background");
-                *instance.force_recomposit.get_mut() |= ui
-                    .checkbox(&mut instance.file.background_hidden, "Hidden")
-                    .changed();
+                instance
+                    .store_change_or(ui.checkbox(&mut file.background_hidden, "Hidden").changed());
                 ui.end_row();
                 ui.label("Background Color");
 
-                let bg = (&mut instance.file.background_color[0..=2])
-                    .try_into()
-                    .unwrap();
-                *instance.force_recomposit.get_mut() |= ui.color_edit_button_rgb(bg).changed();
+                // Safety: This is trivially safe. The underlying container is of 4 elements.
+                // This does the same thing as split_array_mut except that is not stabilized yet.
+                let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
+                instance.store_change_or(ui.color_edit_button_rgb(bg).changed());
             });
         }
     }
 
-    fn layout_layer_control(ui: &mut Ui, i: usize, l: &mut SilicaLayer) {
+    fn layout_layer_control(ui: &mut Ui, i: usize, l: &mut SilicaLayer, changed: &mut bool) {
         Grid::new(i).show(ui, |ui| {
             ui.label("Hidden");
-            ui.checkbox(&mut l.hidden, "");
+            *changed |= ui.checkbox(&mut l.hidden, "").changed();
             ui.end_row();
             ui.label("Clipped");
-            ui.checkbox(&mut l.clipped, "");
+            *changed |= ui.checkbox(&mut l.clipped, "").changed();
             ui.end_row();
 
             ui.label("Blend");
-            ComboBox::from_id_source(0)
+            *changed |= ComboBox::from_id_source(0)
                 .selected_text(l.blend.to_str())
                 .show_ui(ui, |ui| {
                     for b in BlendingMode::all() {
                         ui.selectable_value(&mut l.blend, *b, b.to_str());
                     }
-                });
+                })
+                .response
+                .changed();
             ui.end_row();
 
             let mut percent = l.opacity * 100.0;
             ui.label("Opacity");
-            ui.add(
-                Slider::new(&mut percent, 0.0..=100.0)
-                    .fixed_decimals(0)
-                    .suffix("%"),
-            );
+            *changed |= ui
+                .add(
+                    Slider::new(&mut percent, 0.0..=100.0)
+                        .fixed_decimals(0)
+                        .suffix("%"),
+                )
+                .changed();
             l.opacity = percent / 100.0;
         });
     }
 
-    fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, i: &mut usize) {
+    fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, i: &mut usize, changed: &mut bool) {
         for layer in &mut layers.children {
             *i += 1;
             match layer {
@@ -288,7 +285,7 @@ impl ViewerDock<'_> {
                                 .to_owned()
                                 .unwrap_or_else(|| format!("Unnamed Layer [{i}]")),
                             |ui| {
-                                Self::layout_layer_control(ui, *i, l);
+                                Self::layout_layer_control(ui, *i, l, changed);
                             },
                         );
                     });
@@ -297,8 +294,8 @@ impl ViewerDock<'_> {
                     ui.push_id(*i, |ui| {
                         *i += 1;
                         ui.collapsing(h.name.to_string().as_str(), |ui| {
-                            ui.checkbox(&mut h.hidden, "Hidden");
-                            Self::layout_layers_sub(ui, h, i);
+                            *changed |= ui.checkbox(&mut h.hidden, "Hidden").changed();
+                            Self::layout_layers_sub(ui, h, i, changed);
                         })
                     });
                 }
@@ -307,15 +304,12 @@ impl ViewerDock<'_> {
     }
 
     fn layout_layers(&self, ui: &mut Ui) {
-        let mut i = 0;
-
-        if let Some(Instance { file, .. }) = self
-            .compositor
-            .instances
-            .write()
-            .get_mut(*self.selected_canvas)
-        {
-            Self::layout_layers_sub(ui, &mut file.layers, &mut i);
+        if let Some(instance) = self.compositor.instances.read().get(self.selected_canvas) {
+            let mut i = 0;
+            let mut changed = false;
+            Self::layout_layers_sub(ui, &mut instance.file.write().layers, &mut i, &mut changed);
+            // *instance.changed.get_mut() |= changed;
+            instance.store_change_or(changed);
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label("No file hierachy.");
@@ -332,60 +326,109 @@ pub struct ViewOptions {
     pub bottom_bar: bool,
 }
 
-pub struct EditorState {
+pub struct ViewerGui {
     pub dev: &'static LogicalDevice,
     pub rt: &'static tokio::runtime::Runtime,
 
     pub compositor: &'static CompositorHandle,
-    pub canvases: Vec<Option<TextureId>>,
+    pub canvases: HashMap<InstanceKey, (TextureId, BufferDimensions)>,
 
-    pub selected_canvas: usize,
+    pub selected_canvas: InstanceKey,
 
     pub view_options: ViewOptions,
 
-    pub queued_remove: Option<usize>,
+    pub queued_remove: Option<InstanceKey>,
 
-    pub tree: egui_dock::Tree<ViewerTab>,
+    pub canvas_tree: egui_dock::Tree<InstanceKey>,
+
+    pub viewer_tree: egui_dock::Tree<ViewerTab>,
     pub toasts: &'static Mutex<egui_notify::Toasts>,
 }
 
-impl EditorState {
-    pub fn remove_index(&mut self, index: usize) {
-        self.canvases.remove(index);
-        self.compositor.instances.write().remove(index);
+struct CanvasGui<'a> {
+    canvases: &'a mut HashMap<InstanceKey, (TextureId, BufferDimensions)>,
+    instances: &'a HashMap<InstanceKey, Instance>,
+    view_options: &'a ViewOptions,
+    queued_remove: &'a mut Option<InstanceKey>,
+}
+
+impl egui_dock::TabViewer for CanvasGui<'_> {
+    type Tab = InstanceKey;
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
+        let tex = self.canvases.get(tab);
+        canvas::CanvasView::new(
+            *tab,
+            tex.map(|(tex, size)| Image::new(*tex, (size.width as f32, size.height as f32))),
+        )
+        .with_rotation(self.view_options.rotation)
+        .show_extended_crosshair(self.view_options.extended_crosshair)
+        .show_grid(self.view_options.grid)
+        .show_bottom_bar(self.view_options.bottom_bar)
+        .show(ui);
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+        *self.queued_remove = Some(*tab);
+        true
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+        self.instances
+            .get(tab)
+            .and_then(|tab| tab.file.read().name.to_owned())
+            .unwrap_or("Untitled Artwork".to_string())
+            .into()
+    }
+}
+
+impl ViewerGui {
+    pub fn remove_index(&mut self, index: InstanceKey) {
+        self.canvases.remove(&index);
+        self.compositor.instances.write().remove(&index);
     }
 
     fn layout_view(&mut self, ui: &mut Ui) {
-        Frame::none()
-            .fill(ui.visuals().window_fill())
-            .stroke(ui.visuals().window_stroke())
-            .inner_margin(style::Margin::same(1.0))
-            .outer_margin(style::Margin::same(0.0))
-            .show(ui, |ui| {
-                ui.set_min_size(ui.available_size());
+        ui.set_min_size(ui.available_size());
 
-                if let Some(instance) = self.compositor.instances.read().get(self.selected_canvas) {
-                    if let Some(&Some(tex)) = self.canvases.get(self.selected_canvas) {
-                        let size = instance.target.dim;
-                        canvas::CanvasView::new(
-                            &instance.file.name,
-                            Some(Image::new(tex, (size.width as f32, size.height as f32))),
-                        )
-                        .with_rotation(self.view_options.rotation)
-                        .show_extended_crosshair(self.view_options.extended_crosshair)
-                        .show_grid(self.view_options.grid)
-                        .show_bottom_bar(self.view_options.bottom_bar)
-                        .show(ui);
-                    }
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        if ui.button("Load a Procreate file to begin viewing it.").clicked() {
-                            self.rt
-                                .spawn(load_dialog(self.dev, self.compositor, self.toasts));
-                        }
-                    });
+        let mut instances = self.compositor.instances.read();
+
+        if instances.is_empty() {
+            ui.centered_and_justified(|ui| {
+                if ui
+                    .button("Load a Procreate file to begin viewing it.")
+                    .clicked()
+                {
+                    self.rt
+                        .spawn(load_dialog(self.dev, self.compositor, self.toasts));
                 }
             });
+        } else {
+            for id in self
+                .canvases
+                .keys()
+                .filter(|i| self.canvas_tree.find_tab(i).is_none())
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                self.canvas_tree.push_to_first_leaf(id);
+            }
+            if let Some((_, id)) = self.canvas_tree.find_active_focused() {
+                self.selected_canvas = *id;
+            }
+            egui_dock::DockArea::new(&mut self.canvas_tree)
+                .id(Id::new("view.dock"))
+                .style(egui_dock::Style::from_egui(ui.style().as_ref()))
+                .show_inside(
+                    ui,
+                    &mut CanvasGui {
+                        view_options: &self.view_options,
+                        canvases: &mut self.canvases,
+                        instances: &mut instances,
+                        queued_remove: &mut self.queued_remove,
+                    },
+                );
+        }
     }
 
     pub fn layout_gui(&mut self, context: &Context) {
@@ -393,20 +436,20 @@ impl EditorState {
             .default_width(300.0)
             .frame(Frame::none())
             .show(context, |ui| {
-                egui_dock::DockArea::new(&mut self.tree)
-                    .style(egui_dock::Style {
-                        show_close_buttons: false,
-                        ..egui_dock::Style::from_egui(ui.style().as_ref())
-                    })
+                egui_dock::DockArea::new(&mut self.viewer_tree)
+                    .style(
+                        egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
+                            .show_close_buttons(false)
+                            .build(),
+                    )
                     .show_inside(
                         ui,
-                        &mut ViewerDock {
+                        &mut ControlsGui {
                             dev: &mut self.dev,
-                            selected_canvas: &mut self.selected_canvas,
+                            selected_canvas: &self.selected_canvas,
                             view_options: &mut &mut self.view_options,
                             compositor: &self.compositor,
                             rt: self.rt,
-                            queued_remove: &mut self.queued_remove,
                             toasts: self.toasts,
                         },
                     );
@@ -429,7 +472,7 @@ pub enum ViewerTab {
     Hierarchy,
 }
 
-impl egui_dock::TabViewer for ViewerDock<'_> {
+impl egui_dock::TabViewer for ControlsGui<'_> {
     type Tab = ViewerTab;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {

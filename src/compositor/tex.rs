@@ -130,7 +130,7 @@ impl GpuTexture {
         c
     }
 
-    pub fn export(&self, dev: &LogicalDevice, dim: BufferDimensions, path: &std::path::Path) {
+    pub async fn export(&self, dev: &LogicalDevice, dim: BufferDimensions, path: std::path::PathBuf) -> bool {
         let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row * dim.height) as u64,
@@ -164,10 +164,10 @@ impl GpuTexture {
 
         // NOTE: We have to create the mapping THEN device.poll() before await
         // the future. Otherwise the application will freeze.
-        let (tx, rx) = futures::channel::oneshot::channel();
+        let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
         dev.device.poll(wgpu::Maintain::Wait);
-        futures::executor::block_on(rx).unwrap().unwrap();
+        rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();
         drop(buffer_slice);
@@ -183,10 +183,6 @@ impl GpuTexture {
 
         let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
 
-        eprintln!("Writing image");
-
-        buffer.save(path).unwrap();
-
-        eprintln!("Finished");
+        tokio::task::spawn_blocking(move || buffer.save(path).unwrap()).await.is_ok()
     }
 }

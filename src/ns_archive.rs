@@ -173,7 +173,7 @@ impl<'a> NsDecode<'a> for &'a Dictionary {
 
 impl<'a> NsDecode<'a> for &'a Value {
     fn decode(_: &NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
-        Ok(val) //.ok_or(NsArchiveError::MissingKey)
+        Ok(val)
     }
 }
 

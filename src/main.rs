@@ -4,7 +4,6 @@ mod gui;
 mod ns_archive;
 mod silica;
 
-use compositor::dev::LogicalDevice;
 use std::error::Error;
 use winit::{dpi::PhysicalSize, event_loop::EventLoopBuilder, window::WindowBuilder};
 
@@ -23,11 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_title("Procreate Viewer")
         .with_inner_size(INITIAL_SIZE)
         // .with_window_icon(taskbar_icon)
-        .build(&event_loop)
-        .unwrap();
+        .build(&event_loop)?;
 
-    let (dev, surface) = futures::executor::block_on(LogicalDevice::with_window(&window)).unwrap();
-
-    gui::start_gui(dev, surface, window, event_loop);
-    Ok(())
+    gui::start_gui(window, event_loop)
 }

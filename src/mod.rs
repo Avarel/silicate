@@ -340,8 +340,7 @@ impl ProcreateFile {
                                 .map_err(|_| NsArchiveError::TypeMismatch)
                         })
                         .collect::<Result<Vec<f32>, _>>()?,
-                )
-                .unwrap(),
+                )?,
                 name: nka.decode::<Option<String>>(root, "name")?,
                 orientation: nka.decode::<u32>(root, "orientation")?,
                 flipped: Flipped {
