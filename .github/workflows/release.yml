@@ -1,5 +1,5 @@
 
-name: Release
+name: Build Releases
 on:
   push:
     branches:
@@ -10,23 +10,18 @@ env:
 
 jobs:
   dist:
-    name: Dist
+    name: Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
-        build: [x86_64-linux, x86_64-macos, x86_64-windows] #, x86_64-win-gnu, win32-msvc, aarch64-linux
+        build: [x86_64-linux, x86_64-macos, x86_64-windows]
         include:
         - build: x86_64-linux
           os: ubuntu-latest
           rust: stable
           target: x86_64-unknown-linux-gnu
           cross: false
-        # - build: aarch64-linux
-        #   os: ubuntu-20.04
-        #   rust: stable
-        #   target: aarch64-unknown-linux-gnu
-        #   cross: true
         - build: x86_64-macos
           os: macos-latest
           rust: stable
@@ -41,6 +36,11 @@ jobs:
         #   os: macos-latest
         #   rust: stable
         #   target: aarch64-apple-darwin
+        # - build: aarch64-linux
+        #   os: ubuntu-20.04
+        #   rust: stable
+        #   target: aarch64-unknown-linux-gnu
+        #   cross: true
         # - build: x86_64-win-gnu
         #   os: windows-2019
         #   rust: stable-x86_64-gnu
