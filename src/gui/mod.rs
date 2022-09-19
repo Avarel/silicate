@@ -206,6 +206,10 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
         height: window_size.height,
         present_mode: wgpu::PresentMode::Fifo,
     };
+    let mut screen_descriptor = ScreenDescriptor {
+        size_in_pixels: [surface_config.width, surface_config.height],
+        pixels_per_point: window.scale_factor() as f32,
+    };
     surface.configure(&dev.device, &surface_config);
 
     let mut state = egui_winit::State::new(&event_loop);
@@ -264,6 +268,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                         if size.width > 0 && size.height > 0 {
                             surface_config.width = size.width;
                             surface_config.height = size.height;
+                            screen_descriptor.size_in_pixels = [size.width, size.height];
                             surface.configure(&dev.device, &surface_config);
                         }
                     }
@@ -311,19 +316,15 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
 
                 state.handle_platform_output(&window, &context, output.platform_output);
 
+                // Draw the GUI onto the output texture.
                 let paint_jobs = context.tessellate(output.shapes);
 
                 // Upload all resources for the GPU.
-                let screen_descriptor = ScreenDescriptor {
-                    size_in_pixels: [surface_config.width, surface_config.height],
-                    pixels_per_point: window.scale_factor() as f32,
-                };
-
-                for (id, image_delta) in &output.textures_delta.set {
-                    egui_rpass.update_texture(&dev.device, &dev.queue, *id, image_delta);
+                for (id, image_delta) in output.textures_delta.set {
+                    egui_rpass.update_texture(&dev.device, &dev.queue, id, &image_delta);
                 }
-                for id in &output.textures_delta.free {
-                    egui_rpass.free_texture(id);
+                for id in output.textures_delta.free {
+                    egui_rpass.free_texture(&id);
                 }
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
@@ -344,14 +345,15 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 }));
                 output_frame.present();
 
+                // After the GUI is drawn, we can modify 
                 if let Some(index) = editor.queued_remove.take() {
                     editor.remove_index(index);
                 }
 
-                // Updates textures bound for egui rendering
+                // Updates textures bound for EGUI rendering
                 // Do not block on any locks/rwlocks since we do not want to block
                 // the GUI thread when the renderer is potentially taking a long
-                // time to render a frame
+                // time to render a frame.
                 if let Some(instances) = compositor.instances.try_read() {
                     for (idx, instance) in instances.iter() {
                         if instance.new_texture.load(Acquire) {

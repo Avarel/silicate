@@ -236,6 +236,7 @@ pub struct SilicaGroup {
 }
 
 impl SilicaGroup {
+    #[allow(dead_code)]
     pub const fn empty() -> Self {
         Self {
             hidden: true,

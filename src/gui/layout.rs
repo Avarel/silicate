@@ -65,9 +65,9 @@ async fn load_dialog(
         .await
     {
         if super::load_file(handle.path().to_path_buf(), dev, compositor).await {
-            toasts.lock().success("Load succeeded.");
+            toasts.lock().success(format!("File {} successfully opened.", handle.file_name()));
         } else {
-            toasts.lock().error("Load failed.");
+            toasts.lock().error(format!("File {} failed to load.", handle.file_name()));
         }
     } else {
         toasts.lock().info("Load cancelled.");
@@ -91,10 +91,13 @@ async fn save_dialog(
     {
         let dim = BufferDimensions::from_extent(copied_texture.size);
         let path = handle.path().to_path_buf();
-        copied_texture.export(dev, dim, path).await;
-        toasts.lock().success("Export succeeded.");
+        if copied_texture.export(dev, dim, path).await {
+            toasts.lock().success(format!("File {} successfully exported.", handle.file_name()));
+        } else {
+            toasts.lock().error(format!("File {} failed to export.", handle.file_name()));
+        }
     } else {
-        toasts.lock().info("Load cancelled.");
+        toasts.lock().info("Export cancelled.");
     }
 }
 
@@ -222,18 +225,6 @@ impl ControlsGui<'_> {
                         instance.store_change_or(true);
                     }
                 });
-                ui.end_row();
-                let mut file = instance.file.write();
-                ui.label("Background");
-                instance
-                    .store_change_or(ui.checkbox(&mut file.background_hidden, "Hidden").changed());
-                ui.end_row();
-                ui.label("Background Color");
-
-                // Safety: This is trivially safe. The underlying container is of 4 elements.
-                // This does the same thing as split_array_mut except that is not stabilized yet.
-                let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
-                instance.store_change_or(ui.color_edit_button_rgb(bg).changed());
             });
         }
     }
@@ -307,8 +298,22 @@ impl ControlsGui<'_> {
         if let Some(instance) = self.compositor.instances.read().get(self.selected_canvas) {
             let mut i = 0;
             let mut changed = false;
-            Self::layout_layers_sub(ui, &mut instance.file.write().layers, &mut i, &mut changed);
-            // *instance.changed.get_mut() |= changed;
+            let mut file = instance.file.write();
+            Self::layout_layers_sub(ui, &mut file.layers, &mut i, &mut changed);
+
+            ui.separator();
+            Grid::new("layers.background").show(ui, |ui| {
+                ui.label("Background");
+                changed |= ui.checkbox(&mut file.background_hidden, "Hidden").changed();
+                ui.end_row();
+                ui.label("Background Color");
+
+                // Safety: This is trivially safe. The underlying container is of 4 elements.
+                // This does the same thing as split_array_mut except that is not stabilized yet.
+                let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
+                changed |= ui.color_edit_button_rgb(bg).changed();
+            });
+
             instance.store_change_or(changed);
         } else {
             ui.centered_and_justified(|ui| {
