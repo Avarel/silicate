@@ -44,11 +44,6 @@ impl SilicaIRLayer<'_> {
         let nka = self.nka;
         let coder = self.coder;
         let uuid = nka.decode::<String>(coder, "UUID")?;
-        // Older procreate files do not have this... go figure
-        // let size = Size {
-        //     width: nka.decode::<u32>(coder, "sizeWidth")?,
-        //     height: nka.decode::<u32>(coder, "sizeHeight")?,
-        // };
 
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
@@ -57,7 +52,7 @@ impl SilicaIRLayer<'_> {
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
         let gpu_texture =
-            GpuTexture::empty(&dev, size.width, size.height, None, GpuTexture::LAYER_USAGE);
+            GpuTexture::empty(&dev, size.width, size.height, GpuTexture::LAYER_USAGE);
 
         file_names
             .par_iter()

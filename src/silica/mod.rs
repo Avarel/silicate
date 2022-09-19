@@ -236,7 +236,7 @@ pub struct SilicaGroup {
 }
 
 impl SilicaGroup {
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             hidden: true,
             children: Vec::new(),

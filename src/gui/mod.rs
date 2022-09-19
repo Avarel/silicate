@@ -1,12 +1,16 @@
+mod canvas;
 mod layout;
 
-use self::layout::{CompositorState, EditorState, ViewerState};
-use crate::compositor::{dev::LogicalDevice, tex::GpuTexture, CompositeLayer};
-use crate::silica::{ProcreateFile, SilicaGroup};
-use crate::{compositor::Compositor, silica::SilicaHierarchy};
+use self::layout::{CompositorHandle, EditorState, Instance, ViewOptions};
+use crate::{
+    compositor::{dev::LogicalDevice, CompositeLayer, CompositorPipeline, CompositorTarget},
+    gui::layout::ViewerTab,
+    silica::{ProcreateFile, SilicaGroup, SilicaHierarchy},
+};
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
-use parking_lot::RwLock;
-use std::sync::{atomic::AtomicBool, Arc};
+use parking_lot::{Mutex, RwLock};
+use std::sync::atomic::AtomicBool;
+use std::{path::PathBuf, time::Duration};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 
@@ -56,14 +60,14 @@ impl FrameLimiter {
         }
     }
 
-    pub fn wait(&mut self) {
+    pub async fn wait(&mut self) {
         let now = std::time::Instant::now();
         if let Some(diff) = self.next_time.checked_duration_since(now) {
             // We have woken up before the minimum time that we needed to wait
             // before drawing another frame.
             // now ------------- next_frame
             //        diff
-            std::thread::sleep(diff);
+            tokio::time::sleep(diff).await
         } else {
             // We have waken up after the minimum time that we needed to wait to
             // begin drawing another frame.
@@ -91,42 +95,81 @@ impl FrameLimiter {
     }
 }
 
-fn rendering_thread(cs: Arc<CompositorState>) {
+async fn rendering_thread(cs: &CompositorHandle) {
     let mut limiter = FrameLimiter::new(60);
-    let mut old_layer_config = SilicaGroup::empty();
-    while cs.is_active() {
+    let mut old_layer_config = Vec::new();
+    loop {
         // Ensures that we are not generating frames faster than 60FPS
         // to avoid putting unnecessary computational pressure on the GPU.
-        limiter.wait();
+        limiter.wait().await;
 
-        if cs.compositor.read().dim.is_empty() || cs.file.read().is_none() {
-            continue;
+        let mut instances = cs.instances.write();
+
+        if old_layer_config.len() <= instances.len() {
+            old_layer_config.resize(instances.len(), SilicaGroup::empty());
         }
 
-        // Only force a recompute if we need to.
-        let new_layer_config = cs.file.read().as_ref().unwrap().layers.clone();
-        if cs.get_recomposit() || old_layer_config != new_layer_config {
-            let mut resolved_layers = Vec::new();
-            let gpu_textures = cs.gpu_textures.read();
-            let mut mask_layer = None;
-            linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
+        for (idx, instance) in instances.iter_mut().enumerate() {
+            let new_layer_config = instance.file.layers.clone();
+            // Only force a recompute if we need to.
 
-            let background = {
-                let file = cs.file.read();
-                let file = file.as_ref().unwrap();
-                (!file.background_hidden).then_some(file.background_color)
-            };
+            if *instance.force_recomposit.get_mut() || old_layer_config[idx] != new_layer_config {
+                let mut resolved_layers = Vec::new();
+                // let gpu_textures = cs.gpu_textures.read();
+                let mut mask_layer = None;
+                linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
 
-            // *cs.tex.write() =
-            cs.compositor.write().render(
-                background,
-                &resolved_layers,
-                &gpu_textures.as_ref().unwrap(),
-            );
-            old_layer_config = new_layer_config;
-            cs.set_recomposit(false);
+                let background = {
+                    let file = &instance.file;
+                    (!file.background_hidden).then_some(file.background_color)
+                };
+
+                instance.target.render(
+                    &cs.pipeline,
+                    background,
+                    &resolved_layers,
+                    &instance.textures,
+                );
+                old_layer_config[idx] = new_layer_config;
+                *instance.force_recomposit.get_mut() = false;
+            }
         }
     }
+}
+
+pub async fn load_file(
+    path: PathBuf,
+    dev: &'static LogicalDevice,
+    compositor: &CompositorHandle,
+) -> bool {
+    if let Ok(Ok((file, textures))) =
+        tokio::task::spawn_blocking(|| ProcreateFile::open(path, dev)).await
+    {
+        let mut target = CompositorTarget::new(dev);
+        target.flip_vertices((file.flipped.horizontally, file.flipped.vertically));
+        target.set_dimensions(file.size.width, file.size.height);
+
+        for _ in 0..file.orientation {
+            target.rotate_vertices(true);
+            target.set_dimensions(target.dim.height, target.dim.width);
+        }
+
+        compositor.instances.write().push(Instance {
+            file,
+            target,
+            textures,
+            new_texture: AtomicBool::new(true),
+            force_recomposit: AtomicBool::new(true),
+        });
+
+        true
+    } else {
+        false
+    }
+}
+
+fn leak<T>(value: T) -> &'static T {
+    &*Box::leak(Box::new(value))
 }
 
 pub fn start_gui(
@@ -135,84 +178,78 @@ pub fn start_gui(
     window: winit::window::Window,
     event_loop: winit::event_loop::EventLoop<()>,
 ) {
-    let dev = &*Box::leak(Box::new(dev));
+    // LEAK: obtain static reference because this will live for the rest of
+    // the lifetime of the program.
+    let dev = leak(dev);
+    let compositor = leak(CompositorHandle {
+        instances: RwLock::new(Vec::new()),
+        pipeline: CompositorPipeline::new(dev),
+    });
+    let rt = leak(
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap(),
+    );
+    let toasts = leak(Mutex::new(egui_notify::Toasts::default()));
 
     let window_size = window.inner_size();
-
     let surface_format = surface.get_supported_formats(&dev.adapter)[0];
-
-    let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
-
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: swap_chain_format,
+        format: surface_format,
         width: window_size.width,
         height: window_size.height,
         present_mode: wgpu::PresentMode::Fifo,
     };
-
     surface.configure(&dev.device, &surface_config);
 
     let mut state = egui_winit::State::new(&event_loop);
     state.set_pixels_per_point(window.scale_factor() as f32);
+
     let context = egui::Context::default();
     context.set_pixels_per_point(window.scale_factor() as f32);
 
-    let cs = Arc::new(CompositorState {
-        file: RwLock::new(None),
-        gpu_textures: RwLock::new(None),
-        compositor: RwLock::new(Compositor::new(dev)),
-        tex: RwLock::new(GpuTexture::empty_with_extent(
-            &dev,
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            None,
-            GpuTexture::OUTPUT_USAGE,
-        )),
-        active: AtomicBool::new(true),
-        force_recomposit: AtomicBool::new(false),
-        changed: AtomicBool::new(false),
-    });
-
     let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
 
-    let egui_tex = egui_rpass.register_native_texture(
-        &dev.device,
-        &cs.tex.read().make_view(),
-        wgpu::FilterMode::Linear,
-    );
-
-    let mut es = EditorState {
-        viewer: ViewerState {
-            dev,
-            egui_tex,
+    let mut editor = EditorState {
+        dev,
+        rt,
+        canvases: Vec::new(),
+        view_options: ViewOptions {
             smooth: false,
-            show_grid: true,
-            cs: Arc::clone(&cs),
+            grid: true,
+            extended_crosshair: false,
+            rotation: 0.0,
+            bottom_bar: false,
         },
+        selected_canvas: 0,
+        compositor: &compositor,
         tree: {
             use egui_dock::{NodeIndex, Tree};
-            let mut tree = Tree::new(vec!["Viewer"]);
-            let [_, b] = tree.split_right(NodeIndex::root(), 0.65, vec!["Information", "View Controls"]);
-            let [_, _] = tree.split_below(b, 0.4, vec!["Hierarchy"]);
+            let mut tree = Tree::new(vec![
+                ViewerTab::Information,
+                ViewerTab::ViewControls,
+                ViewerTab::CanvasControls,
+            ]);
+            tree.split_below(
+                NodeIndex::root(),
+                0.4,
+                vec![ViewerTab::Files, ViewerTab::Hierarchy],
+            );
             tree
         },
+        queued_remove: None,
+        toasts,
     };
 
-    std::thread::spawn({
-        let cs = Arc::clone(&cs);
-        move || rendering_thread(cs)
-    });
+    rt.spawn(rendering_thread(compositor));
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CloseRequested => {
-                        es.viewer.cs.deactivate();
                         *control_flow = ControlFlow::Exit;
                     }
                     WindowEvent::Resized(size) => {
@@ -225,23 +262,10 @@ pub fn start_gui(
                             surface.configure(&dev.device, &surface_config);
                         }
                     }
-                    WindowEvent::DroppedFile(file) => {
-                        println!("File dropped: {:?}", file.as_path().display().to_string());
-
-                        let cs = Arc::clone(&cs);
-                        std::thread::spawn(move || {
-                            let (pf, pt) = ProcreateFile::open(file, &dev).unwrap();
-                            let mut file = cs.file.write();
-                            let mut textures = cs.gpu_textures.write();
-                            let mut compositor = cs.compositor.write();
-                            compositor
-                                .flip_vertices((pf.flipped.horizontally, pf.flipped.vertically));
-                            compositor.set_dimensions(pf.size.width, pf.size.height);
-                            cs.set_changed(true);
-                            *file = Some(pf);
-                            *textures = Some(pt);
-                        });
-                    }
+                    // WindowEvent::DroppedFile(file) => {
+                    //     println!("File dropped: {:?}", file.as_path().display().to_string());
+                    //     rt.spawn(load_file(file, &dev, compositor));
+                    // }
                     _ => {
                         state.on_event(&context, &event);
                     }
@@ -270,8 +294,11 @@ pub fn start_gui(
                 let input = state.take_egui_input(&window);
 
                 context.begin_frame(input);
-                es.layout_gui(&context);
+                editor.layout_gui(&context);
+                editor.toasts.lock().show(&context);
                 let output = context.end_frame();
+
+                state.handle_platform_output(&window, &context, output.platform_output);
 
                 let paint_jobs = context.tessellate(output.shapes);
 
@@ -289,7 +316,7 @@ pub fn start_gui(
                 }
                 egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
 
-                {
+                dev.queue.submit(Some({
                     let mut encoder = dev
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -301,26 +328,44 @@ pub fn start_gui(
                         &screen_descriptor,
                         Some(wgpu::Color::BLACK),
                     );
-                    dev.queue.submit(Some(encoder.finish()));
-                }
+
+                    encoder.finish()
+                }));
                 output_frame.present();
 
-                if es.viewer.cs.get_changed() {
-                    egui_rpass.free_texture(&es.viewer.egui_tex);
-                    es.viewer.egui_tex = egui_rpass.register_native_texture(
-                        &dev.device,
-                        &cs.compositor
-                            .read()
-                            .output_texture
-                            .as_ref()
-                            .unwrap()
-                            .make_view(),
-                        if es.viewer.smooth {
-                            wgpu::FilterMode::Linear
-                        } else {
-                            wgpu::FilterMode::Nearest
-                        },
-                    );
+                if let Some(index) = editor.queued_remove.take() {
+                    if editor.selected_canvas >= index {
+                        editor.selected_canvas = editor.selected_canvas.saturating_sub(1);
+                    }
+                    editor.remove_index(index);
+                }
+
+                if let Some(instances) = compositor.instances.try_read() {
+                    if editor.canvases.len() <= instances.len() {
+                        editor.canvases.resize(instances.len(), None);
+                    }
+                    for (idx, instance) in instances.iter().enumerate() {
+                        if instance
+                            .new_texture
+                            .load(std::sync::atomic::Ordering::SeqCst)
+                        {
+                            if let Some(tex) = editor.canvases[idx] {
+                                egui_rpass.free_texture(&tex);
+                            }
+                            editor.canvases[idx] = Some(egui_rpass.register_native_texture(
+                                &dev.device,
+                                &instance.target.output_texture.as_ref().unwrap().make_view(),
+                                if editor.view_options.smooth {
+                                    wgpu::FilterMode::Linear
+                                } else {
+                                    wgpu::FilterMode::Nearest
+                                },
+                            ));
+                            instance
+                                .new_texture
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
                 }
             }
             _ => (),

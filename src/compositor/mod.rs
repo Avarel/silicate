@@ -22,13 +22,13 @@ pub struct BufferDimensions {
 }
 
 impl BufferDimensions {
-    fn new(width: u32, height: u32) -> Self {
+    pub const fn new(width: u32, height: u32) -> Self {
         // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
         // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
         // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
         // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
         let bytes_per_pixel =
-            (usize::from(Rgba::<u8>::CHANNEL_COUNT) * std::mem::size_of::<u8>()) as u32;
+            (Rgba::<u8>::CHANNEL_COUNT as usize * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
@@ -44,6 +44,10 @@ impl BufferDimensions {
                 depth_or_array_layers: 1,
             },
         }
+    }
+
+    pub fn from_extent(extent: wgpu::Extent3d) -> Self {
+        Self::new(extent.width, extent.height)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -118,20 +122,56 @@ pub struct CompositeLayer {
     pub blend: BlendingMode,
 }
 
-pub struct Compositor<'device> {
-    pub dev: &'device LogicalDevice,
-    pub dim: BufferDimensions,
-    vertices: [Vertex; 4],
+pub struct CompositorPipeline {
     constant_bind_group: wgpu::BindGroup,
     blending_bind_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
+}
+
+pub struct CompositorTarget<'dev> {
+    pub dev: &'dev LogicalDevice,
+    pub dim: BufferDimensions,
+    vertices: [Vertex; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     pub output_texture: Option<GpuTexture>,
-    stages: Vec<CompositorStage<'device>>,
+    stages: Vec<CompositorStage<'dev>>,
 }
 
-impl<'device> Compositor<'device> {
+impl<'dev> CompositorTarget<'dev> {
+    pub fn new(dev: &'dev LogicalDevice) -> Self {
+        let device = &dev.device;
+
+        // Create the vertex buffer.
+        let vertices = SQUARE_VERTICES;
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex_buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        // Index draw buffer
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("index_buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        Self {
+            dev,
+            dim: BufferDimensions::new(0, 0),
+            vertices,
+            vertex_buffer,
+            index_buffer,
+            output_texture: None,
+            stages: Vec::new(),
+        }
+    }
+
+    pub fn base_composite_texture(&self) -> GpuTexture {
+        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
+    }
+
     pub fn flip_vertices(&mut self, flip_hv: (bool, bool)) {
         for v in &mut self.vertices {
             v.fg_coords = [
@@ -166,25 +206,26 @@ impl<'device> Compositor<'device> {
         self.reload_vertices_buffer();
     }
 
-    pub fn set_dimensions(&mut self, width: u32, height: u32) {
+    pub fn set_dimensions(&mut self, width: u32, height: u32) -> bool {
         let buffer_dimensions = BufferDimensions::new(width, height);
         if self.dim == buffer_dimensions {
-            return;
+            return false;
         }
         self.dim = buffer_dimensions;
         self.output_texture = Some({
             let tex = GpuTexture::empty_with_extent(
                 &self.dev,
                 self.dim.extent,
-                None,
                 wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
             );
             tex.clear(self.dev, wgpu::Color::WHITE);
             tex
         });
-        self.stages.clear()
+        self.stages.clear();
+        true
     }
 
     pub fn reload_vertices_buffer(&mut self) {
@@ -198,23 +239,168 @@ impl<'device> Compositor<'device> {
                 });
     }
 
-    pub fn new(dev: &'device LogicalDevice) -> Self {
-        let LogicalDevice { ref device, .. } = dev;
+    pub fn render(
+        &mut self,
+        compositor: &CompositorPipeline,
+        background: Option<[f32; 4]>,
+        layers: &[CompositeLayer],
+        textures: &[GpuTexture],
+    ) {
+        assert!(!self.dim.is_empty(), "set_dimensions required");
 
-        // Create the vertex buffer.
-        let vertices = SQUARE_VERTICES;
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex_buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+        self.dev.queue.submit(Some({
+            let mut encoder = self
+                .dev
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            // Breaks down the layers and renders in stages.
+            let mut stage_idx = 0;
+            let mut count = 0;
+            while count < layers.len() {
+                if self.stages.len() <= stage_idx {
+                    debug_assert_eq!(stage_idx, self.stages.len());
+                    self.stages.push(CompositorStage::new(self));
+                }
+                count += self.render_stage(
+                    compositor,
+                    &mut encoder,
+                    background,
+                    stage_idx,
+                    &layers[count..],
+                    textures,
+                ) as usize;
+                stage_idx += 1;
+            }
+
+            self.stages.truncate(stage_idx);
+
+            encoder.copy_texture_to_texture(
+                self.stages[stage_idx - 1].output.texture.as_image_copy(),
+                self.output_texture
+                    .as_ref()
+                    .unwrap()
+                    .texture
+                    .as_image_copy(),
+                self.stages[stage_idx - 1].output.size,
+            );
+
+            encoder.finish()
+        }));
+    }
+
+    fn render_stage(
+        &mut self,
+        compositor: &CompositorPipeline,
+        encoder: &mut CommandEncoder,
+        background: Option<[f32; 4]>,
+        stage_idx: usize,
+        composite_layers: &[CompositeLayer],
+        textures: &[GpuTexture],
+    ) -> u32 {
+        let composite_view = if stage_idx > 0 {
+            self.stages[stage_idx - 1].output.make_view()
+        } else {
+            self.base_composite_texture().make_view()
+        };
+
+        let stage = &mut self.stages[stage_idx];
+
+        let texture_views = stage
+            .bindings
+            .map_composite_layers(composite_layers, textures);
+        stage.buffers.load(&stage.bindings);
+
+        let blending_bind_group = self
+            .dev
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &compositor.blending_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&composite_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureViewArray(
+                            texture_views.iter().collect::<Vec<_>>().as_slice(),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: stage.buffers.layers.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: stage.buffers.masks.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: stage.buffers.blends.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: stage.buffers.opacities.as_entire_binding(),
+                    },
+                ],
+                label: Some("mixing_bind_group"),
+            });
+
+        let output_view = stage.output.make_view();
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(
+                            background
+                                .map(|[r, g, b, _]| wgpu::Color {
+                                    r: f64::from(r),
+                                    g: f64::from(g),
+                                    b: f64::from(b),
+                                    a: 1.0,
+                                })
+                                .unwrap_or(wgpu::Color::TRANSPARENT),
+                        ),
+                        store: true,
+                    },
+                }),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }),
+            ],
+            depth_stencil_attachment: None,
         });
 
-        // Index draw buffer
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("index_buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        render_pass.set_pipeline(&compositor.render_pipeline);
+        render_pass.set_push_constants(
+            wgpu::ShaderStages::FRAGMENT,
+            0,
+            &stage.bindings.count.to_ne_bytes(),
+        );
+        render_pass.set_bind_group(0, &compositor.constant_bind_group, &[]);
+        render_pass.set_bind_group(1, &blending_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+
+        drop(render_pass);
+
+        stage.bindings.count
+    }
+}
+
+impl CompositorPipeline {
+    pub fn new(dev: &LogicalDevice) -> Self {
+        let device = &dev.device;
 
         // This bind group only binds the sampler, which is a constant
         // through out all rendering passes.
@@ -305,7 +491,7 @@ impl<'device> Compositor<'device> {
                     bind_group_layouts: &[&constant_bind_group_layout, &blending_bind_group_layout],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStages::FRAGMENT,
-                        range: 0..4
+                        range: 0..4,
                     }],
                 });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -350,172 +536,10 @@ impl<'device> Compositor<'device> {
         };
 
         Self {
-            dev,
-            dim: BufferDimensions::new(0, 0),
             constant_bind_group,
             blending_bind_group_layout,
             render_pipeline,
-            vertices,
-            vertex_buffer,
-            index_buffer,
-            output_texture: None,
-            stages: Vec::new(),
         }
-    }
-
-    pub fn base_composite_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, None, GpuTexture::OUTPUT_USAGE)
-    }
-
-    pub fn render(
-        &mut self,
-        background: Option<[f32; 4]>,
-        layers: &[CompositeLayer],
-        textures: &[GpuTexture],
-    ) {
-        assert!(!self.dim.is_empty(), "set_dimensions required");
-
-        self.dev.queue.submit(Some({
-            let mut encoder = self
-                .dev
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-            // Breaks down the layers and renders in stages.
-            let mut stage_idx = 0;
-            let mut count = 0;
-            while count < layers.len() {
-                if self.stages.len() <= stage_idx {
-                    debug_assert_eq!(stage_idx, self.stages.len());
-                    self.stages.push(CompositorStage::new(self));
-                }
-                count += self.render_stage(
-                    &mut encoder,
-                    background,
-                    stage_idx,
-                    &layers[count..],
-                    textures,
-                ) as usize;
-                stage_idx += 1;
-            }
-
-            self.stages.truncate(stage_idx);
-
-            encoder.copy_texture_to_texture(
-                self.stages[stage_idx - 1].output.texture.as_image_copy(),
-                self.output_texture
-                    .as_ref()
-                    .unwrap()
-                    .texture
-                    .as_image_copy(),
-                self.stages[stage_idx - 1].output.size,
-            );
-
-            encoder.finish()
-        }));
-    }
-
-    fn render_stage(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        background: Option<[f32; 4]>,
-        stage_idx: usize,
-        composite_layers: &[CompositeLayer],
-        textures: &[GpuTexture],
-    ) -> u32 {
-        let composite_view = if stage_idx > 0 {
-            self.stages[stage_idx - 1].output.make_view()
-        } else {
-            self.base_composite_texture().make_view()
-        };
-
-        let stage = &mut self.stages[stage_idx];
-
-        let texture_views = stage
-            .bindings
-            .map_composite_layers(composite_layers, textures);
-        stage.buffers.load(&stage.bindings);
-
-        let blending_bind_group = self
-            .dev
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.blending_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&composite_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureViewArray(
-                            texture_views.iter().collect::<Vec<_>>().as_slice(),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: stage.buffers.layers.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: stage.buffers.masks.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: stage.buffers.blends.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: stage.buffers.opacities.as_entire_binding(),
-                    },
-                ],
-                label: Some("mixing_bind_group"),
-            });
-
-        let output_view = stage.output.make_view();
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(
-                            background
-                                .map(|[r, g, b, _]| wgpu::Color {
-                                    r: f64::from(r),
-                                    g: f64::from(g),
-                                    b: f64::from(b),
-                                    a: 1.0,
-                                })
-                                .unwrap_or(wgpu::Color::TRANSPARENT),
-                        ),
-                        store: true,
-                    },
-                }),
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                }),
-            ],
-            depth_stencil_attachment: None,
-        });
-
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, &stage.bindings.count.to_ne_bytes());
-        render_pass.set_bind_group(0, &self.constant_bind_group, &[]);
-        render_pass.set_bind_group(1, &blending_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-        
-        drop(render_pass);
-
-        stage.bindings.count
     }
 }
 
@@ -526,7 +550,7 @@ struct CompositorStage<'dev> {
 }
 
 impl<'dev> CompositorStage<'dev> {
-    pub fn new(compositor: &Compositor<'dev>) -> Self {
+    pub fn new(compositor: &CompositorTarget<'dev>) -> Self {
         Self {
             bindings: CpuBindings::new(compositor.dev.chunks),
             buffers: GpuBuffers::new(&compositor.dev),

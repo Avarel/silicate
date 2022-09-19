@@ -18,26 +18,20 @@ impl GpuTexture {
         .union(wgpu::TextureUsages::TEXTURE_BINDING)
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
-    pub fn empty(
-        dev: &LogicalDevice,
-        width: u32,
-        height: u32,
-        label: Option<&str>,
-        usage: wgpu::TextureUsages,
-    ) -> Self {
+    pub fn empty(dev: &LogicalDevice, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
 
-        Self::empty_with_extent(dev, size, label, usage)
+        Self::empty_with_extent(dev, size, usage)
     }
 
     pub fn empty_with_extent(
         dev: &LogicalDevice,
         size: wgpu::Extent3d,
-        label: Option<&str>,
+        // label: Option<&str>,
         usage: wgpu::TextureUsages,
     ) -> Self {
         // Canvas texture
@@ -48,7 +42,7 @@ impl GpuTexture {
             dimension: TEX_DIM,
             format: TEX_FORMAT,
             usage,
-            label,
+            label: None,
         });
 
         Self { texture, size }
@@ -115,7 +109,28 @@ impl GpuTexture {
         );
     }
 
-    pub fn export(&self, dev: &LogicalDevice, dim: BufferDimensions) {
+    pub fn clone(&self, dev: &LogicalDevice) -> Self {
+        let c = Self::empty_with_extent(
+            dev,
+            self.size,
+            Self::OUTPUT_USAGE | wgpu::TextureUsages::COPY_DST,
+        );
+        dev.queue.submit(Some({
+            let mut encoder = dev
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            // Copy the data from the texture to the buffer
+            encoder.copy_texture_to_texture(
+                self.texture.as_image_copy(),
+                c.texture.as_image_copy(),
+                self.size,
+            );
+            encoder.finish()
+        }));
+        c
+    }
+
+    pub fn export(&self, dev: &LogicalDevice, dim: BufferDimensions, path: &std::path::Path) {
         let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row * dim.height) as u64,
@@ -170,7 +185,7 @@ impl GpuTexture {
 
         eprintln!("Writing image");
 
-        buffer.save("out/output.png").unwrap();
+        buffer.save(path).unwrap();
 
         eprintln!("Finished");
     }
