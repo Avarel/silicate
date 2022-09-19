@@ -256,12 +256,42 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ), vec4(0.0), vec4(1.0));
 }
 
+fn component_srgb_to_linear(s: f32) -> f32 {
+    if s <= 0.04045 {
+        return s / 12.92;
+    } else {
+        return pow((s + 0.055) / 1.055, 2.4);
+    }
+}
+
+fn component_linear_to_srgb(l: f32) -> f32 {
+    if l <= 0.0 {
+        return 0.0;
+    } else if l <= 0.0031308 {
+        return 12.92 * l;
+    } else if l <= 1.0 {
+        return 1.055 * pow(l, 1.0 / 2.4) - 0.055;
+    } else {
+        return 1.0;
+    }
+}
+
 fn srgb_to_linear(c: vec4f) -> vec4f {
-    return pow(c, vec4(vec3(1.0 / 2.2), 1.0));
+    return vec4(
+        component_srgb_to_linear(c.r),
+        component_srgb_to_linear(c.g),
+        component_srgb_to_linear(c.b),
+        c.a
+    );
 }
 
 fn linear_to_srgb(c: vec4f) -> vec4f {
-    return pow(c, vec4(vec3(2.2), 1.0));
+    return vec4(
+        component_linear_to_srgb(c.r),
+        component_linear_to_srgb(c.g),
+        component_linear_to_srgb(c.b),
+        c.a
+    );
 }
 
 let MASK_NONE: u32 = 0xFFFFFFFFu;
@@ -269,11 +299,11 @@ let MASK_NONE: u32 = 0xFFFFFFFFu;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    var bga = srgb_to_linear(textureSample(composite, splr, in.bg_coords));
+    var bga = linear_to_srgb(textureSample(composite, splr, in.bg_coords));
 
     for (var i: i32 = 0; i < layer_count; i++) {
         var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == MASK_NONE);
-        var fga = srgb_to_linear(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
+        var fga = linear_to_srgb(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {
@@ -323,5 +353,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // Compute final premultiplied colors
         bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
     }
-    return linear_to_srgb(bga);
+    return srgb_to_linear(bga);
 }
