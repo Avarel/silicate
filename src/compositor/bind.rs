@@ -92,7 +92,7 @@ impl<'dev> BindingMapper<'dev> {
             chunks,
             output: {
                 let mut views = Vec::new();
-                views.resize_with(chunks as usize, || textures[0].make_view());
+                views.resize_with(chunks as usize, || textures[0].create_view());
                 views.into_boxed_slice()
             },
             map: HashMap::new(),
@@ -108,7 +108,7 @@ impl<'dev> BindingMapper<'dev> {
     fn map_texture(&mut self, texture_index: usize) -> u32 {
         let mlen = self.map.len() as u32;
         *self.map.entry(texture_index).or_insert_with(|| {
-            self.output[mlen as usize] = self.textures[texture_index].make_view();
+            self.output[mlen as usize] = self.textures[texture_index].create_view();
             mlen
         })
     }

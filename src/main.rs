@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_decorations(true)
         .with_resizable(true)
         .with_transparent(false)
-        .with_title("Procreate Viewer")
+        .with_title("Silicate")
         .with_inner_size(INITIAL_SIZE)
         .with_window_icon(taskbar_icon)
         .build(&event_loop)?;

@@ -3,7 +3,6 @@ use egui::*;
 /// 2D bounding box of f64 precision.
 /// The range of data values we show.
 #[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 struct CanvasViewBounds {
     pub(crate) min: [f32; 2],
     pub(crate) max: [f32; 2],
@@ -284,7 +283,6 @@ impl From<bool> for AutoBounds {
 }
 
 /// Information about the plot that has to persist between frames.
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone)]
 struct ViewMemory {
     auto_bounds: AutoBounds,
@@ -573,7 +571,7 @@ impl CanvasView {
         };
         memory.store(ui.ctx(), plot_id);
 
-        // let response = response.on_hover_cursor(CursorIcon::Crosshair);
+        let response = response.on_hover_cursor(CursorIcon::Crosshair);
 
         InnerResponse {
             inner: (),
@@ -665,8 +663,8 @@ impl PreparedView {
                 .paint_at(&mut plot_ui, rect);
         }
 
-        let painter = plot_ui.painter();
         if self.show_extended_crosshair {
+            let painter = plot_ui.painter();
             if let Some(pointer) = response.hover_pos() {
                 painter.vline(
                     pointer.x,

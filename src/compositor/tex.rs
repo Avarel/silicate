@@ -51,7 +51,7 @@ impl GpuTexture {
     }
 
     /// Make a texture view of this GPU texture.
-    pub fn make_view(&self) -> wgpu::TextureView {
+    pub fn create_view(&self) -> wgpu::TextureView {
         self.texture
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
@@ -66,7 +66,7 @@ impl GpuTexture {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.make_view(),
+                    view: &self.create_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(color),
@@ -116,7 +116,7 @@ impl GpuTexture {
     /// `dev` should be the same device that created this texture
     /// in the first place.
     pub fn clone(&self, dev: &GpuHandle) -> Self {
-        let c = Self::empty_with_extent(
+        let clone = Self::empty_with_extent(
             dev,
             self.size,
             Self::OUTPUT_USAGE | wgpu::TextureUsages::COPY_DST,
@@ -128,12 +128,12 @@ impl GpuTexture {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
                 self.texture.as_image_copy(),
-                c.texture.as_image_copy(),
+                clone.texture.as_image_copy(),
                 self.size,
             );
             encoder.finish()
         }));
-        c
+        clone
     }
 
     /// Export the texture to the given path.
@@ -151,6 +151,7 @@ impl GpuTexture {
             mapped_at_creation: false,
         });
 
+        // Copy the texture to the output buffer
         dev.queue.submit(Some({
             let mut encoder = dev
                 .device
@@ -195,6 +196,7 @@ impl GpuTexture {
 
         let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
 
+        eprintln!("Saving the file to {}", path.display());
         tokio::task::spawn_blocking(move || buffer.save(path))
             .await
             .unwrap()

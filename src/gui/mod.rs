@@ -1,7 +1,7 @@
 mod canvas;
 mod layout;
 
-use self::layout::{CompositorHandle, Instance, InstanceKey, ViewOptions, ViewerGui};
+use self::layout::{CompositorHandle, Instance, InstanceKey, StaticRefs, ViewOptions, ViewerGui};
 use crate::{
     compositor::{dev::GpuHandle, CompositeLayer, CompositorPipeline, CompositorTarget},
     gui::layout::ViewerTab,
@@ -62,32 +62,35 @@ async fn rendering_thread(cs: &CompositorHandle) {
         // to avoid putting unnecessary computational pressure on the GPU.
         limiter.tick().await;
 
-        for (_, instance) in cs.instances.read().iter() {
-            let file = instance.file.read();
+        for instance in cs.instances.read().values() {
+            // If the file is contended then it might be edited by the GUI.
+            // Might as well not render a soon to be outdated result.
+            if let Some(file) = instance.file.try_read() {
+                let new_layer_config = file.layers.clone();
+                // Only force a recompute if we need to.
+                let background = (!file.background_hidden).then_some(file.background_color);
 
-            let new_layer_config = instance.file.read().layers.clone();
-            // Only force a recompute if we need to.
-            let background = (!file.background_hidden).then_some(file.background_color);
+                // Drop the guard here, we no longer need it.
+                drop(file);
 
-            drop(file);
+                if instance.change_untick() {
+                    let mut resolved_layers = Vec::new();
+                    let mut mask_layer = None;
+                    linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
 
-            if instance.change_untick() {
-                let mut resolved_layers = Vec::new();
-                let mut mask_layer = None;
-                linearize(&new_layer_config, &mut resolved_layers, &mut mask_layer);
-
-                let mut lock = instance.target.lock();
-                lock.render(
-                    &cs.pipeline,
-                    background,
-                    &resolved_layers,
-                    &instance.textures,
-                );
-                // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-                // std::thread::sleep(std::time::Duration::from_secs(1));
-                // Debugging notes: if the GPU is highly contended, the main
-                // GUI rendering can still be somewhat sluggish.
-                drop(lock);
+                    let mut lock = instance.target.lock();
+                    lock.render(
+                        &cs.pipeline,
+                        background,
+                        &resolved_layers,
+                        &instance.textures,
+                    );
+                    // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+                    // std::thread::sleep(std::time::Duration::from_secs(1));
+                    // Debugging notes: if the GPU is highly contended, the main
+                    // GUI rendering can still be somewhat sluggish.
+                    drop(lock);
+                }
             }
         }
     }
@@ -97,10 +100,10 @@ pub async fn load_file(
     path: PathBuf,
     dev: &'static GpuHandle,
     compositor: &CompositorHandle,
-) -> Result<(), SilicaError> {
+) -> Result<InstanceKey, SilicaError> {
     let (file, textures) = ProcreateFile::open(path, dev).await?;
     let mut target = CompositorTarget::new(dev);
-    target.flip_vertices((file.flipped.horizontally, file.flipped.vertically));
+    target.flip_vertices(file.flipped.horizontally, file.flipped.vertically);
     target.set_dimensions(file.size.width, file.size.height);
 
     for _ in 0..file.orientation {
@@ -110,8 +113,9 @@ pub async fn load_file(
 
     let id = compositor.curr_id.load(Acquire);
     compositor.curr_id.store(id + 1, Release);
+    let key = InstanceKey(id);
     compositor.instances.write().insert(
-        InstanceKey(id),
+        key,
         Instance {
             file: RwLock::new(file),
             target: Mutex::new(target),
@@ -120,7 +124,7 @@ pub async fn load_file(
             changed: AtomicBool::new(true),
         },
     );
-    Ok(())
+    Ok(key)
 }
 
 fn leak<T>(value: T) -> &'static T {
@@ -128,25 +132,38 @@ fn leak<T>(value: T) -> &'static T {
 }
 
 pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::EventLoop<()>) -> ! {
-    // LEAK: obtain static reference because this will live for the rest of
-    // the lifetime of the program.
-    let rt = leak(
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
-    );
-    let (dev, surface) = rt.block_on(GpuHandle::with_window(&window)).unwrap();
-    let dev = leak(dev);
-    let compositor = leak(CompositorHandle {
-        instances: RwLock::new(HashMap::new()),
-        pipeline: CompositorPipeline::new(dev),
-        curr_id: AtomicUsize::new(0),
-    });
-    let toasts = leak(Mutex::new(egui_notify::Toasts::default()));
+    let (statics, surface, rt) = {
+        // LEAK: obtain static reference because this will live for the rest of
+        // the lifetime of the program. This is simpler to handle than Arc hell.
+        let rt = leak(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        );
+        let (dev, surface) = rt.block_on(GpuHandle::with_window(&window)).unwrap();
+        let dev = leak(dev);
+        let compositor = leak(CompositorHandle {
+            instances: RwLock::new(HashMap::new()),
+            pipeline: CompositorPipeline::new(dev),
+            curr_id: AtomicUsize::new(0),
+        });
+        let toasts = leak(Mutex::new(egui_notify::Toasts::default()));
+        let added_instances = leak(Mutex::new(Vec::with_capacity(1)));
+        (
+            StaticRefs {
+                dev,
+                compositor: &compositor,
+                toasts,
+                added_instances,
+            },
+            surface,
+            rt,
+        )
+    };
 
     let window_size = window.inner_size();
-    let surface_format = surface.get_supported_formats(&dev.adapter)[0];
+    let surface_format = surface.get_supported_formats(&statics.dev.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
@@ -158,7 +175,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
         size_in_pixels: [surface_config.width, surface_config.height],
         pixels_per_point: window.scale_factor() as f32,
     };
-    surface.configure(&dev.device, &surface_config);
+    surface.configure(&statics.dev.device, &surface_config);
 
     let mut state = egui_winit::State::new(&event_loop);
     state.set_pixels_per_point(window.scale_factor() as f32);
@@ -166,10 +183,10 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
     let context = egui::Context::default();
     context.set_pixels_per_point(window.scale_factor() as f32);
 
-    let mut egui_rpass = RenderPass::new(&dev.device, surface_format, 1);
+    let mut egui_rpass = RenderPass::new(&statics.dev.device, surface_format, 1);
 
     let mut editor = ViewerGui {
-        dev,
+        statics,
         rt,
         canvases: HashMap::new(),
         view_options: ViewOptions {
@@ -180,7 +197,6 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
             bottom_bar: false,
         },
         selected_canvas: InstanceKey(0),
-        compositor: &compositor,
         canvas_tree: egui_dock::Tree::default(),
         viewer_tree: {
             use egui_dock::{NodeIndex, Tree};
@@ -192,15 +208,14 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
             tree.split_below(
                 NodeIndex::root(),
                 0.4,
-                vec![ViewerTab::Files, ViewerTab::Hierarchy],
+                vec![ViewerTab::Hierarchy],
             );
             tree
         },
         queued_remove: None,
-        toasts,
     };
 
-    rt.spawn(rendering_thread(compositor));
+    rt.spawn(rendering_thread(statics.compositor));
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -217,18 +232,20 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                             surface_config.width = size.width;
                             surface_config.height = size.height;
                             screen_descriptor.size_in_pixels = [size.width, size.height];
-                            surface.configure(&dev.device, &surface_config);
+                            surface.configure(&statics.dev.device, &surface_config);
                         }
                     }
                     WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
                         rt.spawn(async move {
-                            if let Err(err) = load_file(file, &dev, compositor).await {
-                                toasts.lock().error(format!(
+                            if let Err(err) =
+                                load_file(file, &statics.dev, statics.compositor).await
+                            {
+                                statics.toasts.lock().error(format!(
                                     "File from drag/drop failed to load. Reason: {err}"
                                 ));
                             } else {
-                                toasts.lock().success("Loaded file from drag/drop.");
+                                statics.toasts.lock().success("Loaded file from drag/drop.");
                             }
                         });
                     }
@@ -261,7 +278,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
 
                 context.begin_frame(input);
                 editor.layout_gui(&context);
-                editor.toasts.lock().show(&context);
+                editor.statics.toasts.lock().show(&context);
                 let output = context.end_frame();
 
                 state.handle_platform_output(&window, &context, output.platform_output);
@@ -271,15 +288,26 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
 
                 // Upload all resources for the GPU.
                 for (id, image_delta) in output.textures_delta.set {
-                    egui_rpass.update_texture(&dev.device, &dev.queue, id, &image_delta);
+                    egui_rpass.update_texture(
+                        &statics.dev.device,
+                        &statics.dev.queue,
+                        id,
+                        &image_delta,
+                    );
                 }
                 for id in output.textures_delta.free {
                     egui_rpass.free_texture(&id);
                 }
-                egui_rpass.update_buffers(&dev.device, &dev.queue, &paint_jobs, &screen_descriptor);
+                egui_rpass.update_buffers(
+                    &statics.dev.device,
+                    &statics.dev.queue,
+                    &paint_jobs,
+                    &screen_descriptor,
+                );
 
-                dev.queue.submit(Some({
-                    let mut encoder = dev
+                statics.dev.queue.submit(Some({
+                    let mut encoder = statics
+                        .dev
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
@@ -304,7 +332,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 // Do not block on any locks/rwlocks since we do not want to block
                 // the GUI thread when the renderer is potentially taking a long
                 // time to render a frame.
-                if let Some(instances) = compositor.instances.try_read() {
+                if let Some(instances) = statics.compositor.instances.try_read() {
                     for (idx, instance) in instances.iter() {
                         if instance.new_texture.load(Acquire) {
                             if let Some(target) = instance.target.try_lock() {
@@ -312,8 +340,8 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                                     *idx,
                                     (
                                         egui_rpass.register_native_texture(
-                                            &dev.device,
-                                            &target.output_texture.as_ref().unwrap().make_view(),
+                                            &statics.dev.device,
+                                            &target.output_texture.as_ref().unwrap().create_view(),
                                             if editor.view_options.smooth {
                                                 wgpu::FilterMode::Linear
                                             } else {
