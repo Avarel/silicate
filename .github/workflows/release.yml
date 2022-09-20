@@ -66,6 +66,14 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Install cargo-bundle
+        uses: actions-rs/cargo@v1
+        if: matrix.os == 'macos-latest'
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: install
+          args: cargo-bundle
+
       # - name: Run cargo test
       #   uses: actions-rs/cargo@v1
       #   with:
@@ -82,6 +90,7 @@ jobs:
 
       - name: Build macOS bundle
         uses: actions-rs/cargo@v1
+        if: matrix.os == 'macos-latest'
         with:
           use-cross: ${{ matrix.cross }}
           command: bundle
@@ -94,7 +103,7 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.app" "dist/"
+            cp -R "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.app" "dist/"
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
           fi
