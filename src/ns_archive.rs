@@ -1,39 +1,61 @@
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Uid, Value};
 use regex::Regex;
-use serde::Deserialize;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NsArchiveError {
-    #[error("i/o error")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("plist error")]
+    #[error("Plist decoding error")]
     PlistError(#[from] plist::Error),
-    #[error("zip error")]
+    #[error("Zip decoding error")]
     ZipError(#[from] zip::result::ZipError),
-    #[error("type mismatch")]
+    #[error("Type mismatch")]
     TypeMismatch,
-    #[error("missing key {0}")]
+    #[error("Missing key {0}")]
     MissingKey(String),
-    #[error("bad index")]
+    #[error("Bad index")]
     BadIndex,
 }
 
-#[allow(dead_code)]
-#[derive(Deserialize)]
 pub struct NsKeyedArchive {
-    #[serde(rename = "$version")]
-    version: usize,
-    #[serde(rename = "$archiver")]
-    archiver: String,
-    #[serde(rename = "$top")]
+    // version: u64,
+    // archiver: String,
     top: Dictionary,
-    #[serde(rename = "$objects")]
     objects: Vec<Value>,
 }
 
 impl<'a> NsKeyedArchive {
+    pub fn from_reader(reader: impl std::io::Read + std::io::Seek) -> Result<Self, NsArchiveError> {
+        let mut value = plist::Value::from_reader(reader)?
+            .into_dictionary()
+            .ok_or(NsArchiveError::TypeMismatch)?;
+
+        Ok(Self {
+            // version: value
+            //     .remove("$version")
+            //     .ok_or_else(|| NsArchiveError::MissingKey("$version".to_string()))?
+            //     .as_unsigned_integer()
+            //     .ok_or(NsArchiveError::TypeMismatch)?,
+            // archiver: value
+            //     .remove("$archiver")
+            //     .ok_or_else(|| NsArchiveError::MissingKey("$archiver".to_string()))?
+            //     .into_string()
+            //     .ok_or(NsArchiveError::TypeMismatch)?,
+            top: value
+                .remove("$top")
+                .ok_or_else(|| NsArchiveError::MissingKey("$top".to_string()))?
+                .into_dictionary()
+                .ok_or(NsArchiveError::TypeMismatch)?,
+            objects: value
+                .remove("$objects")
+                .ok_or_else(|| NsArchiveError::MissingKey("$objects".to_string()))?
+                .into_array()
+                .ok_or(NsArchiveError::TypeMismatch)?,
+        })
+    }
+
     pub fn resolve_index_nullable(
         &'a self,
         idx: usize,
@@ -265,9 +287,7 @@ where
                 .inner
                 .iter()
                 .map(|uid| {
-                    let val = nka.resolve_index(uid.get() as usize)?;
-                    // .ok_or(NsArchiveError::BadIndex)?;
-                    T::decode(nka, val)
+                    T::decode(nka, nka.resolve_index(uid.get() as usize)?)
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         })

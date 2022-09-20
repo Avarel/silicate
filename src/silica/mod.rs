@@ -1,30 +1,32 @@
 mod ir;
 
 use self::ir::{SilicaIRHierarchy, SilicaIRLayer};
-use crate::compositor::{dev::LogicalDevice, tex::GpuTexture};
+use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
+use futures::StreamExt;
 use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use zip::read::ZipArchive;
 
 #[derive(Error, Debug)]
 pub enum SilicaError {
-    #[error("i/o error")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("plist error")]
+    #[error("Plist decoding error")]
     PlistError(#[from] plist::Error),
-    #[error("zip error")]
+    #[error("Zip decoding error")]
     ZipError(#[from] zip::result::ZipError),
     #[error("LZO decompression error")]
     LzoError(#[from] minilzo_rs::Error),
-    #[error("ns archive error")]
+    #[error("NS archive error")]
     NsArchiveError(#[from] NsArchiveError),
-    #[error("invalid values in file")]
+    #[error("Invalid values in file")]
     InvalidValue,
-    #[error("unknown decoding error")]
+    #[error("Unknown decoding error")]
     #[allow(dead_code)]
     Unknown,
 }
@@ -173,6 +175,25 @@ struct TilingMeta {
     tile_size: u32,
 }
 
+impl TilingMeta {
+    pub fn tile_size(&self, col: u32, row: u32) -> Size<usize> {
+        Size {
+            width: (self.tile_size
+                - if col != self.columns - 1 {
+                    0
+                } else {
+                    self.diff.width
+                }) as usize,
+            height: (self.tile_size
+                - if row != self.rows - 1 {
+                    0
+                } else {
+                    self.diff.height
+                }) as usize,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Flipped {
     pub horizontally: bool,
@@ -241,7 +262,7 @@ impl SilicaGroup {
         Self {
             hidden: true,
             children: Vec::new(),
-            name: String::new()
+            name: String::new(),
         }
     }
 }
@@ -279,9 +300,10 @@ pub struct SilicaLayer {
 type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
-    pub fn open<P: AsRef<Path>>(
+    // Load a Procreate file asynchronously.
+    pub async fn open<P: AsRef<Path>>(
         p: P,
-        dev: &LogicalDevice,
+        dev: &GpuHandle,
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
@@ -295,16 +317,16 @@ impl ProcreateFile {
             let mut buf = Vec::with_capacity(document.size() as usize);
             document.read_to_end(&mut buf)?;
 
-            plist::from_reader(Cursor::new(buf))?
+            NsKeyedArchive::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, nka, dev)
+        Self::from_ns(archive, nka, dev).await
     }
 
-    fn from_ns(
+    async fn from_ns(
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
-        dev: &LogicalDevice,
+        dev: &GpuHandle,
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         let root = nka.root()?;
 
@@ -325,7 +347,7 @@ impl ProcreateFile {
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
-        let mut gpu_textures = Vec::new();
+        let gpu_textures = Mutex::new(Vec::new());
 
         Ok((
             Self {
@@ -351,26 +373,35 @@ impl ProcreateFile {
                 },
                 tile_size,
                 size,
-                composite: nka.decode::<SilicaIRLayer>(root, "composite")?.load(
-                    &meta,
-                    &archive,
-                    size,
-                    &file_names,
-                    dev,
-                    &mut gpu_textures,
-                )?,
+                composite: nka
+                    .decode::<SilicaIRLayer>(root, "composite")?
+                    .load(&meta, &archive, size, &file_names, dev, &gpu_textures)
+                    .await?,
                 layers: SilicaGroup {
                     hidden: false,
                     name: String::from("Root Layer"),
-                    children: nka
-                        .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
-                        .objects
-                        .into_iter()
-                        .map(|ir| ir.load(&meta, &archive, size, &file_names, dev, &mut gpu_textures))
-                        .collect::<Result<_, _>>()?,
+                    children: futures::stream::iter(
+                        nka.decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+                            .objects,
+                    )
+                    .then(|ir| {
+                        SilicaIRHierarchy::load(
+                            ir,
+                            &meta,
+                            &archive,
+                            size,
+                            &file_names,
+                            dev,
+                            &gpu_textures,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<_, _>>()?,
                 },
             },
-            gpu_textures,
+            gpu_textures.into_inner(),
         ))
     }
 }

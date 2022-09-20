@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
 
-use super::{dev::LogicalDevice, BufferDimensions};
+use super::{dev::GpuHandle, BufferDimensions};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
+/// GPU texture abstraction.
 #[derive(Debug)]
 pub struct GpuTexture {
     pub size: wgpu::Extent3d,
@@ -18,7 +19,8 @@ impl GpuTexture {
         .union(wgpu::TextureUsages::TEXTURE_BINDING)
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
-    pub fn empty(dev: &LogicalDevice, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
+    /// Create an empty texture.
+    pub fn empty(dev: &GpuHandle, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -28,10 +30,10 @@ impl GpuTexture {
         Self::empty_with_extent(dev, size, usage)
     }
 
+    /// Create an empty texture from an extent.
     pub fn empty_with_extent(
-        dev: &LogicalDevice,
+        dev: &GpuHandle,
         size: wgpu::Extent3d,
-        // label: Option<&str>,
         usage: wgpu::TextureUsages,
     ) -> Self {
         // Canvas texture
@@ -48,12 +50,14 @@ impl GpuTexture {
         Self { texture, size }
     }
 
+    /// Make a texture view of this GPU texture.
     pub fn make_view(&self) -> wgpu::TextureView {
         self.texture
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    pub fn clear(&self, dev: &LogicalDevice, color: wgpu::Color) {
+    /// Clear the texture with a certain color.
+    pub fn clear(&self, dev: &GpuHandle, color: wgpu::Color) {
         dev.queue.submit(Some({
             let mut encoder = dev
                 .device
@@ -76,15 +80,12 @@ impl GpuTexture {
         }));
     }
 
-    pub fn replace(
-        &self,
-        dev: &LogicalDevice,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        data: &[u8],
-    ) {
+    /// Replace a section of the texture with raw RGBA data.
+    ///
+    /// ### Note
+    /// The position `x` and `y` and size `width` and `height` data
+    /// should strictly fit within the texture boundaries.
+    pub fn replace(&self, dev: &GpuHandle, x: u32, y: u32, width: u32, height: u32, data: &[u8]) {
         dev.queue.write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::ImageCopyTexture {
@@ -109,7 +110,12 @@ impl GpuTexture {
         );
     }
 
-    pub fn clone(&self, dev: &LogicalDevice) -> Self {
+    /// Clone the texture.
+    ///
+    /// ### Note
+    /// `dev` should be the same device that created this texture
+    /// in the first place.
+    pub fn clone(&self, dev: &GpuHandle) -> Self {
         let c = Self::empty_with_extent(
             dev,
             self.size,
@@ -130,7 +136,13 @@ impl GpuTexture {
         c
     }
 
-    pub async fn export(&self, dev: &LogicalDevice, dim: BufferDimensions, path: std::path::PathBuf) -> bool {
+    /// Export the texture to the given path.
+    pub async fn export(
+        &self,
+        dev: &GpuHandle,
+        dim: BufferDimensions,
+        path: std::path::PathBuf,
+    ) -> image::ImageResult<()> {
         let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row * dim.height) as u64,
@@ -183,6 +195,8 @@ impl GpuTexture {
 
         let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
 
-        tokio::task::spawn_blocking(move || buffer.save(path).unwrap()).await.is_ok()
+        tokio::task::spawn_blocking(move || buffer.save(path))
+            .await
+            .unwrap()
     }
 }

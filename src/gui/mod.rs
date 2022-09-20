@@ -3,13 +3,12 @@ mod layout;
 
 use self::layout::{CompositorHandle, Instance, InstanceKey, ViewOptions, ViewerGui};
 use crate::{
-    compositor::{dev::LogicalDevice, CompositeLayer, CompositorPipeline, CompositorTarget},
+    compositor::{dev::GpuHandle, CompositeLayer, CompositorPipeline, CompositorTarget},
     gui::layout::ViewerTab,
-    silica::{ProcreateFile, SilicaHierarchy},
+    silica::{ProcreateFile, SilicaError, SilicaHierarchy},
 };
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use parking_lot::{Mutex, RwLock};
-use std::path::PathBuf;
 use std::{
     collections::HashMap,
     sync::atomic::{
@@ -17,6 +16,8 @@ use std::{
         Ordering::{Acquire, Release},
     },
 };
+use std::{path::PathBuf, time::Duration};
+use tokio::time::MissedTickBehavior;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 
@@ -53,60 +54,13 @@ fn linearize<'a>(
     }
 }
 
-struct FrameLimiter {
-    delta: std::time::Duration,
-    next_time: std::time::Instant,
-}
-
-impl FrameLimiter {
-    pub fn new(target_fps: u32) -> Self {
-        Self {
-            delta: std::time::Duration::from_secs(1).div_f64(f64::from(target_fps)),
-            next_time: std::time::Instant::now(),
-        }
-    }
-
-    pub async fn wait(&mut self) {
-        let now = std::time::Instant::now();
-        if let Some(diff) = self.next_time.checked_duration_since(now) {
-            // We have woken up before the minimum time that we needed to wait
-            // before drawing another frame.
-            // now ------------- next_frame
-            //        diff
-            tokio::time::sleep(diff).await
-        } else {
-            // We have waken up after the minimum time that we needed to wait to
-            // begin drawing another frame.
-            // Case 1 //////////////////////////////////////////////////
-            //                   delta
-            // next_frame ------------------ next_frame + delta
-            // next_frame --------- now
-            //               diff
-            //                      now ---- next_frame + delta
-            //                       delta - diff
-            // delta - diff > 0
-            // Case 2 //////////////////////////////////////////////////
-            //              delta
-            // next_frame -------- next_frame + delta
-            //                     next_frame + delta ------- now
-            // next_frame ----------------------------------- now
-            //                          diff
-            // delta - diff == 0
-            self.next_time = now
-                + self.delta.saturating_sub(
-                    now.checked_duration_since(self.next_time)
-                        .unwrap_or_default(),
-                );
-        }
-    }
-}
-
 async fn rendering_thread(cs: &CompositorHandle) {
-    let mut limiter = FrameLimiter::new(60);
+    let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
+    limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         // Ensures that we are not generating frames faster than 60FPS
         // to avoid putting unnecessary computational pressure on the GPU.
-        limiter.wait().await;
+        limiter.tick().await;
 
         for (_, instance) in cs.instances.read().iter() {
             let file = instance.file.read();
@@ -141,38 +95,32 @@ async fn rendering_thread(cs: &CompositorHandle) {
 
 pub async fn load_file(
     path: PathBuf,
-    dev: &'static LogicalDevice,
+    dev: &'static GpuHandle,
     compositor: &CompositorHandle,
-) -> bool {
-    if let Ok(Ok((file, textures))) =
-        tokio::task::spawn_blocking(|| ProcreateFile::open(path, dev)).await
-    {
-        let mut target = CompositorTarget::new(dev);
-        target.flip_vertices((file.flipped.horizontally, file.flipped.vertically));
-        target.set_dimensions(file.size.width, file.size.height);
+) -> Result<(), SilicaError> {
+    let (file, textures) = ProcreateFile::open(path, dev).await?;
+    let mut target = CompositorTarget::new(dev);
+    target.flip_vertices((file.flipped.horizontally, file.flipped.vertically));
+    target.set_dimensions(file.size.width, file.size.height);
 
-        for _ in 0..file.orientation {
-            target.rotate_vertices(true);
-            target.set_dimensions(target.dim.height, target.dim.width);
-        }
-
-        let id = compositor.curr_id.load(Acquire);
-        compositor.curr_id.store(id + 1, Release);
-        compositor.instances.write().insert(
-            InstanceKey(id),
-            Instance {
-                file: RwLock::new(file),
-                target: Mutex::new(target),
-                textures,
-                new_texture: AtomicBool::new(true),
-                changed: AtomicBool::new(true),
-            },
-        );
-
-        true
-    } else {
-        false
+    for _ in 0..file.orientation {
+        target.rotate_vertices(true);
+        target.set_dimensions(target.dim.height, target.dim.width);
     }
+
+    let id = compositor.curr_id.load(Acquire);
+    compositor.curr_id.store(id + 1, Release);
+    compositor.instances.write().insert(
+        InstanceKey(id),
+        Instance {
+            file: RwLock::new(file),
+            target: Mutex::new(target),
+            textures,
+            new_texture: AtomicBool::new(true),
+            changed: AtomicBool::new(true),
+        },
+    );
+    Ok(())
 }
 
 fn leak<T>(value: T) -> &'static T {
@@ -188,7 +136,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
             .build()
             .unwrap(),
     );
-    let (dev, surface) = rt.block_on(LogicalDevice::with_window(&window)).unwrap();
+    let (dev, surface) = rt.block_on(GpuHandle::with_window(&window)).unwrap();
     let dev = leak(dev);
     let compositor = leak(CompositorHandle {
         instances: RwLock::new(HashMap::new()),
@@ -275,10 +223,12 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
                         rt.spawn(async move {
-                            if load_file(file, &dev, compositor).await {
-                                toasts.lock().success("Loaded file from drag/drop.");
+                            if let Err(err) = load_file(file, &dev, compositor).await {
+                                toasts.lock().error(format!(
+                                    "File from drag/drop failed to load. Reason: {err}"
+                                ));
                             } else {
-                                toasts.lock().error("File from drag/drop failed to load.");
+                                toasts.lock().success("Loaded file from drag/drop.");
                             }
                         });
                     }
@@ -345,7 +295,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 }));
                 output_frame.present();
 
-                // After the GUI is drawn, we can modify 
+                // After the GUI is drawn, we can modify
                 if let Some(index) = editor.queued_remove.take() {
                     editor.remove_index(index);
                 }

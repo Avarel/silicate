@@ -3,8 +3,8 @@ pub mod dev;
 pub mod tex;
 
 use self::{
-    bind::{CpuBindings, GpuBuffers},
-    dev::LogicalDevice,
+    bind::{CpuBuffers, GpuBuffers},
+    dev::GpuHandle,
     tex::GpuTexture,
 };
 use crate::silica::BlendingMode;
@@ -12,6 +12,7 @@ use image::{Pixel, Rgba};
 use std::num::NonZeroU32;
 use wgpu::{util::DeviceExt, CommandEncoder};
 
+/// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferDimensions {
     pub width: u32,
@@ -22,11 +23,26 @@ pub struct BufferDimensions {
 }
 
 impl BufferDimensions {
+    /// Computes the buffer dimensions between the texture's actual dimensions
+    /// and its buffer dimensions on the GPU.
     pub const fn new(width: u32, height: u32) -> Self {
-        // It is a WebGPU requirement that ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
+        Self::from_extent(wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        })
+    }
+
+    /// Computes the buffer dimensions from the GPU texture extent.
+    pub const fn from_extent(extent: wgpu::Extent3d) -> Self {
+        // It is a WebGPU requirement that
+        // ImageCopyBuffer.layout.bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT == 0
         // So we calculate padded_bytes_per_row by rounding unpadded_bytes_per_row
         // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
         // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
+        debug_assert!(extent.depth_or_array_layers == 1);
+        let width = extent.width;
+        let height = extent.height;
         let bytes_per_pixel =
             (Rgba::<u8>::CHANNEL_COUNT as usize * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -38,72 +54,49 @@ impl BufferDimensions {
             height,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
-            extent: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            extent,
         }
     }
 
-    pub fn from_extent(extent: wgpu::Extent3d) -> Self {
-        Self::new(extent.width, extent.height)
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.width == 0 || self.height == 0
     }
 }
 
+/// Vertex input to the shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
-struct Vertex {
+struct VertexInput {
+    /// Position of the vertex.
     position: [f32; 3],
+    /// Holds the UV information of the background.
+    /// The base texture uses this, which may be the texture from a
+    /// previous pass.
     bg_coords: [f32; 2],
+    /// Holds the UV information of the foreground.
+    /// The layers to be composited on the output texture uses this.
     fg_coords: [f32; 2],
 }
 
-const SQUARE_VERTICES: [Vertex; 4] = [
-    Vertex {
-        position: [-1.0, 1.0, 0.0],
-        bg_coords: [0.0, 0.0],
-        fg_coords: [0.0, 1.0],
-    },
-    Vertex {
-        position: [-1.0, -1.0, 0.0],
-        bg_coords: [0.0, 1.0],
-        fg_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, 0.0],
-        bg_coords: [1.0, 0.0],
-        fg_coords: [1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0, 0.0],
-        bg_coords: [1.0, 1.0],
-        fg_coords: [1.0, 0.0],
-    },
-];
-
-const INDICES: &[u16] = &[0, 1, 2, 3];
-
-impl Vertex {
+impl VertexInput {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<VertexInput>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
+                // position
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                // bg_coords
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
                 },
+                // fg_coords
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 2 + 3]>() as wgpu::BufferAddress,
                     shader_location: 2,
@@ -114,36 +107,86 @@ impl Vertex {
     }
 }
 
+/// Compositing layer information.
 #[derive(Debug)]
 pub struct CompositeLayer {
+    /// Texture index into a `&[GpuBuffer]`.
     pub texture: usize,
+    /// Clipping texture index into a `&[GpuBuffer]`.
     pub clipped: Option<usize>,
+    /// Opacity (0.0..=1.0) of the layer.
     pub opacity: f32,
+    /// Blending mode of the layer.
     pub blend: BlendingMode,
 }
 
-pub struct CompositorPipeline {
-    constant_bind_group: wgpu::BindGroup,
-    blending_bind_group_layout: wgpu::BindGroupLayout,
-    render_pipeline: wgpu::RenderPipeline,
-}
-
+/// Output target of a compositor pipeline.
 pub struct CompositorTarget<'dev> {
-    pub dev: &'dev LogicalDevice,
+    pub dev: &'dev GpuHandle,
+    /// Output texture dimensions.
     pub dim: BufferDimensions,
-    vertices: [Vertex; 4],
+    vertices: [VertexInput; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    /// Output texture. This is none until the compositor target has
+    /// dimension set.
     pub output_texture: Option<GpuTexture>,
+    /// Compositor stage buffers.
     stages: Vec<CompositorStage<'dev>>,
 }
 
+/// Compositor stage buffers. This is so that the rendering process
+/// can reuse buffers and textures whenever possible.
+struct CompositorStage<'dev> {
+    bindings: CpuBuffers,
+    buffers: GpuBuffers<'dev>,
+    output: GpuTexture,
+}
+
+impl<'dev> CompositorStage<'dev> {
+    /// Create a new compositor stage.
+    pub fn new(target: &CompositorTarget<'dev>) -> Self {
+        Self {
+            bindings: CpuBuffers::new(target.dev.chunks),
+            buffers: GpuBuffers::new(&target.dev),
+            output: target.base_composite_texture(),
+        }
+    }
+}
+
 impl<'dev> CompositorTarget<'dev> {
-    pub fn new(dev: &'dev LogicalDevice) -> Self {
+    /// Initial vertices
+    const SQUARE_VERTICES: [VertexInput; 4] = [
+        VertexInput {
+            position: [-1.0, 1.0, 0.0],
+            bg_coords: [0.0, 0.0],
+            fg_coords: [0.0, 1.0],
+        },
+        VertexInput {
+            position: [-1.0, -1.0, 0.0],
+            bg_coords: [0.0, 1.0],
+            fg_coords: [0.0, 0.0],
+        },
+        VertexInput {
+            position: [1.0, 1.0, 0.0],
+            bg_coords: [1.0, 0.0],
+            fg_coords: [1.0, 1.0],
+        },
+        VertexInput {
+            position: [1.0, -1.0, 0.0],
+            bg_coords: [1.0, 1.0],
+            fg_coords: [1.0, 0.0],
+        },
+    ];
+
+    /// Initial indices of the 2 triangle strips
+    const INDICES: [u16; 4] = [0, 1, 2, 3];
+
+    pub fn new(dev: &'dev GpuHandle) -> Self {
         let device = &dev.device;
 
         // Create the vertex buffer.
-        let vertices = SQUARE_VERTICES;
+        let vertices = Self::SQUARE_VERTICES;
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
             contents: bytemuck::cast_slice(&vertices),
@@ -153,7 +196,7 @@ impl<'dev> CompositorTarget<'dev> {
         // Index draw buffer
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index_buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&Self::INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -380,6 +423,7 @@ impl<'dev> CompositorTarget<'dev> {
             depth_stencil_attachment: None,
         });
 
+        // Finish and set the render pass's binding groups and data
         render_pass.set_pipeline(&compositor.render_pipeline);
         render_pass.set_push_constants(
             wgpu::ShaderStages::FRAGMENT,
@@ -390,7 +434,7 @@ impl<'dev> CompositorTarget<'dev> {
         render_pass.set_bind_group(1, &blending_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+        render_pass.draw_indexed(0..CompositorTarget::INDICES.len() as u32, 0, 0..1);
 
         drop(render_pass);
 
@@ -398,8 +442,14 @@ impl<'dev> CompositorTarget<'dev> {
     }
 }
 
+pub struct CompositorPipeline {
+    constant_bind_group: wgpu::BindGroup,
+    blending_bind_group_layout: wgpu::BindGroupLayout,
+    render_pipeline: wgpu::RenderPipeline,
+}
+
 impl CompositorPipeline {
-    pub fn new(dev: &LogicalDevice) -> Self {
+    pub fn new(dev: &GpuHandle) -> Self {
         let device = &dev.device;
 
         // This bind group only binds the sampler, which is a constant
@@ -500,7 +550,7 @@ impl CompositorPipeline {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[Vertex::desc()],
+                    buffers: &[VertexInput::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -539,22 +589,6 @@ impl CompositorPipeline {
             constant_bind_group,
             blending_bind_group_layout,
             render_pipeline,
-        }
-    }
-}
-
-struct CompositorStage<'dev> {
-    bindings: CpuBindings,
-    buffers: GpuBuffers<'dev>,
-    output: GpuTexture,
-}
-
-impl<'dev> CompositorStage<'dev> {
-    pub fn new(compositor: &CompositorTarget<'dev>) -> Self {
-        Self {
-            bindings: CpuBindings::new(compositor.dev.chunks),
-            buffers: GpuBuffers::new(&compositor.dev),
-            output: compositor.base_composite_texture(),
         }
     }
 }

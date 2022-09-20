@@ -17,11 +17,9 @@ members = [
 zip = "0.6"
 minilzo-rs = "0.6.0"
 plist = "1.3"
-serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 regex = "1.6"
-image = { version = "0.24", features = ["png", "jpeg", "tga", "tiff", "webp", "bmp", "jpeg_rayon"]}
-rayon = "1.5"
+image = { version = "0.24", features = ["png", "jpeg", "tga", "tiff", "webp", "bmp"]}
 once_cell = "1"
 wgpu = "0.13"
 bytemuck = { version = "1.12", features = ["derive"] }
@@ -38,6 +36,8 @@ egui-notify = "0.4.0"
 # Async runtime
 rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
 tokio = { version = "1.21", features = ["sync", "rt", "rt-multi-thread", "time"] }
+futures = "0.3"
+async-recursion = "1.0.0"
 
 [profile.release]
 strip = true

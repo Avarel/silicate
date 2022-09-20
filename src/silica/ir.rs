@@ -1,16 +1,18 @@
 use std::io::Read;
 
 use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingMeta, ZipArchiveMmap};
-use crate::compositor::{dev::LogicalDevice, tex::GpuTexture};
+use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use crate::silica::BlendingMode;
+use async_recursion::async_recursion;
+use futures::StreamExt;
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
+use tokio::sync::Mutex;
 
 pub(super) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
@@ -32,14 +34,14 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
 }
 
 impl SilicaIRLayer<'_> {
-    pub(super) fn load(
+    pub(super) async fn load(
         self,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
         size: Size<u32>,
         file_names: &[&str],
-        dev: &LogicalDevice,
-        gpu_textures: &mut Vec<GpuTexture>,
+        dev: &GpuHandle,
+        gpu_textures: &Mutex<Vec<GpuTexture>>,
     ) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
@@ -51,13 +53,11 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture =
-            GpuTexture::empty(&dev, size.width, size.height, GpuTexture::LAYER_USAGE);
+        let gpu_texture = GpuTexture::empty(&dev, size.width, size.height, GpuTexture::LAYER_USAGE);
 
-        file_names
-            .par_iter()
-            .filter(|path| path.starts_with(&uuid))
-            .try_for_each(|path| -> Result<(), SilicaError> {
+        futures::stream::iter(file_names)
+            .filter(|path| futures::future::ready(path.starts_with(&uuid)))
+            .map(|path| -> Result<(), SilicaError> {
                 let mut archive = archive.clone();
 
                 let chunk_str = &path[uuid.len()..path.find('.').unwrap_or(path.len())];
@@ -65,41 +65,36 @@ impl SilicaIRLayer<'_> {
                 let col = u32::from_str_radix(&captures[1], 10).unwrap();
                 let row = u32::from_str_radix(&captures[2], 10).unwrap();
 
-                let tile_width = (meta.tile_size
-                    - if col != meta.columns - 1 {
-                        0
-                    } else {
-                        meta.diff.width
-                    }) as usize;
-                let tile_height = (meta.tile_size
-                    - if row != meta.rows - 1 {
-                        0
-                    } else {
-                        meta.diff.height
-                    }) as usize;
+                let tile = meta.tile_size(col, row);
 
-                let mut chunk = archive.by_name(path)?;
+                // impossible
+                let mut chunk = archive.by_name(path).expect("path not inside zip");
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let data_len = tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
+                let data_len = tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
                 let mut buf = Vec::with_capacity(data_len);
                 chunk.read_to_end(&mut buf)?;
                 let dst = lzo.decompress_safe(
                     &buf[..],
-                    tile_width * tile_height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
+                    tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
                 )?;
                 gpu_texture.replace(
                     &dev,
                     col * meta.tile_size,
                     row * meta.tile_size,
-                    tile_width as u32,
-                    tile_height as u32,
+                    tile.width as u32,
+                    tile.height as u32,
                     &dst,
                 );
                 Ok(())
-            })?;
+            })
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<(), _>>()?;
 
         let image = {
+            let mut gpu_textures = gpu_textures.lock().await;
             let i = gpu_textures.len();
             gpu_textures.push(gpu_texture);
             i
@@ -157,57 +152,61 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl SilicaIRGroup<'_> {
-    fn load(
-        self,
+    #[async_recursion]
+    async fn load(
+        this: SilicaIRGroup<'async_recursion>,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
         size: Size<u32>,
         file_names: &[&str],
-        render: &LogicalDevice,
-        gpu_textures: &mut Vec<GpuTexture>,
+        render: &GpuHandle,
+        gpu_textures: &Mutex<Vec<GpuTexture>>,
     ) -> Result<SilicaGroup, SilicaError> {
-        let nka = self.nka;
-        let coder = self.coder;
+        let nka = this.nka;
+        let coder = this.coder;
         Ok(SilicaGroup {
             hidden: nka.decode::<bool>(coder, "isHidden")?,
             name: nka.decode::<String>(coder, "name")?,
-            children: self
-                .children
-                // .into_par_iter()
+            children: futures::stream::iter(this.children)
+                .then(|ir| {
+                    SilicaIRHierarchy::load(
+                        ir,
+                        meta,
+                        archive,
+                        size,
+                        file_names,
+                        render,
+                        gpu_textures,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .await
                 .into_iter()
-                .map(|ir| ir.load(meta, archive, size, file_names, render, gpu_textures))
-                .collect::<Result<_, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }
 
 impl SilicaIRHierarchy<'_> {
-    pub(crate) fn load(
-        self,
+    #[async_recursion]
+    pub(crate) async fn load(
+        this: SilicaIRHierarchy<'async_recursion>,
         meta: &TilingMeta,
         archive: &ZipArchiveMmap<'_>,
         size: Size<u32>,
         file_names: &[&str],
-        render: &LogicalDevice,
-        gpu_textures: &mut Vec<GpuTexture>,
+        render: &GpuHandle,
+        gpu_textures: &Mutex<Vec<GpuTexture>>,
     ) -> Result<SilicaHierarchy, SilicaError> {
-        Ok(match self {
-            SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(
-                meta,
-                archive,
-                size,
-                file_names,
-                render,
-                gpu_textures,
-            )?),
-            SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(group.load(
-                meta,
-                archive,
-                size,
-                file_names,
-                render,
-                gpu_textures,
-            )?),
+        Ok(match this {
+            SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(
+                SilicaIRLayer::load(layer, meta, archive, size, file_names, render, gpu_textures)
+                    .await?,
+            ),
+            SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(
+                SilicaIRGroup::load(group, meta, archive, size, file_names, render, gpu_textures)
+                    .await?,
+            ),
         })
     }
 }

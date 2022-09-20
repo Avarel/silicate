@@ -1,4 +1,4 @@
-use crate::compositor::{dev::LogicalDevice, tex::GpuTexture};
+use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::compositor::{BufferDimensions, CompositorTarget};
 use crate::silica::{ProcreateFile, SilicaGroup, SilicaLayer};
 use crate::{
@@ -55,7 +55,7 @@ pub struct CompositorHandle {
 }
 
 async fn load_dialog(
-    dev: &'static LogicalDevice,
+    dev: &'static GpuHandle,
     compositor: &CompositorHandle,
     toasts: &'static Mutex<egui_notify::Toasts>,
 ) {
@@ -64,10 +64,15 @@ async fn load_dialog(
         .pick_file()
         .await
     {
-        if super::load_file(handle.path().to_path_buf(), dev, compositor).await {
-            toasts.lock().success(format!("File {} successfully opened.", handle.file_name()));
+        if let Err(err) = super::load_file(handle.path().to_path_buf(), dev, compositor).await {
+            toasts.lock().error(format!(
+                "File {} failed to load. Reason: {err}",
+                handle.file_name()
+            ));
         } else {
-            toasts.lock().error(format!("File {} failed to load.", handle.file_name()));
+            toasts
+                .lock()
+                .success(format!("File {} successfully opened.", handle.file_name()));
         }
     } else {
         toasts.lock().info("Load cancelled.");
@@ -75,7 +80,7 @@ async fn load_dialog(
 }
 
 async fn save_dialog(
-    dev: &'static LogicalDevice,
+    dev: &'static GpuHandle,
     copied_texture: GpuTexture,
     toasts: &'static Mutex<egui_notify::Toasts>,
 ) {
@@ -91,10 +96,16 @@ async fn save_dialog(
     {
         let dim = BufferDimensions::from_extent(copied_texture.size);
         let path = handle.path().to_path_buf();
-        if copied_texture.export(dev, dim, path).await {
-            toasts.lock().success(format!("File {} successfully exported.", handle.file_name()));
+        if let Err(err) = copied_texture.export(dev, dim, path).await {
+            toasts.lock().error(format!(
+                "File {} failed to export. Reason: {err}.",
+                handle.file_name()
+            ));
         } else {
-            toasts.lock().error(format!("File {} failed to export.", handle.file_name()));
+            toasts.lock().success(format!(
+                "File {} successfully exported.",
+                handle.file_name()
+            ));
         }
     } else {
         toasts.lock().info("Export cancelled.");
@@ -102,7 +113,7 @@ async fn save_dialog(
 }
 
 struct ControlsGui<'a> {
-    dev: &'static LogicalDevice,
+    dev: &'static GpuHandle,
     rt: &'static tokio::runtime::Runtime,
     selected_canvas: &'a InstanceKey,
     compositor: &'static CompositorHandle,
@@ -332,7 +343,7 @@ pub struct ViewOptions {
 }
 
 pub struct ViewerGui {
-    pub dev: &'static LogicalDevice,
+    pub dev: &'static GpuHandle,
     pub rt: &'static tokio::runtime::Runtime,
 
     pub compositor: &'static CompositorHandle,
