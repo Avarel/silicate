@@ -6,7 +6,8 @@ on:
       - master
 
 env:
-  BIN_NAME: procreate-rs
+  BIN_NAME: silicate
+  BUNDLE_NAME: Silicate
 
 jobs:
   dist:
@@ -79,16 +80,25 @@ jobs:
           command: build
           args: --release --locked --target ${{ matrix.target }}
 
+      - name: Build macOS bundle
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: bundle
+          args: --release --target ${{ matrix.target }}
+
       - name: Build archive
         shell: bash
         run: |
           mkdir dist
-          if [ "${{ matrix.os }}" = "windows-2019" ]; then
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.app" "dist/"
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
           fi
       - uses: actions/upload-artifact@v2.2.4
         with:
-          name: bins-${{ matrix.build }}
+          name: release-${{ matrix.build }}
           path: dist

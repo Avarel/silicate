@@ -1,7 +1,12 @@
 [package]
-name = "procreate-rs"
+name = "silicate"
 version = "0.1.0"
 edition = "2021"
+authors = ["An Tran <antran@caltech.edu>"]
+description = "Cross-platform GPU-accelerated Procreate file viewer.s"
+readme = "README.md"
+repository = "https://github.com/Avarel/procreate-rs"
+license = "MIT"
 
 [workspace]
 members = [
@@ -39,3 +44,12 @@ strip = true
 lto = true
 panic = "abort"
 codegen-units = 1
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[package.metadata.bundle]
+name = "Silicate"
+identifier = "io.antran.silicate"
+icon = ["assets/icon.ico"]
+category = "Utility"

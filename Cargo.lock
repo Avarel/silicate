@@ -2191,33 +2191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "procreate-rs"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "egui",
- "egui-notify",
- "egui-wgpu",
- "egui-winit",
- "egui_dock",
- "image",
- "memmap2",
- "minilzo-rs",
- "once_cell",
- "parking_lot",
- "plist",
- "rayon",
- "regex",
- "rfd",
- "serde",
- "thiserror",
- "tokio",
- "wgpu",
- "winit",
- "zip",
-]
-
-[[package]]
 name = "profiling"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2542,6 +2515,34 @@ checksum = "5a9e7e0f2bfae24d8a5b5a66c5b257a83c7412304311512a0c054cd5e619da11"
 dependencies = [
  "lazy_static",
  "libc",
+]
+
+[[package]]
+name = "silicate"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui-notify",
+ "egui-wgpu",
+ "egui-winit",
+ "egui_dock",
+ "image",
+ "memmap2",
+ "minilzo-rs",
+ "once_cell",
+ "parking_lot",
+ "plist",
+ "rayon",
+ "regex",
+ "rfd",
+ "serde",
+ "thiserror",
+ "tokio",
+ "wgpu",
+ "winit",
+ "winres",
+ "zip",
 ]
 
 [[package]]
@@ -3396,6 +3397,15 @@ dependencies = [
  "web-sys",
  "windows-sys",
  "x11-dl",
+]
+
+[[package]]
+name = "winres"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b68db261ef59e9e52806f688020631e987592bd83619edccda9c47d42cde4f6c"
+dependencies = [
+ "toml",
 ]
 
 [[package]]

@@ -15,13 +15,17 @@ const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
 fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoopBuilder::new().build();
 
+    let taskbar_icon =
+        winit::window::Icon::from_rgba(include_bytes!("../assets/icon.rgba").to_vec(), 240, 240)
+            .ok();
+
     let window = WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)
         .with_transparent(false)
         .with_title("Procreate Viewer")
         .with_inner_size(INITIAL_SIZE)
-        // .with_window_icon(taskbar_icon)
+        .with_window_icon(taskbar_icon)
         .build(&event_loop)?;
 
     gui::start_gui(window, event_loop)
