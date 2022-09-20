@@ -1,8 +1,9 @@
 # Silicate - Procreate File Renderer
 
-<center>
-  <img src="media/windows.png" width="600"/>
-</center>
+<p align="center">
+  <img src="media/windows.png" width="400"/>
+  <img src="media/macos.png" width="400"/>
+</p>
 
 Cross-platform native viewer for `.procreate` files. There is a 
 `reference.procreate` file in the base directory for users to try.
