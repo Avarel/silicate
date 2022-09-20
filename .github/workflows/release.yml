@@ -38,18 +38,10 @@ jobs:
         #   rust: stable
         #   target: aarch64-apple-darwin
         # - build: aarch64-linux
-        #   os: ubuntu-20.04
+        #   os: ubuntu-latest
         #   rust: stable
         #   target: aarch64-unknown-linux-gnu
         #   cross: true
-        # - build: x86_64-win-gnu
-        #   os: windows-2019
-        #   rust: stable-x86_64-gnu
-        #   target: x86_64-pc-windows-gnu
-        # - build: win32-msvc
-        #   os: windows-2019
-        #   rust: stable
-        #   target: i686-pc-windows-msvc
 
     steps:
       - name: Checkout sources
@@ -74,13 +66,6 @@ jobs:
           command: install
           args: cargo-bundle
 
-      # - name: Run cargo test
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     use-cross: ${{ matrix.cross }}
-      #     command: test
-      #     args: --release --locked --target ${{ matrix.target }}
-
       - name: Build release binary
         uses: actions-rs/cargo@v1
         with:
@@ -96,6 +81,14 @@ jobs:
           command: bundle
           args: --release --target ${{ matrix.target }}
 
+      - name: Package macOS DMG
+        shell: bash
+        if: matrix.os == 'macos-latest'
+        run: >-
+            hdiutil create "target/${{ matrix.target }}/release/bundle/osx/Silicate.dmg"
+            -volname "Silicate"
+            -srcfolder "target/${{ matrix.target }}/release/bundle/osx/Silicate.app" -ov
+
       - name: Build archive
         shell: bash
         run: |
@@ -103,7 +96,7 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            cp -R "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.app" "dist/"
+            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.dmg" "dist/"
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
           fi
