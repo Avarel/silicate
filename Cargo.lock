@@ -2544,6 +2544,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "psd",
+ "rayon",
  "regex",
  "rfd",
  "thiserror",

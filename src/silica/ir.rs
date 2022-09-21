@@ -5,14 +5,13 @@ use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use crate::silica::BlendingMode;
-use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt};
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use plist::{Dictionary, Value};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
-use tokio::sync::Mutex;
 
 pub(super) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
@@ -44,10 +43,7 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
 }
 
 impl SilicaIRLayer<'_> {
-    pub(super) async fn load(
-        self,
-        meta: &IRData<'_>,
-    ) -> Result<SilicaLayer, SilicaError> {
+    pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
         let uuid = nka.decode::<String>(coder, "UUID")?;
@@ -58,10 +54,16 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture = GpuTexture::empty(&meta.render, meta.size.width, meta.size.height, GpuTexture::LAYER_USAGE);
+        let gpu_texture = GpuTexture::empty(
+            &meta.render,
+            meta.size.width,
+            meta.size.height,
+            GpuTexture::LAYER_USAGE,
+        );
 
-        futures::stream::iter(meta.file_names)
-            .filter(|path| futures::future::ready(path.starts_with(&uuid)))
+        meta.file_names
+            .into_par_iter()
+            .filter(|path| path.starts_with(&uuid))
             .map(|path| -> Result<(), SilicaError> {
                 let mut archive = meta.archive.clone();
 
@@ -93,13 +95,10 @@ impl SilicaIRLayer<'_> {
                 );
                 Ok(())
             })
-            .collect::<Vec<_>>()
-            .await
-            .into_iter()
             .collect::<Result<(), _>>()?;
 
         let image = {
-            let mut gpu_textures = meta.gpu_textures.lock().await;
+            let mut gpu_textures = meta.gpu_textures.lock();
             let i = gpu_textures.len();
             gpu_textures.push(gpu_texture);
             i
@@ -157,47 +156,26 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
-    fn load(
-        self,
-        meta: &'a IRData<'a>,
-    ) -> BoxFuture<'a, Result<SilicaGroup, SilicaError>> {
-        async move {
-            let nka = self.nka;
-            let coder = self.coder;
-            Ok(SilicaGroup {
-                hidden: nka.decode::<bool>(coder, "isHidden")?,
-                name: nka.decode::<String>(coder, "name")?,
-                children: futures::stream::iter(self.children)
-                    .then(|ir| ir.load(meta))
-                    .collect::<Vec<_>>()
-                    .await
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()?,
-            })
-        }
-        .boxed()
+    fn load(self, meta: &'a IRData<'a>) -> Result<SilicaGroup, SilicaError> {
+        let nka = self.nka;
+        let coder = self.coder;
+        Ok(SilicaGroup {
+            hidden: nka.decode::<bool>(coder, "isHidden")?,
+            name: nka.decode::<String>(coder, "name")?,
+            children: self
+                .children
+                .into_par_iter()
+                .map(|ir| ir.load(meta))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
-    pub(crate) fn load(
-        self,
-        meta: &'a IRData<'a>,
-    ) -> BoxFuture<'a, Result<SilicaHierarchy, SilicaError>> {
-        async move {
-            Ok(match self {
-                SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(
-                    layer
-                        .load(meta)
-                        .await?,
-                ),
-                SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(
-                    group
-                        .load(meta)
-                        .await?,
-                ),
-            })
-        }
-        .boxed()
+    pub(crate) fn load(self, meta: &'a IRData<'a>) -> Result<SilicaHierarchy, SilicaError> {
+        Ok(match self {
+            SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(meta)?),
+            SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(group.load(meta)?),
+        })
     }
 }

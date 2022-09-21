@@ -101,7 +101,9 @@ pub async fn load_file(
     dev: &'static GpuHandle,
     compositor: &CompositorHandle,
 ) -> Result<InstanceKey, SilicaError> {
-    let (file, textures) = ProcreateFile::open(path, dev).await?;
+    let (file, textures) = tokio::task::spawn_blocking(|| ProcreateFile::open(path, dev))
+        .await
+        .unwrap()?;
     let mut target = CompositorTarget::new(dev);
     target.flip_vertices(file.flipped.horizontally, file.flipped.vertically);
     target.set_dimensions(file.size.width, file.size.height);
@@ -141,6 +143,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 .build()
                 .unwrap(),
         );
+
         let (dev, surface) = rt.block_on(GpuHandle::with_window(&window)).unwrap();
         let dev = leak(dev);
         let compositor = leak(CompositorHandle {

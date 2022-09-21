@@ -3,13 +3,12 @@ mod ir;
 use self::ir::{IRData, SilicaIRHierarchy, SilicaIRLayer};
 use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
-use futures::StreamExt;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
-use tokio::sync::Mutex;
 use zip::read::ZipArchive;
 
 #[derive(Error, Debug)]
@@ -298,13 +297,13 @@ type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
     // Load a Procreate file asynchronously.
-    pub async fn open<P: AsRef<Path>>(
+    pub fn open<P: AsRef<Path>>(
         p: P,
         dev: &GpuHandle,
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         #[cfg(feature = "psd")]
         if p.as_ref().extension().map(|e| e == "psd").unwrap_or(false) {
-            return Self::open_psd(p, dev).await;
+            return Self::open_psd(p, dev);
         }
 
         let path = p.as_ref();
@@ -322,10 +321,10 @@ impl ProcreateFile {
             NsKeyedArchive::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, nka, dev).await
+        Self::from_ns(archive, nka, dev)
     }
 
-    async fn from_ns(
+    fn from_ns(
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dev: &GpuHandle,
@@ -349,7 +348,7 @@ impl ProcreateFile {
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
-        let gpu_textures = Mutex::new(Vec::new());
+        let gpu_textures = parking_lot::Mutex::new(Vec::new());
 
         let ir_data = IRData {
             tile: &tile,
@@ -387,20 +386,16 @@ impl ProcreateFile {
                 composite: nka
                     .decode::<SilicaIRLayer>(root, "composite")?
                     .load(&ir_data)
-                    .await
                     .ok(),
                 layers: SilicaGroup {
                     hidden: false,
                     name: String::from("Root Layer"),
-                    children: futures::stream::iter(
-                        nka.decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
-                            .objects,
-                    )
-                    .then(|ir| ir.load(&ir_data))
-                    .collect::<Vec<_>>()
-                    .await
-                    .into_iter()
-                    .collect::<Result<_, _>>()?,
+                    children: nka
+                        .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+                        .objects
+                        .into_par_iter()
+                        .map(|ir| ir.load(&ir_data))
+                        .collect::<Result<_, _>>()?,
                 },
             },
             gpu_textures.into_inner(),
@@ -408,7 +403,7 @@ impl ProcreateFile {
     }
 
     #[cfg(feature = "psd")]
-    pub async fn open_psd<P: AsRef<Path>>(
+    pub fn open_psd<P: AsRef<Path>>(
         p: P,
         dev: &GpuHandle,
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
@@ -417,9 +412,7 @@ impl ProcreateFile {
 
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
 
-        let psd = tokio::task::spawn_blocking(move || psd::Psd::from_bytes(&mapping[..]))
-            .await
-            .unwrap()?;
+        let psd = psd::Psd::from_bytes(&mapping[..])?;
 
         // for (id, group) in psd.groups() {
         //     dbg!(id, group);
@@ -473,42 +466,51 @@ impl ProcreateFile {
             }
         }
 
-        let mut layers = Vec::new();
-        let mut textures = Vec::new();
-        for (idx, layer) in psd.layers().into_iter().enumerate() {
-            layers.push(SilicaHierarchy::Layer(SilicaLayer {
-                blend: blend_convert(layer.blend_mode() as usize),
-                clipped: false,
-                hidden: layer.visible(),
-                mask: None,
-                name: Some(layer.name().to_owned()),
-                opacity: (layer.opacity() as f32) / 255.0,
-                size: Size {
-                    width: u32::from(layer.width()),
-                    height: u32::from(layer.height()),
-                },
-                uuid: String::new(),
-                version: 0,
-                image: idx,
-            }));
+        let textures = parking_lot::Mutex::new(Vec::new());
 
-            let texture =
-                GpuTexture::empty(dev, psd.width(), psd.height(), GpuTexture::LAYER_USAGE);
-            texture.replace(
-                dev,
-                (layer.layer_left()) as u32,
-                (layer.layer_top()) as u32,
-                (layer.layer_right() - layer.layer_left()) as u32,
-                (layer.layer_bottom() - layer.layer_top()) as u32,
-                &layer.rgba(),
-            );
-            textures.push(texture);
-            eprintln!("Loaded {}", layer.name());
-        }
+        let layers = psd
+            .layers()
+            .into_par_iter()
+            .map(|layer| {
+                let texture =
+                    GpuTexture::empty(dev, psd.width(), psd.height(), GpuTexture::LAYER_USAGE);
+                texture.replace(
+                    dev,
+                    (layer.layer_left()) as u32,
+                    (layer.layer_top()) as u32,
+                    layer.width() as u32,
+                    layer.height() as u32,
+                    &layer.rgba(),
+                );
+
+                let idx = {
+                    let mut textures = textures.lock();
+                    let idx = textures.len();
+                    textures.push(texture);
+                    idx
+                };
+
+                SilicaHierarchy::Layer(SilicaLayer {
+                    blend: blend_convert(layer.blend_mode() as usize),
+                    clipped: false,
+                    hidden: layer.visible(),
+                    mask: None,
+                    name: Some(layer.name().to_owned()),
+                    opacity: (layer.opacity() as f32) / 255.0,
+                    size: Size {
+                        width: u32::from(layer.width()),
+                        height: u32::from(layer.height()),
+                    },
+                    uuid: String::new(),
+                    version: 0,
+                    image: idx,
+                })
+            })
+            .collect::<Vec<_>>();
 
         let file = ProcreateFile {
             author_name: None,
-            background_hidden: false,
+            background_hidden: true,
             background_color: [1.0; 4],
             flipped: Flipped {
                 horizontally: false,
@@ -524,9 +526,12 @@ impl ProcreateFile {
             stroke_count: 0,
             tile_size: 0,
             composite: None,
-            size: Size { width: psd.width(), height: psd.height() },
+            size: Size {
+                width: psd.width(),
+                height: psd.height(),
+            },
         };
 
-        Ok((file, textures))
+        Ok((file, textures.into_inner()))
     }
 }

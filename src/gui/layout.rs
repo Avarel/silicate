@@ -342,7 +342,7 @@ impl ControlsGui<'_> {
                 let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
                 changed |= ui.color_edit_button_rgb(bg).changed();
             });
-            
+
             ui.separator();
 
             let mut i = 0;
