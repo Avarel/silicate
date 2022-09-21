@@ -2,16 +2,34 @@
 name: Build Releases
 on:
   push:
-    branches:
-      - master
+    tags:
+      - "v*.*.*"
 
 env:
   BIN_NAME: silicate
   BUNDLE_NAME: Silicate
 
 jobs:
-  dist:
-    name: Build
+  release_job:
+    name: Create release
+    runs-on: ubuntu-18.04
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+    - name: Create release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: true
+
+  build_job:
+    name: Build release
+    needs: release_job
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # don't fail other jobs if one fails
@@ -94,13 +112,25 @@ jobs:
         run: |
           mkdir dist
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/$BUNDLE_NAME.exe"
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.dmg" "dist/"
+            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.dmg" "dist/$BUNDLE_NAME.dmg"
           else
-            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/$BUNDLE_NAME"
           fi
-      - uses: actions/upload-artifact@v2.2.4
+
+      - name: Upload Windows Release
+        uses: softprops/action-gh-release@v1
+        if: matrix.os == 'windows-latest'
         with:
-          name: release-${{ matrix.build }}
-          path: dist
+          files: dist/${{ env.BUNDLE_NAME }}.exe
+      - name: Upload macOS Release
+        uses: softprops/action-gh-release@v1
+        if: matrix.os == 'macos-latest'
+        with:
+          files: dist/${{ env.BUNDLE_NAME }}.dmg
+      - name: Upload Linux Release
+        uses: softprops/action-gh-release@v1
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          files: dist/${{ env.BUNDLE_NAME }}

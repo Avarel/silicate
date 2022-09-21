@@ -64,10 +64,18 @@ pub struct CompositorHandle {
 }
 
 async fn load_dialog(statics: StaticRefs, node_index: NodeIndex) {
-    if let Some(handle) = rfd::AsyncFileDialog::new()
-        .add_filter("Procreate Files", &["procreate"])
-        .pick_file()
-        .await
+    if let Some(handle) = {
+        let mut dialog = rfd::AsyncFileDialog::new();
+        dialog = dialog.add_filter("All Files", &["*"]);
+        dialog = dialog.add_filter("Procreate Files", &["procreate"]);
+        #[cfg(feature = "psd")]
+        {
+            dialog = dialog.add_filter("Photoshop Files", &["psd"]);
+        }
+        dialog
+    }
+    .pick_file()
+    .await
     {
         match super::load_file(handle.path().to_path_buf(), statics.dev, statics.compositor).await {
             Err(err) => {
