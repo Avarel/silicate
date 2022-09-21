@@ -1,5 +1,5 @@
 
-name: Build Releases
+name: Master
 on:
   push:
     branches:
@@ -7,7 +7,6 @@ on:
 
 env:
   BIN_NAME: silicate
-  BUNDLE_NAME: Silicate
 
 jobs:
   build_job:
@@ -70,9 +69,9 @@ jobs:
         run: |
           mkdir dist
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
+            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" "dist/"
           else
-            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
+            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "dist/"
           fi
 
       - name: Upload build artifacts

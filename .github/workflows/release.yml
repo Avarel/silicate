@@ -1,5 +1,5 @@
 
-name: Build Releases
+name: Releases
 on:
   push:
     tags:
@@ -41,16 +41,19 @@ jobs:
           rust: stable
           target: x86_64-unknown-linux-gnu
           cross: false
+          bundle: silicate
         - build: x86_64-macos
           os: macos-latest
           rust: stable
           target: x86_64-apple-darwin
           cross: false
+          bundle: Silicate.dmg
         - build: x86_64-windows
           os: windows-latest
           rust: stable
           target: x86_64-pc-windows-msvc
           cross: false
+          bundle: Silicate.exe
         # - build: aarch64-macos
         #   os: macos-latest
         #   rust: stable
@@ -103,34 +106,24 @@ jobs:
         shell: bash
         if: matrix.os == 'macos-latest'
         run: >-
-            hdiutil create "target/${{ matrix.target }}/release/bundle/osx/Silicate.dmg"
-            -volname "Silicate"
-            -srcfolder "target/${{ matrix.target }}/release/bundle/osx/Silicate.app" -ov
+            hdiutil create "target/${{ matrix.target }}/release/bundle/osx/${{ matrix.bundle }}"
+            -volname "${{ env.BUNDLE_NAME }}"
+            -srcfolder "target/${{ matrix.target }}/release/bundle/osx/${{ env.BUNDLE_NAME }}.app" -ov
 
       - name: Build archive
         shell: bash
         run: |
           mkdir dist
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/$BUNDLE_NAME.exe"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/${{ matrix.bundle }}"
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            cp "target/${{ matrix.target }}/release/bundle/osx/$BUNDLE_NAME.dmg" "dist/$BUNDLE_NAME.dmg"
+            cp "target/${{ matrix.target }}/release/bundle/osx/${{ matrix.bundle }}" "dist/${{ matrix.bundle }}"
           else
-            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/$BUNDLE_NAME"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/${{ matrix.bundle }}"
           fi
 
-      - name: Upload Windows Release
+      - name: Upload Release
         uses: softprops/action-gh-release@v1
         if: matrix.os == 'windows-latest'
         with:
-          files: dist/${{ env.BUNDLE_NAME }}.exe
-      - name: Upload macOS Release
-        uses: softprops/action-gh-release@v1
-        if: matrix.os == 'macos-latest'
-        with:
-          files: dist/${{ env.BUNDLE_NAME }}.dmg
-      - name: Upload Linux Release
-        uses: softprops/action-gh-release@v1
-        if: matrix.os == 'ubuntu-latest'
-        with:
-          files: dist/${{ env.BUNDLE_NAME }}
+          files: dist/${{ matrix.bundle }}
