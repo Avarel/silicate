@@ -213,17 +213,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-recursion"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cda8f4bcc10624c4e85bc66b3f452cca98cfa5ca002dc83a16aad2367641bea"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "async-task"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2208,6 +2197,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f61dcf0b917cd75d4521d7343d1ffff3d1583054133c9b5cbea3375c703c40d"
 
 [[package]]
+name = "psd"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1316f4ee59cdc95fc98e4e892a7edacaf1575620ca9e96abd421a2766fe45984"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2532,7 +2530,6 @@ dependencies = [
 name = "silicate"
 version = "0.1.0"
 dependencies = [
- "async-recursion 1.0.0",
  "bytemuck",
  "egui",
  "egui-notify",
@@ -2546,6 +2543,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "plist",
+ "psd",
  "regex",
  "rfd",
  "thiserror",
@@ -3477,7 +3475,7 @@ dependencies = [
  "async-executor",
  "async-io",
  "async-lock",
- "async-recursion 0.3.2",
+ "async-recursion",
  "async-task",
  "async-trait",
  "byteorder",

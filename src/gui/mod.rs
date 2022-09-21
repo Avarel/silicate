@@ -205,11 +205,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 ViewerTab::ViewControls,
                 ViewerTab::CanvasControls,
             ]);
-            tree.split_below(
-                NodeIndex::root(),
-                0.4,
-                vec![ViewerTab::Hierarchy],
-            );
+            tree.split_below(NodeIndex::root(), 0.4, vec![ViewerTab::Hierarchy]);
             tree
         },
         queued_remove: None,
@@ -238,14 +234,19 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
                         rt.spawn(async move {
-                            if let Err(err) =
-                                load_file(file, &statics.dev, statics.compositor).await
-                            {
-                                statics.toasts.lock().error(format!(
-                                    "File from drag/drop failed to load. Reason: {err}"
-                                ));
-                            } else {
-                                statics.toasts.lock().success("Loaded file from drag/drop.");
+                            match load_file(file, &statics.dev, statics.compositor).await {
+                                Err(err) => {
+                                    statics.toasts.lock().error(format!(
+                                        "File from drag/drop failed to load. Reason: {err}"
+                                    ));
+                                }
+                                Ok(key) => {
+                                    statics.toasts.lock().success("Loaded file from drag/drop.");
+                                    statics
+                                        .added_instances
+                                        .lock()
+                                        .push((egui_dock::NodeIndex::root(), key));
+                                }
                             }
                         });
                     }

@@ -1,0 +1,50 @@
+   Compiling silicate v0.1.0 (C:\Users\antra\Projects\procreate-rs)
+warning: unused variable: `file`
+   --> src\silica\mod.rs:508:13
+    |
+508 |         let file = ProcreateFile {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_file`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `silicate` (bin "silicate") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 4.17s
+     Running `target\debug\silicate.exe`
+[src\compositor\dev.rs:53] adapter.get_info() = AdapterInfo {
+    name: "NVIDIA GeForce RTX 3070 Laptop GPU",
+    vendor: 4318,
+    device: 9373,
+    device_type: DiscreteGpu,
+    backend: Vulkan,
+}
+[src\compositor\dev.rs:54] adapter.limits() = Limits {
+    max_texture_dimension_1d: 32768,
+    max_texture_dimension_2d: 32768,
+    max_texture_dimension_3d: 16384,
+    max_texture_array_layers: 2048,
+    max_bind_groups: 8,
+    max_dynamic_uniform_buffers_per_pipeline_layout: 15,
+    max_dynamic_storage_buffers_per_pipeline_layout: 16,
+    max_sampled_textures_per_shader_stage: 1048576,
+    max_samplers_per_shader_stage: 1048576,
+    max_storage_buffers_per_shader_stage: 1048576,
+    max_storage_textures_per_shader_stage: 1048576,
+    max_uniform_buffers_per_shader_stage: 1048576,
+    max_uniform_buffer_binding_size: 65536,
+    max_storage_buffer_binding_size: 2147483648,
+    max_vertex_buffers: 16,
+    max_vertex_attributes: 32,
+    max_vertex_buffer_array_stride: 2048,
+    max_push_constant_size: 256,
+    min_uniform_buffer_offset_alignment: 64,
+    min_storage_buffer_offset_alignment: 16,
+    max_inter_stage_shader_components: 128,
+    max_compute_workgroup_storage_size: 49152,
+    max_compute_invocations_per_workgroup: 1024,
+    max_compute_workgroup_size_x: 1024,
+    max_compute_workgroup_size_y: 1024,
+    max_compute_workgroup_size_z: 64,
+    max_compute_workgroups_per_dimension: 65535,
+    max_buffer_size: 18446744073709551615,
+}
+[src\compositor\dev.rs:55] chunks = 32

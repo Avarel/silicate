@@ -2,6 +2,7 @@
 
 /out
 *.procreate
+*.psd
 
 # General
 .DS_Store

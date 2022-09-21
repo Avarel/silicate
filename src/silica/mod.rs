@@ -1,6 +1,6 @@
 mod ir;
 
-use self::ir::{SilicaIRHierarchy, SilicaIRLayer};
+use self::ir::{IRData, SilicaIRHierarchy, SilicaIRLayer};
 use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
 use futures::StreamExt;
@@ -26,6 +26,9 @@ pub enum SilicaError {
     NsArchiveError(#[from] NsArchiveError),
     #[error("Invalid values in file")]
     InvalidValue,
+    #[cfg(feature = "psd")]
+    #[error("PSD loading error")]
+    PsdError(#[from] psd::PsdError),
     #[error("Unknown decoding error")]
     #[allow(dead_code)]
     Unknown,
@@ -168,23 +171,23 @@ impl BlendingMode {
     }
 }
 
-struct TilingMeta {
+struct TilingData {
     columns: u32,
     rows: u32,
     diff: Size<u32>,
-    tile_size: u32,
+    size: u32,
 }
 
-impl TilingMeta {
+impl TilingData {
     pub fn tile_size(&self, col: u32, row: u32) -> Size<usize> {
         Size {
-            width: (self.tile_size
+            width: (self.size
                 - if col != self.columns - 1 {
                     0
                 } else {
                     self.diff.width
                 }) as usize,
-            height: (self.tile_size
+            height: (self.size
                 - if row != self.rows - 1 {
                     0
                 } else {
@@ -202,26 +205,20 @@ pub struct Flipped {
 
 #[derive(Debug)]
 pub struct ProcreateFile {
-    // animation:ValkyrieDocumentAnimation?
     pub author_name: Option<String>,
     pub background_hidden: bool,
     pub background_color: [f32; 4],
-    //     backgroundColorHSBA:Data?
     //     closedCleanlyKey:Bool?
     //     colorProfile:ValkyrieColorProfile?
-    //     composite:SilicaLayer?
+
     // //  public var drawingguide
     //     faceBackgroundHidden:Bool?
-    //     featureSet:Int? = 1
+    //     1 => BlendingMode::featureSet:Int?
     pub flipped: Flipped,
-    //     isFirstItemAnimationForeground:Bool?
-    //     isLastItemAnimationBackground:Bool?
-    // //  public var lastTextStyling
     pub layers: SilicaGroup,
     //     mask:SilicaLayer?
     pub name: Option<String>,
     pub orientation: u32,
-    //     orientation:Int?
     //     primaryItem:Any?
     // //  skipping a bunch of reference window related stuff here
     //     selectedLayer:Any?
@@ -239,7 +236,7 @@ pub struct ProcreateFile {
     //     videoResolutionKey: String?
     //     videoDuration: String? = "Calculating..."
     pub tile_size: u32,
-    pub composite: SilicaLayer,
+    pub composite: Option<SilicaLayer>,
     pub size: Size<u32>,
 }
 
@@ -281,7 +278,7 @@ pub struct SilicaLayer {
     // extendedBlend:Int?
     pub hidden: bool,
     // locked:Bool?
-    pub mask: Option<Box<usize>>,
+    pub mask: Option<usize>,
     pub name: Option<String>,
     pub opacity: f32,
     // perspectiveAssisted:Bool?
@@ -305,6 +302,11 @@ impl ProcreateFile {
         p: P,
         dev: &GpuHandle,
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
+        #[cfg(feature = "psd")]
+        if p.as_ref().extension().map(|e| e == "psd").unwrap_or(false) {
+            return Self::open_psd(p, dev).await;
+        }
+
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -335,19 +337,28 @@ impl ProcreateFile {
         let columns = (size.width + tile_size - 1) / tile_size;
         let rows = (size.height + tile_size - 1) / tile_size;
 
-        let meta = TilingMeta {
+        let tile = TilingData {
             columns,
             rows,
             diff: Size {
                 width: columns * tile_size - size.width,
                 height: rows * tile_size - size.height,
             },
-            tile_size,
+            size: tile_size,
         };
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
         let gpu_textures = Mutex::new(Vec::new());
+
+        let ir_data = IRData {
+            tile: &tile,
+            archive: &archive,
+            size,
+            file_names: &file_names,
+            render: dev,
+            gpu_textures: &gpu_textures,
+        };
 
         Ok((
             Self {
@@ -375,8 +386,9 @@ impl ProcreateFile {
                 size,
                 composite: nka
                     .decode::<SilicaIRLayer>(root, "composite")?
-                    .load(&meta, &archive, size, &file_names, dev, &gpu_textures)
-                    .await?,
+                    .load(&ir_data)
+                    .await
+                    .ok(),
                 layers: SilicaGroup {
                     hidden: false,
                     name: String::from("Root Layer"),
@@ -384,17 +396,7 @@ impl ProcreateFile {
                         nka.decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
                             .objects,
                     )
-                    .then(|ir| {
-                        SilicaIRHierarchy::load(
-                            ir,
-                            &meta,
-                            &archive,
-                            size,
-                            &file_names,
-                            dev,
-                            &gpu_textures,
-                        )
-                    })
+                    .then(|ir| ir.load(&ir_data))
                     .collect::<Vec<_>>()
                     .await
                     .into_iter()
@@ -403,5 +405,128 @@ impl ProcreateFile {
             },
             gpu_textures.into_inner(),
         ))
+    }
+
+    #[cfg(feature = "psd")]
+    pub async fn open_psd<P: AsRef<Path>>(
+        p: P,
+        dev: &GpuHandle,
+    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
+        let path = p.as_ref();
+        let file = OpenOptions::new().read(true).write(false).open(path)?;
+
+        let mapping = unsafe { memmap2::Mmap::map(&file)? };
+
+        let psd = tokio::task::spawn_blocking(move || psd::Psd::from_bytes(&mapping[..]))
+            .await
+            .unwrap()?;
+
+        // for (id, group) in psd.groups() {
+        //     dbg!(id, group);
+        //     dbg!(group.name());
+        // }
+
+        // for layer in psd.layers() {
+        //     dbg!(layer.name());
+        //     dbg!(layer.blend_mode(), layer.is_clipping_mask());
+        //     dbg!(layer.opacity(), layer.visible());
+        //     dbg!(layer.width(), layer.height());
+        //     dbg!(
+        //         layer.layer_top(),
+        //         layer.layer_left(),
+        //         layer.layer_right(),
+        //         layer.layer_bottom()
+        //     );
+        // }
+
+        fn blend_convert(psd_blend: usize) -> BlendingMode {
+            match psd_blend {
+                // 0 => BlendingMode::PassThrough,
+                1 => BlendingMode::Normal,
+                // 2 => BlendingMode::Dissolve,
+                3 => BlendingMode::Darken,
+                4 => BlendingMode::Multiply,
+                5 => BlendingMode::ColorBurn,
+                6 => BlendingMode::LinearBurn,
+                7 => BlendingMode::DarkerColor,
+                8 => BlendingMode::Lighten,
+                9 => BlendingMode::Screen,
+                10 => BlendingMode::ColorDodge,
+                // 11 => BlendingMode::LinearDodge,
+                12 => BlendingMode::LighterColor,
+                13 => BlendingMode::Overlay,
+                14 => BlendingMode::SoftLight,
+                15 => BlendingMode::HardLight,
+                16 => BlendingMode::VividLight,
+                17 => BlendingMode::LinearLight,
+                18 => BlendingMode::PinLight,
+                19 => BlendingMode::HardMix,
+                20 => BlendingMode::Difference,
+                21 => BlendingMode::Exclusion,
+                22 => BlendingMode::Subtract,
+                23 => BlendingMode::Divide,
+                24 => BlendingMode::Hue,
+                25 => BlendingMode::Saturation,
+                26 => BlendingMode::Color,
+                27 => BlendingMode::Luminosity,
+                _ => BlendingMode::Normal,
+            }
+        }
+
+        let mut layers = Vec::new();
+        let mut textures = Vec::new();
+        for (idx, layer) in psd.layers().into_iter().enumerate() {
+            layers.push(SilicaHierarchy::Layer(SilicaLayer {
+                blend: blend_convert(layer.blend_mode() as usize),
+                clipped: false,
+                hidden: layer.visible(),
+                mask: None,
+                name: Some(layer.name().to_owned()),
+                opacity: (layer.opacity() as f32) / 255.0,
+                size: Size {
+                    width: u32::from(layer.width()),
+                    height: u32::from(layer.height()),
+                },
+                uuid: String::new(),
+                version: 0,
+                image: idx,
+            }));
+
+            let texture =
+                GpuTexture::empty(dev, psd.width(), psd.height(), GpuTexture::LAYER_USAGE);
+            texture.replace(
+                dev,
+                (layer.layer_left()) as u32,
+                (layer.layer_top()) as u32,
+                (layer.layer_right() - layer.layer_left()) as u32,
+                (layer.layer_bottom() - layer.layer_top()) as u32,
+                &layer.rgba(),
+            );
+            textures.push(texture);
+            eprintln!("Loaded {}", layer.name());
+        }
+
+        let file = ProcreateFile {
+            author_name: None,
+            background_hidden: false,
+            background_color: [1.0; 4],
+            flipped: Flipped {
+                horizontally: false,
+                vertically: false,
+            },
+            layers: SilicaGroup {
+                hidden: false,
+                children: layers,
+                name: String::from("Root Layer"),
+            },
+            name: None,
+            orientation: 0,
+            stroke_count: 0,
+            tile_size: 0,
+            composite: None,
+            size: Size { width: psd.width(), height: psd.height() },
+        };
+
+        Ok((file, textures))
     }
 }
