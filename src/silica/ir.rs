@@ -34,10 +34,10 @@ pub(super) struct IRData<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
         Ok(Self {
             nka,
-            coder: <&'a Dictionary>::decode(nka, val)?,
+            coder: <&'a Dictionary>::decode(nka, key, val)?,
         })
     }
 }
@@ -46,7 +46,7 @@ impl SilicaIRLayer<'_> {
     pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
-        let uuid = nka.decode::<String>(coder, "UUID")?;
+        let uuid = nka.fetch::<String>(coder, "UUID")?;
 
         static INSTANCE: OnceCell<Regex> = OnceCell::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
@@ -106,18 +106,18 @@ impl SilicaIRLayer<'_> {
 
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(
-                nka.decode_nullable::<u32>(coder, "extendedBlend")
+                nka.fetch::<Option<u32>>(coder, "extendedBlend")
                     .transpose()
-                    .unwrap_or_else(|| nka.decode::<u32>(coder, "blend"))?,
+                    .unwrap_or_else(|| nka.fetch::<u32>(coder, "blend"))?,
             )?,
-            clipped: nka.decode::<bool>(coder, "clipped")?,
-            hidden: nka.decode::<bool>(coder, "hidden")?,
+            clipped: nka.fetch::<bool>(coder, "clipped")?,
+            hidden: nka.fetch::<bool>(coder, "hidden")?,
             mask: None,
-            name: nka.decode_nullable::<String>(coder, "name")?,
-            opacity: nka.decode::<f32>(coder, "opacity")?,
+            name: nka.fetch::<Option<String>>(coder, "name")?,
+            opacity: nka.fetch::<f32>(coder, "opacity")?,
             size: meta.size,
             uuid,
-            version: nka.decode::<u64>(coder, "version")?,
+            version: nka.fetch::<u64>(coder, "version")?,
             image,
         })
     }
@@ -130,27 +130,27 @@ pub(super) struct SilicaIRGroup<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
-        let coder = <&'a Dictionary>::decode(nka, val)?;
+    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+        let coder = <&'a Dictionary>::decode(nka, key, val)?;
         Ok(Self {
             nka,
             coder,
             children: nka
-                .decode::<WrappedArray<SilicaIRHierarchy<'a>>>(coder, "children")?
+                .fetch::<WrappedArray<SilicaIRHierarchy<'a>>>(coder, "children")?
                 .objects,
         })
     }
 }
 
 impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
-    fn decode(nka: &'a NsKeyedArchive, val: &'a Value) -> Result<Self, NsArchiveError> {
-        let coder = <&'a Dictionary>::decode(nka, val)?;
-        let class = nka.decode::<NsClass>(coder, "$class")?;
+    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+        let coder = <&'a Dictionary>::decode(nka, key, val)?;
+        let class = nka.fetch::<NsClass>(coder, "$class")?;
 
         match class.class_name.as_str() {
-            "SilicaGroup" => Ok(SilicaIRGroup::<'a>::decode(nka, val).map(Self::Group)?),
-            "SilicaLayer" => Ok(SilicaIRLayer::<'a>::decode(nka, val).map(Self::Layer)?),
-            _ => Err(NsArchiveError::TypeMismatch),
+            "SilicaGroup" => Ok(SilicaIRGroup::<'a>::decode(nka, key, val).map(Self::Group)?),
+            "SilicaLayer" => Ok(SilicaIRLayer::<'a>::decode(nka, key, val).map(Self::Layer)?),
+            _ => Err(NsArchiveError::TypeMismatch("$class".to_string())),
         }
     }
 }
@@ -160,8 +160,8 @@ impl<'a> SilicaIRGroup<'a> {
         let nka = self.nka;
         let coder = self.coder;
         Ok(SilicaGroup {
-            hidden: nka.decode::<bool>(coder, "isHidden")?,
-            name: nka.decode::<String>(coder, "name")?,
+            hidden: nka.fetch::<bool>(coder, "isHidden")?,
+            name: nka.fetch::<Option<String>>(coder, "name")?,
             children: self
                 .children
                 .into_par_iter()

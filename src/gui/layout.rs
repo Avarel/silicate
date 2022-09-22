@@ -317,10 +317,15 @@ impl ControlsGui<'_> {
                 SilicaHierarchy::Group(h) => {
                     ui.push_id(*i, |ui| {
                         *i += 1;
-                        ui.collapsing(h.name.to_string().as_str(), |ui| {
-                            *changed |= ui.checkbox(&mut h.hidden, "Hidden").changed();
-                            Self::layout_layers_sub(ui, h, i, changed);
-                        })
+                        ui.collapsing(
+                            h.name
+                                .to_owned()
+                                .unwrap_or_else(|| format!("Unnamed Group [{i}]")),
+                            |ui| {
+                                *changed |= ui.checkbox(&mut h.hidden, "Hidden").changed();
+                                Self::layout_layers_sub(ui, h, i, changed);
+                            },
+                        )
                     });
                 }
             }

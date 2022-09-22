@@ -13,20 +13,20 @@ use zip::read::ZipArchive;
 
 #[derive(Error, Debug)]
 pub enum SilicaError {
-    #[error("I/O error")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Plist decoding error")]
+    #[error("Plist error: {0}")]
     PlistError(#[from] plist::Error),
-    #[error("Zip decoding error")]
+    #[error("Zip error: {0}")]
     ZipError(#[from] zip::result::ZipError),
-    #[error("LZO decompression error")]
+    #[error("LZO error: {0}")]
     LzoError(#[from] minilzo_rs::Error),
-    #[error("NS archive error")]
+    #[error("Ns archive error: {0}")]
     NsArchiveError(#[from] NsArchiveError),
     #[error("Invalid values in file")]
     InvalidValue,
     #[cfg(feature = "psd")]
-    #[error("PSD loading error")]
+    #[error("PSD loading error {0}")]
     PsdError(#[from] psd::PsdError),
     #[error("Unknown decoding error")]
     #[allow(dead_code)]
@@ -249,7 +249,7 @@ pub enum SilicaHierarchy {
 pub struct SilicaGroup {
     pub hidden: bool,
     pub children: Vec<SilicaHierarchy>,
-    pub name: String,
+    pub name: Option<String>,
 }
 
 impl SilicaGroup {
@@ -258,7 +258,7 @@ impl SilicaGroup {
         Self {
             hidden: true,
             children: Vec::new(),
-            name: String::new(),
+            name: None,
         }
     }
 }
@@ -331,8 +331,8 @@ impl ProcreateFile {
     ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
         let root = nka.root()?;
 
-        let size = nka.decode::<Size<u32>>(root, "size")?;
-        let tile_size = nka.decode::<u32>(root, "tileSize")?;
+        let size = nka.fetch::<Size<u32>>(root, "size")?;
+        let tile_size = nka.fetch::<u32>(root, "tileSize")?;
         let columns = (size.width + tile_size - 1) / tile_size;
         let rows = (size.height + tile_size - 1) / tile_size;
 
@@ -361,37 +361,37 @@ impl ProcreateFile {
 
         Ok((
             Self {
-                author_name: nka.decode_nullable::<String>(root, "authorName")?,
-                background_hidden: nka.decode::<bool>(root, "backgroundHidden")?,
-                stroke_count: nka.decode::<usize>(root, "strokeCount")?,
+                author_name: nka.fetch::<Option<String>>(root, "authorName")?,
+                background_hidden: nka.fetch::<bool>(root, "backgroundHidden")?,
+                stroke_count: nka.fetch::<usize>(root, "strokeCount")?,
                 background_color: <[f32; 4]>::try_from(
-                    nka.decode::<&[u8]>(root, "backgroundColor")?
+                    nka.fetch::<&[u8]>(root, "backgroundColor")?
                         .chunks_exact(4)
                         .map(|bytes| {
                             <[u8; 4]>::try_from(bytes)
                                 .map(f32::from_le_bytes)
-                                .map_err(|_| NsArchiveError::TypeMismatch)
+                                .map_err(|_| NsArchiveError::TypeMismatch("backgroundColor".to_string()))
                         })
                         .collect::<Result<Vec<f32>, _>>()?,
                 )
                 .unwrap(),
-                name: nka.decode_nullable::<String>(root, "name")?,
-                orientation: nka.decode::<u32>(root, "orientation")?,
+                name: nka.fetch::<Option<String>>(root, "name")?,
+                orientation: nka.fetch::<u32>(root, "orientation")?,
                 flipped: Flipped {
-                    horizontally: nka.decode::<bool>(root, "flippedHorizontally")?,
-                    vertically: nka.decode::<bool>(root, "flippedVertically")?,
+                    horizontally: nka.fetch::<bool>(root, "flippedHorizontally")?,
+                    vertically: nka.fetch::<bool>(root, "flippedVertically")?,
                 },
                 tile_size,
                 size,
                 composite: nka
-                    .decode::<SilicaIRLayer>(root, "composite")?
+                    .fetch::<SilicaIRLayer>(root, "composite")?
                     .load(&ir_data)
                     .ok(),
                 layers: SilicaGroup {
                     hidden: false,
-                    name: String::from("Root Layer"),
+                    name: Some(String::from("Root Layer")),
                     children: nka
-                        .decode::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+                        .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
                         .objects
                         .into_par_iter()
                         .map(|ir| ir.load(&ir_data))
@@ -468,6 +468,27 @@ impl ProcreateFile {
 
         let textures = parking_lot::Mutex::new(Vec::new());
 
+        // struct PsdLayerIR {
+        //     id: usize,
+        //     groups: Vec<usize>,
+        // }
+
+        // let mut hierarchy = psd
+        //     .layers()
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(id, _)| PsdLayerIR {
+        //         id,
+        //         groups: Vec::new(),
+        //     })
+        //     .collect::<Vec<_>>();
+
+        // for (i, ele) in psd.groups() {
+        //     for i in psd.get_group_sub_layers(&ele.id()).unwrap() {
+        //         // i.
+        //     }
+        // }
+
         let layers = psd
             .layers()
             .into_par_iter()
@@ -519,7 +540,7 @@ impl ProcreateFile {
             layers: SilicaGroup {
                 hidden: false,
                 children: layers,
-                name: String::from("Root Layer"),
+                name: Some(String::from("Root Layer")),
             },
             name: None,
             orientation: 0,

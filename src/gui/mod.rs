@@ -7,6 +7,7 @@ use crate::{
     gui::layout::ViewerTab,
     silica::{ProcreateFile, SilicaError, SilicaHierarchy},
 };
+use egui::FullOutput;
 use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
 use parking_lot::{Mutex, RwLock};
 use std::{
@@ -180,8 +181,8 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
     };
     surface.configure(&statics.dev.device, &surface_config);
 
-    let mut state = egui_winit::State::new(&event_loop);
-    state.set_pixels_per_point(window.scale_factor() as f32);
+    let mut integration = egui_winit::State::new(&event_loop);
+    integration.set_pixels_per_point(window.scale_factor() as f32);
 
     let context = egui::Context::default();
     context.set_pixels_per_point(window.scale_factor() as f32);
@@ -254,7 +255,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                         });
                     }
                     _ => {
-                        state.on_event(&context, &event);
+                        integration.on_event(&context, &event);
                     }
                 }
             }
@@ -278,20 +279,25 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                let input = state.take_egui_input(&window);
+                let input = integration.take_egui_input(&window);
 
                 context.begin_frame(input);
                 editor.layout_gui(&context);
                 editor.statics.toasts.lock().show(&context);
-                let output = context.end_frame();
+                let FullOutput {
+                    platform_output,
+                    textures_delta,
+                    shapes,
+                    ..
+                } = context.end_frame();
 
-                state.handle_platform_output(&window, &context, output.platform_output);
+                integration.handle_platform_output(&window, &context, platform_output);
 
                 // Draw the GUI onto the output texture.
-                let paint_jobs = context.tessellate(output.shapes);
+                let paint_jobs = context.tessellate(shapes);
 
                 // Upload all resources for the GPU.
-                for (id, image_delta) in output.textures_delta.set {
+                for (id, image_delta) in textures_delta.set {
                     egui_rpass.update_texture(
                         &statics.dev.device,
                         &statics.dev.queue,
@@ -299,7 +305,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                         &image_delta,
                     );
                 }
-                for id in output.textures_delta.free {
+                for id in textures_delta.free {
                     egui_rpass.free_texture(&id);
                 }
                 egui_rpass.update_buffers(
