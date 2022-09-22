@@ -10,26 +10,8 @@ env:
   BUNDLE_NAME: Silicate
 
 jobs:
-  release_job:
-    name: Create release
-    runs-on: ubuntu-18.04
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
-    steps:
-    - name: Create release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: true
-
   build_job:
     name: Build release
-    needs: release_job
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # don't fail other jobs if one fails
@@ -54,15 +36,6 @@ jobs:
           target: x86_64-pc-windows-msvc
           cross: false
           bundle: Silicate.exe
-        # - build: aarch64-macos
-        #   os: macos-latest
-        #   rust: stable
-        #   target: aarch64-apple-darwin
-        # - build: aarch64-linux
-        #   os: ubuntu-latest
-        #   rust: stable
-        #   target: aarch64-unknown-linux-gnu
-        #   cross: true
 
     steps:
       - name: Checkout sources
@@ -124,6 +97,5 @@ jobs:
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
-        if: matrix.os == 'windows-latest'
         with:
           files: dist/${{ matrix.bundle }}
