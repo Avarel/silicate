@@ -16,6 +16,7 @@ use std::{
         AtomicBool, AtomicUsize,
         Ordering::{Acquire, Release},
     },
+    time::Instant,
 };
 use std::{path::PathBuf, time::Duration};
 use tokio::time::MissedTickBehavior;
@@ -288,8 +289,19 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     platform_output,
                     textures_delta,
                     shapes,
-                    ..
+                    repaint_after,
                 } = context.end_frame();
+                
+                *control_flow = if repaint_after.is_zero() {
+                    window.request_redraw();
+                    ControlFlow::Poll
+                } else if let Some(repaint_after_instant) =
+                    Instant::now().checked_add(repaint_after)
+                {
+                    ControlFlow::WaitUntil(repaint_after_instant)
+                } else {
+                    ControlFlow::WaitUntil(Instant::now() + Duration::from_secs(1))
+                };
 
                 integration.handle_platform_output(&window, &context, platform_output);
 
