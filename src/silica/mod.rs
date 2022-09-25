@@ -8,6 +8,7 @@ use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicU32;
 use thiserror::Error;
 use zip::read::ZipArchive;
 
@@ -290,7 +291,7 @@ pub struct SilicaLayer {
     pub size: Size<u32>,
     pub uuid: String,
     pub version: u64,
-    pub image: usize,
+    pub image: u32,
 }
 
 type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
@@ -300,11 +301,11 @@ impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(
         p: P,
         dev: &GpuHandle,
-    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
-        #[cfg(feature = "psd")]
-        if p.as_ref().extension().map(|e| e == "psd").unwrap_or(false) {
-            return Self::open_psd(p, dev);
-        }
+    ) -> Result<(Self, GpuTexture), SilicaError> {
+        // #[cfg(feature = "psd")]
+        // if p.as_ref().extension().map(|e| e == "psd").unwrap_or(false) {
+        //     return Self::open_psd(p, dev);
+        // }
 
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
@@ -328,7 +329,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dev: &GpuHandle,
-    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
+    ) -> Result<(Self, GpuTexture), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
@@ -348,7 +349,11 @@ impl ProcreateFile {
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
-        let gpu_textures = parking_lot::Mutex::new(Vec::new());
+        let ir_hierachy = nka
+        .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+        .objects;
+
+        let gpu_textures = GpuTexture::empty_layers(dev, size.width, size.height, ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1, GpuTexture::LAYER_USAGE);
 
         let ir_data = IRData {
             tile: &tile,
@@ -357,6 +362,7 @@ impl ProcreateFile {
             file_names: &file_names,
             render: dev,
             gpu_textures: &gpu_textures,
+            counter: &AtomicU32::new(0)
         };
 
         Ok((
@@ -390,169 +396,167 @@ impl ProcreateFile {
                 layers: SilicaGroup {
                     hidden: false,
                     name: Some(String::from("Root Layer")),
-                    children: nka
-                        .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
-                        .objects
+                    children: ir_hierachy
                         .into_par_iter()
                         .map(|ir| ir.load(&ir_data))
                         .collect::<Result<_, _>>()?,
                 },
             },
-            gpu_textures.into_inner(),
+            gpu_textures,
         ))
     }
 
-    #[cfg(feature = "psd")]
-    pub fn open_psd<P: AsRef<Path>>(
-        p: P,
-        dev: &GpuHandle,
-    ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
-        let path = p.as_ref();
-        let file = OpenOptions::new().read(true).write(false).open(path)?;
+    // #[cfg(feature = "psd")]
+    // pub fn open_psd<P: AsRef<Path>>(
+    //     p: P,
+    //     dev: &GpuHandle,
+    // ) -> Result<(Self, Vec<GpuTexture>), SilicaError> {
+    //     let path = p.as_ref();
+    //     let file = OpenOptions::new().read(true).write(false).open(path)?;
 
-        let mapping = unsafe { memmap2::Mmap::map(&file)? };
+    //     let mapping = unsafe { memmap2::Mmap::map(&file)? };
 
-        let psd = psd::Psd::from_bytes(&mapping[..])?;
+    //     let psd = psd::Psd::from_bytes(&mapping[..])?;
 
-        // for (id, group) in psd.groups() {
-        //     dbg!(id, group);
-        //     dbg!(group.name());
-        // }
+    //     // for (id, group) in psd.groups() {
+    //     //     dbg!(id, group);
+    //     //     dbg!(group.name());
+    //     // }
 
-        // for layer in psd.layers() {
-        //     dbg!(layer.name());
-        //     dbg!(layer.blend_mode(), layer.is_clipping_mask());
-        //     dbg!(layer.opacity(), layer.visible());
-        //     dbg!(layer.width(), layer.height());
-        //     dbg!(
-        //         layer.layer_top(),
-        //         layer.layer_left(),
-        //         layer.layer_right(),
-        //         layer.layer_bottom()
-        //     );
-        // }
+    //     // for layer in psd.layers() {
+    //     //     dbg!(layer.name());
+    //     //     dbg!(layer.blend_mode(), layer.is_clipping_mask());
+    //     //     dbg!(layer.opacity(), layer.visible());
+    //     //     dbg!(layer.width(), layer.height());
+    //     //     dbg!(
+    //     //         layer.layer_top(),
+    //     //         layer.layer_left(),
+    //     //         layer.layer_right(),
+    //     //         layer.layer_bottom()
+    //     //     );
+    //     // }
 
-        fn blend_convert(psd_blend: usize) -> BlendingMode {
-            match psd_blend {
-                // 0 => BlendingMode::PassThrough,
-                1 => BlendingMode::Normal,
-                // 2 => BlendingMode::Dissolve,
-                3 => BlendingMode::Darken,
-                4 => BlendingMode::Multiply,
-                5 => BlendingMode::ColorBurn,
-                6 => BlendingMode::LinearBurn,
-                7 => BlendingMode::DarkerColor,
-                8 => BlendingMode::Lighten,
-                9 => BlendingMode::Screen,
-                10 => BlendingMode::ColorDodge,
-                // 11 => BlendingMode::LinearDodge,
-                12 => BlendingMode::LighterColor,
-                13 => BlendingMode::Overlay,
-                14 => BlendingMode::SoftLight,
-                15 => BlendingMode::HardLight,
-                16 => BlendingMode::VividLight,
-                17 => BlendingMode::LinearLight,
-                18 => BlendingMode::PinLight,
-                19 => BlendingMode::HardMix,
-                20 => BlendingMode::Difference,
-                21 => BlendingMode::Exclusion,
-                22 => BlendingMode::Subtract,
-                23 => BlendingMode::Divide,
-                24 => BlendingMode::Hue,
-                25 => BlendingMode::Saturation,
-                26 => BlendingMode::Color,
-                27 => BlendingMode::Luminosity,
-                _ => BlendingMode::Normal,
-            }
-        }
+    //     fn blend_convert(psd_blend: usize) -> BlendingMode {
+    //         match psd_blend {
+    //             // 0 => BlendingMode::PassThrough,
+    //             1 => BlendingMode::Normal,
+    //             // 2 => BlendingMode::Dissolve,
+    //             3 => BlendingMode::Darken,
+    //             4 => BlendingMode::Multiply,
+    //             5 => BlendingMode::ColorBurn,
+    //             6 => BlendingMode::LinearBurn,
+    //             7 => BlendingMode::DarkerColor,
+    //             8 => BlendingMode::Lighten,
+    //             9 => BlendingMode::Screen,
+    //             10 => BlendingMode::ColorDodge,
+    //             // 11 => BlendingMode::LinearDodge,
+    //             12 => BlendingMode::LighterColor,
+    //             13 => BlendingMode::Overlay,
+    //             14 => BlendingMode::SoftLight,
+    //             15 => BlendingMode::HardLight,
+    //             16 => BlendingMode::VividLight,
+    //             17 => BlendingMode::LinearLight,
+    //             18 => BlendingMode::PinLight,
+    //             19 => BlendingMode::HardMix,
+    //             20 => BlendingMode::Difference,
+    //             21 => BlendingMode::Exclusion,
+    //             22 => BlendingMode::Subtract,
+    //             23 => BlendingMode::Divide,
+    //             24 => BlendingMode::Hue,
+    //             25 => BlendingMode::Saturation,
+    //             26 => BlendingMode::Color,
+    //             27 => BlendingMode::Luminosity,
+    //             _ => BlendingMode::Normal,
+    //         }
+    //     }
 
-        let textures = parking_lot::Mutex::new(Vec::new());
+    //     let textures = parking_lot::Mutex::new(Vec::new());
 
-        // struct PsdLayerIR {
-        //     id: usize,
-        //     groups: Vec<usize>,
-        // }
+    //     // struct PsdLayerIR {
+    //     //     id: usize,
+    //     //     groups: Vec<usize>,
+    //     // }
 
-        // let mut hierarchy = psd
-        //     .layers()
-        //     .iter()
-        //     .enumerate()
-        //     .map(|(id, _)| PsdLayerIR {
-        //         id,
-        //         groups: Vec::new(),
-        //     })
-        //     .collect::<Vec<_>>();
+    //     // let mut hierarchy = psd
+    //     //     .layers()
+    //     //     .iter()
+    //     //     .enumerate()
+    //     //     .map(|(id, _)| PsdLayerIR {
+    //     //         id,
+    //     //         groups: Vec::new(),
+    //     //     })
+    //     //     .collect::<Vec<_>>();
 
-        // for (i, ele) in psd.groups() {
-        //     for i in psd.get_group_sub_layers(&ele.id()).unwrap() {
-        //         // i.
-        //     }
-        // }
+    //     // for (i, ele) in psd.groups() {
+    //     //     for i in psd.get_group_sub_layers(&ele.id()).unwrap() {
+    //     //         // i.
+    //     //     }
+    //     // }
 
-        let layers = psd
-            .layers()
-            .into_par_iter()
-            .map(|layer| {
-                let texture =
-                    GpuTexture::empty(dev, psd.width(), psd.height(), GpuTexture::LAYER_USAGE);
-                texture.replace(
-                    dev,
-                    (layer.layer_left()) as u32,
-                    (layer.layer_top()) as u32,
-                    layer.width() as u32,
-                    layer.height() as u32,
-                    &layer.rgba(),
-                );
+    //     let layers = psd
+    //         .layers()
+    //         .into_par_iter()
+    //         .map(|layer| {
+    //             let texture =
+    //                 GpuTexture::empty(dev, psd.width(), psd.height(), GpuTexture::LAYER_USAGE);
+    //             texture.replace(
+    //                 dev,
+    //                 (layer.layer_left()) as u32,
+    //                 (layer.layer_top()) as u32,
+    //                 layer.width() as u32,
+    //                 layer.height() as u32,
+    //                 &layer.rgba(),
+    //             );
 
-                let idx = {
-                    let mut textures = textures.lock();
-                    let idx = textures.len();
-                    textures.push(texture);
-                    idx
-                };
+    //             let idx = {
+    //                 let mut textures = textures.lock();
+    //                 let idx = textures.len();
+    //                 textures.push(texture);
+    //                 idx
+    //             };
 
-                SilicaHierarchy::Layer(SilicaLayer {
-                    blend: blend_convert(layer.blend_mode() as usize),
-                    clipped: false,
-                    hidden: layer.visible(),
-                    mask: None,
-                    name: Some(layer.name().to_owned()),
-                    opacity: (layer.opacity() as f32) / 255.0,
-                    size: Size {
-                        width: u32::from(layer.width()),
-                        height: u32::from(layer.height()),
-                    },
-                    uuid: String::new(),
-                    version: 0,
-                    image: idx,
-                })
-            })
-            .collect::<Vec<_>>();
+    //             SilicaHierarchy::Layer(SilicaLayer {
+    //                 blend: blend_convert(layer.blend_mode() as usize),
+    //                 clipped: false,
+    //                 hidden: layer.visible(),
+    //                 mask: None,
+    //                 name: Some(layer.name().to_owned()),
+    //                 opacity: (layer.opacity() as f32) / 255.0,
+    //                 size: Size {
+    //                     width: u32::from(layer.width()),
+    //                     height: u32::from(layer.height()),
+    //                 },
+    //                 uuid: String::new(),
+    //                 version: 0,
+    //                 image: idx,
+    //             })
+    //         })
+    //         .collect::<Vec<_>>();
 
-        let file = ProcreateFile {
-            author_name: None,
-            background_hidden: true,
-            background_color: [1.0; 4],
-            flipped: Flipped {
-                horizontally: false,
-                vertically: false,
-            },
-            layers: SilicaGroup {
-                hidden: false,
-                children: layers,
-                name: Some(String::from("Root Layer")),
-            },
-            name: None,
-            orientation: 0,
-            stroke_count: 0,
-            tile_size: 0,
-            composite: None,
-            size: Size {
-                width: psd.width(),
-                height: psd.height(),
-            },
-        };
+    //     let file = ProcreateFile {
+    //         author_name: None,
+    //         background_hidden: true,
+    //         background_color: [1.0; 4],
+    //         flipped: Flipped {
+    //             horizontally: false,
+    //             vertically: false,
+    //         },
+    //         layers: SilicaGroup {
+    //             hidden: false,
+    //             children: layers,
+    //             name: Some(String::from("Root Layer")),
+    //         },
+    //         name: None,
+    //         orientation: 0,
+    //         stroke_count: 0,
+    //         tile_size: 0,
+    //         composite: None,
+    //         size: Size {
+    //             width: psd.width(),
+    //             height: psd.height(),
+    //         },
+    //     };
 
-        Ok((file, textures.into_inner()))
-    }
+    //     Ok((file, textures.into_inner()))
+    // }
 }

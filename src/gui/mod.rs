@@ -26,7 +26,7 @@ use winit::event_loop::ControlFlow;
 fn linearize<'a>(
     layers: &'a crate::silica::SilicaGroup,
     composite_layers: &mut Vec<CompositeLayer>,
-    mask_layer: &mut Option<(usize, &'a crate::silica::SilicaLayer)>,
+    mask_layer: &mut Option<(u32, &'a crate::silica::SilicaLayer)>,
 ) {
     for layer in layers.children.iter().rev() {
         match layer {

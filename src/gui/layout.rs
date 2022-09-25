@@ -27,7 +27,7 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
-    pub textures: Vec<GpuTexture>,
+    pub textures: GpuTexture,
     pub target: Mutex<CompositorTarget<'static>>,
     pub new_texture: AtomicBool,
     pub changed: AtomicBool,

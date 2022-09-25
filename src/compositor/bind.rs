@@ -1,9 +1,8 @@
 /// This module computes how to bind the compositor layers to the shader
 /// variables. It is configured specifically to serve the `shader.wgsl`
 /// shader module and create bindings that match the shader's inputs.
-use super::{dev::GpuHandle, tex::GpuTexture};
+use super::dev::GpuHandle;
 use crate::compositor::CompositeLayer;
-use std::collections::HashMap;
 
 /// Shader buffers on the CPU side.
 #[derive(Debug)]
@@ -52,93 +51,22 @@ impl CpuBuffers {
     }
 
     /// Resolves the given composite layers and fill the CPU buffer.
-    pub fn map_composite_layers(
-        &mut self,
-        composite_layers: &[CompositeLayer],
-        textures: &[GpuTexture],
-    ) -> Box<[wgpu::TextureView]> {
+    pub fn map_composite_layers(&mut self, composite_layers: &[CompositeLayer]) {
         self.reset();
-        BindingMapper::new(self.chunks, composite_layers, textures, self).map()
-    }
-}
+        for (index, layer) in composite_layers.into_iter().enumerate() {
+            debug_assert_eq!(index, self.count as usize);
 
-struct BindingMapper<'dev> {
-    /// Corresponds to how many layers maximum can be bounded to the buffer.
-    chunks: u32,
-    /// Texture view array. This is different from the texture array.
-    /// This array's final destination is to be mapped to the GPU.
-    output: Box<[wgpu::TextureView]>,
-    /// Maps the composite layer's texture index to the index in the
-    /// texture view array. This is so that clipping masks and layers
-    /// can reuse the same layer data if necessary.
-    map: HashMap<usize, u32>,
-    /// Stores the array of composite layers to resolve.
-    composite_layers: &'dev [CompositeLayer],
-    /// Texture array that the composite layers texture index references.
-    textures: &'dev [GpuTexture],
-    /// Target CPU buffer to resolve data to.
-    bindings: &'dev mut CpuBuffers,
-}
-
-impl<'dev> BindingMapper<'dev> {
-    /// Create the binding mapper.
-    fn new(
-        chunks: u32,
-        composite_layers: &'dev [CompositeLayer],
-        textures: &'dev [GpuTexture],
-        bindings: &'dev mut CpuBuffers,
-    ) -> Self {
-        Self {
-            chunks,
-            output: {
-                let mut views = Vec::new();
-                views.resize_with(chunks as usize, || textures[0].create_view());
-                views.into_boxed_slice()
-            },
-            map: HashMap::new(),
-            composite_layers,
-            textures,
-            bindings,
-        }
-    }
-
-    /// Obtain an index in the texture view array, given the index in
-    /// the texture array. This may reuse a mapped index in the texture view
-    /// array.
-    fn map_texture(&mut self, texture_index: usize) -> u32 {
-        let mlen = self.map.len() as u32;
-        *self.map.entry(texture_index).or_insert_with(|| {
-            self.output[mlen as usize] = self.textures[texture_index].create_view();
-            mlen
-        })
-    }
-
-    /// Maps the CPU buffer and return the texture view array, to be used
-    /// in the GPU buffer.
-    fn map(mut self) -> Box<[wgpu::TextureView]> {
-        for (index, layer) in self.composite_layers.into_iter().enumerate() {
-            debug_assert_eq!(index, self.bindings.count as usize);
-
-            if let Some(clip_layer) = layer.clipped {
-                if (self.map.len() as u32) + 2 > self.chunks {
-                    break;
-                }
-                self.bindings.masks[index] = self.map_texture(clip_layer);
-                self.bindings.layers[index] = self.map_texture(layer.texture);
-            } else {
-                if (self.map.len() as u32) + 1 > self.chunks {
-                    break;
-                }
-                self.bindings.masks[index] = CpuBuffers::MASK_NONE;
-                self.bindings.layers[index] = self.map_texture(layer.texture);
+            if index >= self.chunks as usize {
+                break;
             }
+            
+            self.masks[index] = layer.clipped.unwrap_or(CpuBuffers::MASK_NONE);
+            self.layers[index] = layer.texture;
 
-            self.bindings.blends[index] = layer.blend.to_u32();
-            self.bindings.opacities[index] = layer.opacity;
-            self.bindings.count += 1;
+            self.blends[index] = layer.blend.to_u32();
+            self.opacities[index] = layer.opacity;
+            self.count += 1;
         }
-
-        self.output
     }
 }
 

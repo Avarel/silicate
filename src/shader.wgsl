@@ -236,7 +236,7 @@ var splr: sampler;
 @group(1) @binding(0)
 var composite: texture_2d<f32>;
 @group(1) @binding(1)
-var textures: binding_array<texture_2d<f32>>;
+var textures: texture_2d_array<f32>;
 @group(1) @binding(2)
 var<storage, read> layers: array<u32>;
 @group(1) @binding(3)
@@ -302,8 +302,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = linear_to_srgb(textureSample(composite, splr, in.bg_coords));
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = select(textureSample(textures[masks[i]], splr, in.fg_coords).a, 1.0, masks[i] == MASK_NONE);
-        var fga = linear_to_srgb(textureSample(textures[layers[i]], splr, in.fg_coords)) * maska;
+        var maska = select(textureSample(textures, splr, in.fg_coords, i32(masks[i])).a, 1.0, masks[i] == MASK_NONE);
+        var fga = linear_to_srgb(textureSample(textures, splr, in.fg_coords, i32(layers[i]))) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {

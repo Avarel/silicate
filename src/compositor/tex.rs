@@ -20,16 +20,22 @@ impl GpuTexture {
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
     /// Create an empty texture.
+    #[allow(dead_code)]
     pub fn empty(dev: &GpuHandle, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
+        Self::empty_layers(dev, width, height, 1, usage)
+    }
+
+    /// Create an empty texture.
+    pub fn empty_layers(dev: &GpuHandle, width: u32, height: u32, layers: u32, usage: wgpu::TextureUsages) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: layers,
         };
 
         Self::empty_with_extent(dev, size, usage)
     }
-
+    
     /// Create an empty texture from an extent.
     pub fn empty_with_extent(
         dev: &GpuHandle,
@@ -85,13 +91,24 @@ impl GpuTexture {
     /// ### Note
     /// The position `x` and `y` and size `width` and `height` data
     /// should strictly fit within the texture boundaries.
+    #[allow(dead_code)]
     pub fn replace(&self, dev: &GpuHandle, x: u32, y: u32, width: u32, height: u32, data: &[u8]) {
+        self.replace_layer(dev, x, y, width, height, 0, data);
+    }
+
+    /// Replace a section of the texture with raw RGBA data.
+    ///
+    /// ### Note
+    /// The position `x` and `y` and size `width` and `height` data
+    /// should strictly fit within the texture boundaries.
+    pub fn replace_layer(&self, dev: &GpuHandle, x: u32, y: u32, width: u32, height: u32, layer: u32, data: &[u8]) {
+        assert!(layer < self.size.depth_or_array_layers);
         dev.queue.write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::ImageCopyTexture {
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d { x, y, z: 0 },
+                origin: wgpu::Origin3d { x, y, z: layer },
                 aspect: wgpu::TextureAspect::All,
             },
             // The actual pixel data
@@ -109,6 +126,7 @@ impl GpuTexture {
             },
         );
     }
+
 
     /// Clone the texture.
     ///

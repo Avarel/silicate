@@ -111,9 +111,9 @@ impl VertexInput {
 #[derive(Debug)]
 pub struct CompositeLayer {
     /// Texture index into a `&[GpuBuffer]`.
-    pub texture: usize,
+    pub texture: u32,
     /// Clipping texture index into a `&[GpuBuffer]`.
-    pub clipped: Option<usize>,
+    pub clipped: Option<u32>,
     /// Opacity (0.0..=1.0) of the layer.
     pub opacity: f32,
     /// Blending mode of the layer.
@@ -294,7 +294,7 @@ impl<'dev> CompositorTarget<'dev> {
         pipeline: &CompositorPipeline,
         bg: Option<[f32; 4]>,
         layers: &[CompositeLayer],
-        textures: &[GpuTexture],
+        textures: &GpuTexture,
     ) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
@@ -349,7 +349,7 @@ impl<'dev> CompositorTarget<'dev> {
         bg: Option<[f32; 4]>,
         stage_idx: usize,
         composite_layers: &[CompositeLayer],
-        textures: &[GpuTexture],
+        textures: &GpuTexture,
     ) -> u32 {
         let composite_view = if stage_idx > 0 {
             self.stages[stage_idx - 1].output.create_view()
@@ -359,9 +359,7 @@ impl<'dev> CompositorTarget<'dev> {
 
         let stage = &mut self.stages[stage_idx];
 
-        let texture_views = stage
-            .bindings
-            .map_composite_layers(composite_layers, textures);
+        stage.bindings.map_composite_layers(composite_layers);
         stage.buffers.load(&stage.bindings);
 
         let blending_bind_group = self
@@ -376,9 +374,7 @@ impl<'dev> CompositorTarget<'dev> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureViewArray(
-                            texture_views.iter().collect::<Vec<_>>().as_slice(),
-                        ),
+                        resource: wgpu::BindingResource::TextureView(&textures.create_view()),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -531,7 +527,16 @@ impl CompositorPipeline {
                     // composite
                     fragment_bgl_tex_entry(0, None),
                     // textures
-                    fragment_bgl_tex_entry(1, NonZeroU32::new(dev.chunks)),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: None,
+                    },
                     // layers
                     fragment_bgl_buffer_ro_entry(2, None),
                     // masks

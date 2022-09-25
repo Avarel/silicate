@@ -57,8 +57,7 @@ impl GpuHandle {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::TEXTURE_BINDING_ARRAY
-                        | wgpu::Features::PUSH_CONSTANTS
+                    features: wgpu::Features::PUSH_CONSTANTS
                         | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
                     limits: wgpu::Limits {
                         max_sampled_textures_per_shader_stage: chunks + 1,

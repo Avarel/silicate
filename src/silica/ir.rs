@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::atomic::AtomicU32;
 
 use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData, ZipArchiveMmap};
 use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
@@ -8,7 +9,6 @@ use crate::silica::BlendingMode;
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use once_cell::sync::OnceCell;
-use parking_lot::Mutex;
 use plist::{Dictionary, Value};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
@@ -30,7 +30,8 @@ pub(super) struct IRData<'a> {
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
     pub(super) render: &'a GpuHandle,
-    pub(super) gpu_textures: &'a Mutex<Vec<GpuTexture>>,
+    pub(super) gpu_textures: &'a GpuTexture,
+    pub(super) counter: &'a AtomicU32
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
@@ -54,12 +55,7 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let gpu_texture = GpuTexture::empty(
-            &meta.render,
-            meta.size.width,
-            meta.size.height,
-            GpuTexture::LAYER_USAGE,
-        );
+        let image = meta.counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         meta.file_names
             .into_par_iter()
@@ -85,24 +81,19 @@ impl SilicaIRLayer<'_> {
                     &buf[..],
                     tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
                 )?;
-                gpu_texture.replace(
+                meta.gpu_textures.replace_layer(
                     &meta.render,
                     col * meta.tile.size,
                     row * meta.tile.size,
                     tile.width as u32,
                     tile.height as u32,
+                    image as u32,
                     &dst,
                 );
                 Ok(())
             })
             .collect::<Result<(), _>>()?;
 
-        let image = {
-            let mut gpu_textures = meta.gpu_textures.lock();
-            let i = gpu_textures.len();
-            gpu_textures.push(gpu_texture);
-            i
-        };
 
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(
@@ -156,6 +147,10 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
+    pub(super) fn count_layer(&self) -> u32 {
+        self.children.iter().map(|ir| ir.count_layer()).sum::<u32>()
+    }
+
     fn load(self, meta: &'a IRData<'a>) -> Result<SilicaGroup, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
@@ -172,6 +167,13 @@ impl<'a> SilicaIRGroup<'a> {
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
+    pub(super) fn count_layer(&self) -> u32 {
+        match self {
+            SilicaIRHierarchy::Layer(_) => 1,
+            SilicaIRHierarchy::Group(group) => group.count_layer(),
+        }
+    }
+
     pub(crate) fn load(self, meta: &'a IRData<'a>) -> Result<SilicaHierarchy, SilicaError> {
         Ok(match self {
             SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(meta)?),
