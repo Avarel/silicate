@@ -291,7 +291,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     shapes,
                     repaint_after,
                 } = context.end_frame();
-                
+
                 *control_flow = if repaint_after.is_zero() {
                     window.request_redraw();
                     ControlFlow::Poll
@@ -331,7 +331,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     let mut encoder = statics
                         .dev
                         .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
                     egui_rpass.execute(
                         &mut encoder,

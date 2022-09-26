@@ -13,7 +13,7 @@ pub struct GpuHandle {
     pub chunks: u32,
 }
 
-const CHUNKS_LIMIT: u32 = 32;
+const CHUNKS_LIMIT: u32 = 64;
 
 impl GpuHandle {
     const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static> = wgpu::RequestAdapterOptions {
@@ -47,7 +47,7 @@ impl GpuHandle {
 
     /// Request device.
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
-        let chunks = (adapter.limits().max_sampled_textures_per_shader_stage - 1).min(CHUNKS_LIMIT);
+        let chunks = CHUNKS_LIMIT;
 
         // Debugging information
         dbg!(adapter.get_info());
@@ -57,10 +57,8 @@ impl GpuHandle {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::PUSH_CONSTANTS
-                        | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+                    features: wgpu::Features::PUSH_CONSTANTS,
                     limits: wgpu::Limits {
-                        max_sampled_textures_per_shader_stage: chunks + 1,
                         max_push_constant_size: 4,
                         ..Default::default()
                     },

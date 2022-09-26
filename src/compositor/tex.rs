@@ -20,13 +20,13 @@ impl GpuTexture {
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
     /// Create an empty texture.
-    #[allow(dead_code)]
-    pub fn empty(dev: &GpuHandle, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
-        Self::empty_layers(dev, width, height, 1, usage)
-    }
-
-    /// Create an empty texture.
-    pub fn empty_layers(dev: &GpuHandle, width: u32, height: u32, layers: u32, usage: wgpu::TextureUsages) -> Self {
+    pub fn empty_layers(
+        dev: &GpuHandle,
+        width: u32,
+        height: u32,
+        layers: u32,
+        usage: wgpu::TextureUsages,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -35,7 +35,7 @@ impl GpuTexture {
 
         Self::empty_with_extent(dev, size, usage)
     }
-    
+
     /// Create an empty texture from an extent.
     pub fn empty_with_extent(
         dev: &GpuHandle,
@@ -56,10 +56,22 @@ impl GpuTexture {
         Self { texture, size }
     }
 
+    pub fn layers(&self) -> u32 {
+        self.size.depth_or_array_layers
+    }
+
     /// Make a texture view of this GPU texture.
     pub fn create_view(&self) -> wgpu::TextureView {
         self.texture
             .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
+        self.texture.create_view(&wgpu::TextureViewDescriptor {
+            base_array_layer: layer,
+            array_layer_count: NonZeroU32::new(1),
+            ..Default::default()
+        })
     }
 
     /// Clear the texture with a certain color.
@@ -67,7 +79,7 @@ impl GpuTexture {
         dev.queue.submit(Some({
             let mut encoder = dev
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -91,18 +103,21 @@ impl GpuTexture {
     /// ### Note
     /// The position `x` and `y` and size `width` and `height` data
     /// should strictly fit within the texture boundaries.
-    #[allow(dead_code)]
-    pub fn replace(&self, dev: &GpuHandle, x: u32, y: u32, width: u32, height: u32, data: &[u8]) {
-        self.replace_layer(dev, x, y, width, height, 0, data);
-    }
-
-    /// Replace a section of the texture with raw RGBA data.
-    ///
-    /// ### Note
-    /// The position `x` and `y` and size `width` and `height` data
-    /// should strictly fit within the texture boundaries.
-    pub fn replace_layer(&self, dev: &GpuHandle, x: u32, y: u32, width: u32, height: u32, layer: u32, data: &[u8]) {
-        assert!(layer < self.size.depth_or_array_layers);
+    pub fn replace(
+        &self,
+        dev: &GpuHandle,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        layer: u32,
+        data: &[u8],
+    ) {
+        assert!(
+            layer < self.layers(),
+            "index {layer} must be less than {}",
+            self.layers()
+        );
         dev.queue.write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::ImageCopyTexture {
@@ -127,7 +142,6 @@ impl GpuTexture {
         );
     }
 
-
     /// Clone the texture.
     ///
     /// ### Note
@@ -142,7 +156,7 @@ impl GpuTexture {
         dev.queue.submit(Some({
             let mut encoder = dev
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
                 self.texture.as_image_copy(),
@@ -173,7 +187,7 @@ impl GpuTexture {
         dev.queue.submit(Some({
             let mut encoder = dev
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_buffer(
                 self.texture.as_image_copy(),

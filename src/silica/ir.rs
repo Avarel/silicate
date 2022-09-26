@@ -81,7 +81,7 @@ impl SilicaIRLayer<'_> {
                     &buf[..],
                     tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
                 )?;
-                meta.gpu_textures.replace_layer(
+                meta.gpu_textures.replace(
                     &meta.render,
                     col * meta.tile.size,
                     row * meta.tile.size,

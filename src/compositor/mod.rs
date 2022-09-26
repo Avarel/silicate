@@ -302,7 +302,7 @@ impl<'dev> CompositorTarget<'dev> {
             let mut encoder = self
                 .dev
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
             // Breaks down the layers and renders in stages.
             let mut stage_idx = 0;
