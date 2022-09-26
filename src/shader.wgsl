@@ -256,42 +256,28 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ), vec4(0.0), vec4(1.0));
 }
 
-fn component_srgb_to_linear(s: f32) -> f32 {
-    if s <= 0.04045 {
-        return s / 12.92;
-    } else {
-        return pow((s + 0.055) / 1.055, 2.4);
-    }
+// 0-1 linear  from  0-1 sRGB gamma
+fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
+    let cutoff = srgb < vec3<f32>(0.04045);
+    let lower = srgb / vec3<f32>(12.92);
+    let higher = pow((srgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(higher, lower, cutoff);
 }
 
-fn component_linear_to_srgb(l: f32) -> f32 {
-    if l <= 0.0 {
-        return 0.0;
-    } else if l <= 0.0031308 {
-        return 12.92 * l;
-    } else if l <= 1.0 {
-        return 1.055 * pow(l, 1.0 / 2.4) - 0.055;
-    } else {
-        return 1.0;
-    }
+// 0-1 sRGB gamma  from  0-1 linear
+fn gamma_from_linear_rgb(rgb: vec3<f32>) -> vec3<f32> {
+    let cutoff = rgb < vec3<f32>(0.0031308);
+    let lower = rgb * vec3<f32>(12.92);
+    let higher = vec3<f32>(1.055) * pow(rgb, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(higher, lower, cutoff);
 }
 
 fn srgb_to_linear(c: vec4f) -> vec4f {
-    return vec4(
-        component_srgb_to_linear(c.r),
-        component_srgb_to_linear(c.g),
-        component_srgb_to_linear(c.b),
-        c.a
-    );
+    return vec4(linear_from_gamma_rgb(c.rgb), c.a);
 }
 
 fn linear_to_srgb(c: vec4f) -> vec4f {
-    return vec4(
-        component_linear_to_srgb(c.r),
-        component_linear_to_srgb(c.g),
-        component_linear_to_srgb(c.b),
-        c.a
-    );
+    return vec4(gamma_from_linear_rgb(c.rgb), c.a);
 }
 
 let MASK_NONE: u32 = 0xFFFFFFFFu;
