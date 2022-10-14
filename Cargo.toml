@@ -38,7 +38,6 @@ parking_lot = "0.12"
 # Display GUI
 egui = "0.19"
 egui-wgpu = "0.19"
-## Todo: add wayland
 egui-winit = { version = "0.19", default-features = false }
 winit = "0.27"
 # egui_dock = "0.2"
