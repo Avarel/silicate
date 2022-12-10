@@ -8,7 +8,7 @@ use crate::{
     silica::{ProcreateFile, SilicaError, SilicaHierarchy},
 };
 use egui::FullOutput;
-use egui_wgpu::renderer::{RenderPass, ScreenDescriptor};
+use egui_wgpu::renderer::{Renderer, ScreenDescriptor};
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::HashMap,
@@ -169,12 +169,14 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
 
     let window_size = window.inner_size();
     let surface_format = surface.get_supported_formats(&statics.dev.adapter)[0];
+    let surface_alpha = surface.get_supported_alpha_modes(&statics.dev.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
         width: window_size.width,
         height: window_size.height,
         present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: surface_alpha,
     };
     let mut screen_descriptor = ScreenDescriptor {
         size_in_pixels: [surface_config.width, surface_config.height],
@@ -188,7 +190,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
     let context = egui::Context::default();
     context.set_pixels_per_point(window.scale_factor() as f32);
 
-    let mut egui_rpass = RenderPass::new(&statics.dev.device, surface_format, 1);
+    let mut egui_rpass = Renderer::new(&statics.dev.device, surface_format, None, 1);
 
     let mut editor = ViewerGui {
         statics,
@@ -256,7 +258,13 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                         });
                     }
                     _ => {
-                        integration.on_event(&context, &event);
+                        let response = integration.on_event(&context, &event);
+                        *control_flow = if response.repaint {
+                            window.request_redraw();
+                            ControlFlow::Poll
+                        } else {
+                            ControlFlow::WaitUntil(Instant::now() + Duration::from_secs(1))
+                        }
                     }
                 }
             }
@@ -320,12 +328,6 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                 for id in textures_delta.free {
                     egui_rpass.free_texture(&id);
                 }
-                egui_rpass.update_buffers(
-                    &statics.dev.device,
-                    &statics.dev.queue,
-                    &paint_jobs,
-                    &screen_descriptor,
-                );
 
                 statics.dev.queue.submit(Some({
                     let mut encoder = statics
@@ -333,13 +335,30 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-                    egui_rpass.execute(
+                    egui_rpass.update_buffers(
+                        &statics.dev.device,
+                        &statics.dev.queue,
                         &mut encoder,
-                        &output_view,
                         &paint_jobs,
                         &screen_descriptor,
-                        Some(wgpu::Color::BLACK),
                     );
+
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &output_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
+
+                    egui_rpass.render(&mut rpass, &paint_jobs, &screen_descriptor);
+
+                    drop(rpass);
 
                     encoder.finish()
                 }));
@@ -358,22 +377,29 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     for (idx, instance) in instances.iter() {
                         if instance.new_texture.load(Acquire) {
                             if let Some(target) = instance.target.try_lock() {
-                                if let Some((tex, _)) = editor.canvases.insert(
-                                    *idx,
-                                    (
-                                        egui_rpass.register_native_texture(
-                                            &statics.dev.device,
-                                            &target.output_texture.as_ref().unwrap().create_view(),
-                                            if editor.view_options.smooth {
-                                                wgpu::FilterMode::Linear
-                                            } else {
-                                                wgpu::FilterMode::Nearest
-                                            },
-                                        ),
-                                        target.dim,
-                                    ),
-                                ) {
-                                    egui_rpass.free_texture(&tex);
+                                let texture_filter = if editor.view_options.smooth {
+                                    wgpu::FilterMode::Linear
+                                } else {
+                                    wgpu::FilterMode::Nearest
+                                };
+                                let texture_view =
+                                    target.output_texture.as_ref().unwrap().create_view();
+
+                                if let Some((tex, dim)) = editor.canvases.get_mut(idx) {
+                                    egui_rpass.update_egui_texture_from_wgpu_texture(
+                                        &statics.dev.device,
+                                        &texture_view,
+                                        texture_filter,
+                                        *tex,
+                                    );
+                                    *dim = target.dim;
+                                } else {
+                                    let tex = egui_rpass.register_native_texture(
+                                        &statics.dev.device,
+                                        &texture_view,
+                                        texture_filter,
+                                    );
+                                    editor.canvases.insert(*idx, (tex, target.dim));
                                 }
 
                                 instance.new_texture_untick();

@@ -31,18 +31,18 @@ rayon = "1"
 # PSD support
 psd = { version = "0.3", optional = true }
 # GPU rendering
-wgpu = "0.13"
+wgpu = "0.14"
 bytemuck = { version = "1.12", features = ["derive"] }
 # Synchronization
 parking_lot = "0.12"
 # Display GUI
-egui = "0.19"
-egui-wgpu = "0.19"
-egui-winit = { version = "0.19", default-features = false }
+egui = "0.20"
+egui-wgpu = "0.20"
+egui-winit = { version = "0.20", default-features = false }
 winit = "0.27"
 # egui_dock = "0.2"
 egui_dock = { path = "libs/egui_dock" }
-egui-notify = "0.4.0"
+egui-notify = "0.5"
 # Async runtime
 rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
 tokio = { version = "1.21", features = ["sync", "rt", "rt-multi-thread", "time"] }

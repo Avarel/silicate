@@ -599,7 +599,7 @@ impl PreparedView {
             plot_ui.max_rect(),
             Rounding::default(),
             Color32::from_gray(20),
-            Stroke::none(),
+            Stroke::NONE,
         );
 
         if self.show_grid {

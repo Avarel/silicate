@@ -66,6 +66,7 @@ impl GpuTexture {
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
+    #[allow(dead_code)]
     pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
             base_array_layer: layer,

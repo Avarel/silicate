@@ -22,7 +22,7 @@ pub struct StaticRefs {
     pub added_instances: &'static Mutex<Vec<(NodeIndex, InstanceKey)>>,
 }
 
-#[derive(Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, Default)]
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
