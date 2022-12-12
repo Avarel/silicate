@@ -59,7 +59,7 @@ impl CpuBuffers {
             if index >= self.chunks as usize {
                 break;
             }
-            
+
             self.masks[index] = layer.clipped.unwrap_or(CpuBuffers::MASK_NONE);
             self.layers[index] = layer.texture;
 
@@ -77,7 +77,6 @@ pub(super) struct GpuBuffers<'dev> {
     pub(super) opacities: wgpu::Buffer,
     pub(super) masks: wgpu::Buffer,
     pub(super) layers: wgpu::Buffer,
-    pub(super) count: wgpu::Buffer,
 }
 
 impl<'dev> GpuBuffers<'dev> {
@@ -96,12 +95,6 @@ impl<'dev> GpuBuffers<'dev> {
             opacities: dev.device.create_buffer(&storage_desc),
             masks: dev.device.create_buffer(&storage_desc),
             layers: dev.device.create_buffer(&storage_desc),
-            count: dev.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                size: 4,
-                mapped_at_creation: false,
-            }),
         }
     }
 
@@ -112,6 +105,5 @@ impl<'dev> GpuBuffers<'dev> {
         q.write_buffer(&self.opacities, 0, bytemuck::cast_slice(&cpu.opacities));
         q.write_buffer(&self.masks, 0, bytemuck::cast_slice(&cpu.masks));
         q.write_buffer(&self.layers, 0, bytemuck::cast_slice(&cpu.layers));
-        q.write_buffer(&self.count, 0, &cpu.count.to_ne_bytes());
     }
 }
