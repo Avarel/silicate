@@ -16,6 +16,11 @@ pub struct GpuHandle {
 const CHUNKS_LIMIT: u32 = 64;
 
 impl GpuHandle {
+    const INSTANCE_OPTIONS: wgpu::InstanceDescriptor = wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+    };
+
     const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static> = wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: None,
@@ -25,15 +30,15 @@ impl GpuHandle {
     #[allow(dead_code)]
     /// Create a bare GPU handle with no surface target.
     pub async fn new() -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let instance = wgpu::Instance::new(Self::INSTANCE_OPTIONS);
         let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await?;
         Self::from_adapter(instance, adapter).await
     }
 
     /// Create a GPU handle with a surface target compatible with the window.
     pub async fn with_window(window: &winit::window::Window) -> Option<(Self, wgpu::Surface)> {
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-        let surface = unsafe { instance.create_surface(window) };
+        let instance = wgpu::Instance::new(Self::INSTANCE_OPTIONS);
+        let surface = unsafe { instance.create_surface(window) }.ok()?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),

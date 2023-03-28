@@ -22,6 +22,10 @@ pub enum SilicaError {
     ZipError(#[from] zip::result::ZipError),
     #[error("LZO error: {0}")]
     LzoError(#[from] minilzo_rs::Error),
+    #[error("LZ4 error: {0}")]
+    Lz4Error(#[from] lz4_flex::block::DecompressError),
+    #[error("LZ4 is not yet supported")]
+    Lz4Unsupported,
     #[error("Ns archive error: {0}")]
     NsArchiveError(#[from] NsArchiveError),
     #[error("Invalid values in file")]

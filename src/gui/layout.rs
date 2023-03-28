@@ -470,6 +470,7 @@ impl ViewerGui {
                 .style(
                     egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
                         .show_add_buttons(true)
+                        .with_tab_bar_height(36.0)
                         .build(),
                 )
                 .show_inside(
@@ -496,6 +497,7 @@ impl ViewerGui {
                     .style(
                         egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
                             .show_close_buttons(false)
+                            .with_tab_bar_height(36.0)
                             .build(),
                     )
                     .show_inside(

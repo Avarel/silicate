@@ -168,14 +168,16 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
     };
 
     let window_size = window.inner_size();
-    let surface_format = surface.get_supported_formats(&statics.dev.adapter)[0];
-    let surface_alpha = surface.get_supported_alpha_modes(&statics.dev.adapter)[0];
+    let surface_caps = surface.get_capabilities(&statics.dev.adapter);
+    let surface_format = surface_caps.formats[0];
+    let surface_alpha = surface_caps.alpha_modes[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
         width: window_size.width,
         height: window_size.height,
         present_mode: wgpu::PresentMode::Fifo,
+        view_formats: Vec::new(),
         alpha_mode: surface_alpha,
     };
     let mut screen_descriptor = ScreenDescriptor {
@@ -383,7 +385,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                                     wgpu::FilterMode::Nearest
                                 };
                                 let texture_view =
-                                    target.output_texture.as_ref().unwrap().create_view();
+                                    target.output_texture.as_ref().unwrap().create_srgb_view();
 
                                 if let Some((tex, dim)) = editor.canvases.get_mut(idx) {
                                     egui_rpass.update_egui_texture_from_wgpu_texture(

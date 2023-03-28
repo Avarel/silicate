@@ -1,6 +1,6 @@
 [package]
 name = "silicate"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["An Tran <antran@caltech.edu>"]
 description = "Cross-platform GPU-accelerated Procreate file viewer.s"
@@ -20,6 +20,8 @@ psd = ["dep:psd"]
 [dependencies]
 # Procreate support
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+lz4_flex = "0.10.0"
+lz4 = "1.24.0"
 minilzo-rs = "0.6.0"
 plist = "1.3"
 thiserror = "1.0"
@@ -31,20 +33,20 @@ rayon = "1"
 # PSD support
 psd = { version = "0.3", optional = true }
 # GPU rendering
-wgpu = "0.14"
+wgpu = "0.15.1"
 bytemuck = { version = "1.12", features = ["derive"] }
 # Synchronization
 parking_lot = "0.12"
 # Display GUI
-egui = "0.20"
-egui-wgpu = "0.20"
-egui-winit = { version = "0.20", default-features = false }
-winit = "0.27"
-# egui_dock = "0.2"
-egui_dock = { path = "libs/egui_dock" }
-egui-notify = "0.5"
+egui = "0.21"
+egui-wgpu = "0.21"
+egui-winit = { version = "0.21", default-features = false }
+winit = "0.28"
+egui_dock = "0.4.2"
+# egui_dock = { path = "libs/egui_dock" }
+egui-notify = "0.6"
 # Async runtime
-rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.11", default-features = false, features = ["xdg-portal"] }
 tokio = { version = "1.21", features = ["sync", "rt", "rt-multi-thread", "time"] }
 futures = "0.3"
 

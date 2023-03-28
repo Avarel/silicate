@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use super::{dev::GpuHandle, BufferDimensions};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
-pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// GPU texture abstraction.
 #[derive(Debug)]
@@ -49,6 +49,10 @@ impl GpuTexture {
             sample_count: 1,
             dimension: TEX_DIM,
             format: TEX_FORMAT,
+            view_formats: &[
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            ],
             usage,
             label: None,
         });
@@ -66,9 +70,17 @@ impl GpuTexture {
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
+    pub fn create_srgb_view(&self) -> wgpu::TextureView {
+        self.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            ..Default::default()
+        })
+    }
+
     #[allow(dead_code)]
     pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(TEX_FORMAT),
             base_array_layer: layer,
             array_layer_count: NonZeroU32::new(1),
             ..Default::default()

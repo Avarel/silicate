@@ -272,24 +272,16 @@ fn gamma_from_linear_rgb(rgb: vec3<f32>) -> vec3<f32> {
     return select(higher, lower, cutoff);
 }
 
-fn srgb_to_linear(c: vec4f) -> vec4f {
-    return vec4(linear_from_gamma_rgb(c.rgb), c.a);
-}
-
-fn linear_to_srgb(c: vec4f) -> vec4f {
-    return vec4(gamma_from_linear_rgb(c.rgb), c.a);
-}
-
-let MASK_NONE: u32 = 0xFFFFFFFFu;
+const MASK_NONE: u32 = 0xFFFFFFFFu;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    var bga = linear_to_srgb(textureSample(composite, splr, in.bg_coords));
+    var bga = textureSample(composite, splr, in.bg_coords);
 
     for (var i: i32 = 0; i < layer_count; i++) {
         var maska = select(textureSample(textures, splr, in.fg_coords, i32(masks[i])).a, 1.0, masks[i] == MASK_NONE);
-        var fga = linear_to_srgb(textureSample(textures, splr, in.fg_coords, i32(layers[i]))) * maska;
+        var fga = textureSample(textures, splr, in.fg_coords, i32(layers[i])) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {
@@ -339,5 +331,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // Compute final premultiplied colors
         bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
     }
-    return srgb_to_linear(bga);
+    return bga;
 }

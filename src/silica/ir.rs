@@ -31,11 +31,15 @@ pub(super) struct IRData<'a> {
     pub(super) file_names: &'a [&'a str],
     pub(super) render: &'a GpuHandle,
     pub(super) gpu_textures: &'a GpuTexture,
-    pub(super) counter: &'a AtomicU32
+    pub(super) counter: &'a AtomicU32,
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
         Ok(Self {
             nka,
             coder: <&'a Dictionary>::decode(nka, key, val)?,
@@ -55,7 +59,9 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
         let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
-        let image = meta.counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let image = meta
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         meta.file_names
             .into_par_iter()
@@ -73,14 +79,26 @@ impl SilicaIRLayer<'_> {
                 // impossible
                 let mut chunk = archive.by_name(path).expect("path not inside zip");
 
+                let mut buf = Vec::new();
+                chunk.read_to_end(&mut buf)?;
+
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data_len = tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
-                let mut buf = Vec::with_capacity(data_len);
-                chunk.read_to_end(&mut buf)?;
-                let dst = lzo.decompress_safe(
-                    &buf[..],
-                    tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT),
-                )?;
+                let dst = if path.ends_with(".lz4") {
+                    // println!("{:x?} {:x?} {}", &buf[0..20],  &buf[buf.len() - 20..], data_len);
+                    // let mut decoder = lz4_flex::frame::FrameDecoder::new(std::io::Cursor::new(&buf[4..buf.len() - 4]));
+                    // let mut dst = Vec::with_capacity(data_len);
+                    // decoder.read_to_end(&mut dst)?;
+                    // dst
+                    // lz4_flex::decompress(&buf[8..buf.len() - 4], data_len)?
+                    
+                    // todo!("lz4 decompression not implemented yet")
+                    // lz4::block::decompress(&buf[4..buf.len() - 4], None).unwrap()
+                    return Err(SilicaError::Lz4Unsupported)
+                } else {
+                    lzo.decompress_safe(buf.as_slice(), data_len)?
+                };
+
                 meta.gpu_textures.replace(
                     &meta.render,
                     col * meta.tile.size,
@@ -93,7 +111,6 @@ impl SilicaIRLayer<'_> {
                 Ok(())
             })
             .collect::<Result<(), _>>()?;
-
 
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(
@@ -121,7 +138,11 @@ pub(super) struct SilicaIRGroup<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
         let coder = <&'a Dictionary>::decode(nka, key, val)?;
         Ok(Self {
             nka,
@@ -134,7 +155,11 @@ impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
 }
 
 impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
         let coder = <&'a Dictionary>::decode(nka, key, val)?;
         let class = nka.fetch::<NsClass>(coder, "$class")?;
 
