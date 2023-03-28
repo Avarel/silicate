@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
 
@@ -57,19 +57,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-bundle
-        uses: actions-rs/cargo@v1
         if: matrix.os == 'macos-latest'
-        with:
-          use-cross: ${{ matrix.cross }}
-          command: install
-          args: cargo-bundle
+        run: cargo install cargo-bundle
 
       - name: Build release binary
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: ${{ matrix.cross }}
-          command: build
-          args: --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Build macOS bundle
         uses: actions-rs/cargo@v1
