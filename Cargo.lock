@@ -2250,6 +2250,7 @@ name = "silicate"
 version = "0.2.1"
 dependencies = [
  "bytemuck",
+ "cc",
  "egui",
  "egui-notify",
  "egui-wgpu",
