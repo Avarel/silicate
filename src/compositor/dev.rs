@@ -9,11 +9,7 @@ pub struct GpuHandle {
     pub device: wgpu::Device,
     /// Device command queue.
     pub queue: wgpu::Queue,
-    /// How many textures to be binded at once in a shader render pass.
-    pub chunks: u32,
 }
-
-const CHUNKS_LIMIT: u32 = 64;
 
 impl GpuHandle {
     const INSTANCE_OPTIONS: wgpu::InstanceDescriptor = wgpu::InstanceDescriptor {
@@ -52,12 +48,9 @@ impl GpuHandle {
 
     /// Request device.
     async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
-        let chunks = CHUNKS_LIMIT;
-
         // Debugging information
         dbg!(adapter.get_info());
         dbg!(adapter.limits());
-        dbg!(chunks);
 
         let (device, queue) = adapter
             .request_device(
@@ -75,7 +68,6 @@ impl GpuHandle {
             .ok()?;
 
         Some(Self {
-            chunks,
             instance,
             device,
             adapter,

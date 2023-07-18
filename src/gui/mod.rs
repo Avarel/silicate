@@ -107,11 +107,11 @@ pub async fn load_file(
         .await
         .unwrap()?;
     let mut target = CompositorTarget::new(dev);
-    target.flip_vertices(file.flipped.horizontally, file.flipped.vertically);
+    target.data.flip_vertices(file.flipped.horizontally, file.flipped.vertically);
     target.set_dimensions(file.size.width, file.size.height);
 
     for _ in 0..file.orientation {
-        target.rotate_vertices(true);
+        target.data.rotate_vertices(true);
         target.set_dimensions(target.dim.height, target.dim.width);
     }
 
@@ -384,8 +384,11 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                                 } else {
                                     wgpu::FilterMode::Nearest
                                 };
-                                let texture_view =
-                                    target.output_texture.as_ref().unwrap().create_srgb_view();
+
+                                let Some(output) = target.output.as_ref() else {
+                                    return;
+                                };
+                                let texture_view = output.texture.create_srgb_view();
 
                                 if let Some((tex, dim)) = editor.canvases.get_mut(idx) {
                                     egui_rpass.update_egui_texture_from_wgpu_texture(

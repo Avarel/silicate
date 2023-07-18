@@ -86,6 +86,7 @@ impl GpuTexture {
     }
 
     /// Clear the texture with a certain color.
+    #[allow(dead_code)]
     pub fn clear(&self, dev: &GpuHandle, color: wgpu::Color) {
         dev.queue.submit(Some({
             let mut encoder = dev

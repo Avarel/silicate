@@ -120,41 +120,14 @@ pub struct CompositeLayer {
     pub blend: BlendingMode,
 }
 
-/// Output target of a compositor pipeline.
-pub struct CompositorTarget<'dev> {
-    pub dev: &'dev GpuHandle,
-    /// Output texture dimensions.
-    pub dim: BufferDimensions,
+pub struct CompositorData<'dev> {
+    dev: &'dev GpuHandle,
     vertices: [VertexInput; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    /// Output texture. This is none until the compositor target has
-    /// dimension set.
-    pub output_texture: Option<GpuTexture>,
-    /// Compositor stage buffers.
-    stages: Vec<CompositorStage<'dev>>,
 }
 
-/// Compositor stage buffers. This is so that the rendering process
-/// can reuse buffers and textures whenever possible.
-struct CompositorStage<'dev> {
-    bindings: CpuBuffers,
-    buffers: GpuBuffers<'dev>,
-    output: GpuTexture,
-}
-
-impl<'dev> CompositorStage<'dev> {
-    /// Create a new compositor stage.
-    pub fn new(target: &CompositorTarget<'dev>) -> Self {
-        Self {
-            bindings: CpuBuffers::new(target.dev.chunks),
-            buffers: GpuBuffers::new(target.dev),
-            output: target.create_texture(),
-        }
-    }
-}
-
-impl<'dev> CompositorTarget<'dev> {
+impl<'dev> CompositorData<'dev> {
     /// Initial vertices
     const SQUARE_VERTICES: [VertexInput; 4] = [
         VertexInput {
@@ -182,8 +155,7 @@ impl<'dev> CompositorTarget<'dev> {
     /// Initial indices of the 2 triangle strips
     const INDICES: [u16; 4] = [0, 1, 2, 3];
 
-    /// Create a new compositor target.
-    pub fn new(dev: &'dev GpuHandle) -> Self {
+    fn new(dev: &'dev GpuHandle) -> Self {
         let device = &dev.device;
 
         // Create the vertex buffer.
@@ -203,20 +175,12 @@ impl<'dev> CompositorTarget<'dev> {
 
         Self {
             dev,
-            dim: BufferDimensions::new(0, 0),
             vertices,
             vertex_buffer,
             index_buffer,
-            output_texture: None,
-            stages: Vec::new(),
         }
     }
-
-    /// Create an empty texture for this compositor target.
-    fn create_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
-    }
-
+    
     /// Flip the vertex data's foreground UV of the compositor target.
     pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
         for v in &mut self.vertices {
@@ -252,6 +216,71 @@ impl<'dev> CompositorTarget<'dev> {
         }
         self.load_vertex_buffer();
     }
+    
+    /// Load the GPU vertex buffer with updated data.
+    fn load_vertex_buffer(&mut self) {
+        self.dev
+            .queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
+    }
+}
+
+/// Output target of a compositor pipeline.
+pub struct CompositorTarget<'dev> {
+    pub dev: &'dev GpuHandle,
+    pub data: CompositorData<'dev>,
+    /// Output texture dimensions.
+    pub dim: BufferDimensions,
+    /// Compositor output buffers and texture.
+    pub output: Option<CompositorOutput<'dev>>,
+}
+
+/// Compositor stage buffers. This is so that the rendering process
+/// can reuse buffers and textures whenever possible.
+pub struct CompositorOutput<'dev> {
+    size: usize,
+    bindings: CpuBuffers,
+    buffers: GpuBuffers<'dev>,
+    pub texture: GpuTexture,
+}
+
+impl<'dev> CompositorOutput<'dev> {
+    /// Create a new compositor stage.
+    pub fn new(target: &CompositorTarget<'dev>, size: usize) -> Self {
+        Self {
+            size,
+            bindings: CpuBuffers::new(size),
+            buffers: GpuBuffers::new(target.dev, size),
+            texture: target.create_texture(),
+        }
+    }
+
+    fn reserve_buffers(&mut self, size: usize) {
+        if size <= self.size {
+            return;
+        }
+
+        self.size = size;
+        self.bindings = CpuBuffers::new(size);
+        self.buffers = GpuBuffers::new(self.buffers.dev, size);
+    }
+}
+
+impl<'dev> CompositorTarget<'dev> {
+    /// Create a new compositor target.
+    pub fn new(dev: &'dev GpuHandle) -> Self {
+        Self {
+            dev,
+            dim: BufferDimensions::new(0, 0),
+            data: CompositorData::new(dev),
+            output: None,
+        }
+    }
+
+    /// Create an empty texture for this compositor target.
+    fn create_texture(&self) -> GpuTexture {
+        GpuTexture::empty_with_extent(self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
+    }
 
     /// Transpose the dimensions of the compositor target's output.
     pub fn transpose_dimensions(&mut self) -> bool {
@@ -265,27 +294,8 @@ impl<'dev> CompositorTarget<'dev> {
             return false;
         }
         self.dim = buffer_dimensions;
-        self.output_texture = Some({
-            let tex = GpuTexture::empty_with_extent(
-                self.dev,
-                self.dim.extent,
-                wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-            );
-            tex.clear(self.dev, wgpu::Color::WHITE);
-            tex
-        });
-        self.stages.clear();
+        self.output = None;
         true
-    }
-
-    /// Load the GPU vertex buffer with updated data.
-    fn load_vertex_buffer(&mut self) {
-        self.dev
-            .queue
-            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
     }
 
     /// Render composite layers using the compositor pipeline.
@@ -304,60 +314,29 @@ impl<'dev> CompositorTarget<'dev> {
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-            // Breaks down the layers and renders in stages.
-            let mut stage_idx = 0;
-            let mut count = 0;
-            while count < layers.len() {
-                if self.stages.len() <= stage_idx {
-                    debug_assert_eq!(stage_idx, self.stages.len());
-                    self.stages.push(CompositorStage::new(self));
-                }
-                count += self.render_stage(
-                    pipeline,
-                    &mut encoder,
-                    bg,
-                    stage_idx,
-                    &layers[count..],
-                    textures,
-                ) as usize;
-                stage_idx += 1;
-            }
-
-            // Truncate and remove stages that might no longer be necessary.
-            self.stages.truncate(stage_idx);
-
-            // Copy the texture to the output of the target.
-            encoder.copy_texture_to_texture(
-                self.stages[stage_idx - 1].output.texture.as_image_copy(),
-                self.output_texture
-                    .as_ref()
-                    .unwrap()
-                    .texture
-                    .as_image_copy(),
-                self.stages[stage_idx - 1].output.size,
-            );
+            self.render_command(pipeline, &mut encoder, bg, layers, textures);
 
             encoder.finish()
         }));
     }
 
-    /// Singular render pass. Many might be required to complete the compositing step.
-    fn render_stage(
+    fn render_command(
         &mut self,
         pipeline: &CompositorPipeline,
         encoder: &mut CommandEncoder,
         bg: Option<[f32; 4]>,
-        stage_idx: usize,
         composite_layers: &[CompositeLayer],
         textures: &GpuTexture,
-    ) -> u32 {
-        let composite_view = if stage_idx > 0 {
-            self.stages[stage_idx - 1].output.create_view()
-        } else {
-            self.create_texture().create_view()
-        };
+    ) {
+        let composite_view = self.create_texture().create_view();
 
-        let stage = &mut self.stages[stage_idx];
+        let stage = if let Some(stage) = self.output.as_mut() {
+            stage.reserve_buffers(composite_layers.len());
+            stage
+        } else {
+            self.output
+                .insert(CompositorOutput::new(self, composite_layers.len()))
+        };
 
         stage.bindings.map_composite_layers(composite_layers);
         stage.buffers.load(&stage.bindings);
@@ -396,7 +375,7 @@ impl<'dev> CompositorTarget<'dev> {
                 label: Some("mixing_bind_group"),
             });
 
-        let output_view = stage.output.create_view();
+        let output_view = stage.texture.create_view();
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[
@@ -440,13 +419,11 @@ impl<'dev> CompositorTarget<'dev> {
         );
         render_pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
         render_pass.set_bind_group(1, &blending_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..CompositorTarget::INDICES.len() as u32, 0, 0..1);
+        render_pass.set_vertex_buffer(0, self.data.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.data.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
 
         drop(render_pass);
-
-        stage.bindings.count
     }
 }
 

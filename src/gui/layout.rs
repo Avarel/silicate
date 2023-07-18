@@ -210,12 +210,12 @@ impl ControlsGui<'_> {
                 ui.label("Flip");
                 ui.horizontal(|ui| {
                     if ui.button("Horizontal").clicked() {
-                        instance.target.lock().flip_vertices(false, true);
+                        instance.target.lock().data.flip_vertices(false, true);
                         instance.store_change_or(true);
                         instance.store_new_texture_or(true);
                     }
                     if ui.button("Vertical").clicked() {
-                        instance.target.lock().flip_vertices(true, false);
+                        instance.target.lock().data.flip_vertices(true, false);
                         instance.store_change_or(true);
                         instance.store_new_texture_or(true);
                     }
@@ -225,13 +225,13 @@ impl ControlsGui<'_> {
                 ui.horizontal(|ui| {
                     if ui.button("CCW").clicked() {
                         let mut target = instance.target.lock();
-                        target.rotate_vertices(true);
+                        target.data.rotate_vertices(true);
                         instance.store_new_texture_or(target.transpose_dimensions());
                         instance.store_change_or(true);
                     }
                     if ui.button("CW").clicked() {
                         let mut target = instance.target.lock();
-                        target.rotate_vertices(false);
+                        target.data.rotate_vertices(false);
                         instance.store_new_texture_or(target.transpose_dimensions());
                         instance.store_change_or(true);
                     }
@@ -244,15 +244,10 @@ impl ControlsGui<'_> {
                     ui.label("Actions");
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
-                            let copied_texture = instance
-                                .target
-                                .lock()
-                                .output_texture
-                                .as_ref()
-                                .unwrap()
-                                .clone(self.statics.dev);
-
-                            self.rt.spawn(save_dialog(*self.statics, copied_texture));
+                            if let Some(texture) = instance.target.lock().output.as_ref() {
+                                let copied_texture = texture.texture.clone(self.statics.dev);
+                                self.rt.spawn(save_dialog(*self.statics, copied_texture));
+                            }
                         }
                     });
                 });
@@ -343,6 +338,11 @@ impl ControlsGui<'_> {
             let mut file = instance.file.write();
             let mut changed = false;
 
+            let mut i = 0;
+            Self::layout_layers_sub(ui, &mut file.layers, &mut i, &mut changed);
+
+            ui.separator();
+
             // Let background controls be first since color controls are bad.
             Grid::new("layers.background").show(ui, |ui| {
                 ui.label("Background");
@@ -355,11 +355,6 @@ impl ControlsGui<'_> {
                 let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
                 changed |= ui.color_edit_button_rgb(bg).changed();
             });
-
-            ui.separator();
-
-            let mut i = 0;
-            Self::layout_layers_sub(ui, &mut file.layers, &mut i, &mut changed);
 
             instance.store_change_or(changed);
         } else {
@@ -467,7 +462,7 @@ impl ViewerGui {
             }
             egui_dock::DockArea::new(&mut self.canvas_tree)
                 .id(Id::new("view.dock"))
-                .style(egui_style(ui))
+                .style(egui_dock::Style::from_egui(ui.style()))
                 .show_inside(
                     ui,
                     &mut CanvasGui {
@@ -489,7 +484,8 @@ impl ViewerGui {
             .frame(Frame::none())
             .show(context, |ui| {
                 egui_dock::DockArea::new(&mut self.viewer_tree)
-                    .style(egui_style(ui))
+                    .style(egui_dock::Style::from_egui(ui.style()))
+                    .show_close_buttons(false)
                     .show_inside(
                         ui,
                         &mut ControlsGui {
@@ -507,13 +503,6 @@ impl ViewerGui {
                 self.layout_view(ui);
             });
     }
-}
-
-fn egui_style(ui: &mut Ui) -> egui_dock::Style {
-    egui_dock::Style::from_egui(ui.style())
-        // .show_close_buttons(false)
-        // .with_tab_bar_height(36.0)
-        // .build()
 }
 
 #[derive(Clone, Copy)]

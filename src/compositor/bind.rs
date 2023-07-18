@@ -9,7 +9,7 @@ use crate::compositor::CompositeLayer;
 pub struct CpuBuffers {
     /// Corresponds to how many layers there are in this buffer.
     /// All of the buffers are of this size.
-    chunks: u32,
+    chunks: usize,
     /// Blending mode buffers. See also [BlendingMode]
     blends: Box<[u32]>,
     /// Opacity buffer. Each element is the corresponding layer's
@@ -28,15 +28,13 @@ impl CpuBuffers {
     const MASK_NONE: u32 = u32::MAX;
 
     /// Create shader buffers on the CPU side.
-    pub fn new(chunks: u32) -> Self {
-        let chunks = chunks as usize;
-
+    pub fn new(size: usize) -> Self {
         Self {
-            chunks: chunks as u32,
-            blends: vec![0; chunks].into_boxed_slice(),
-            opacities: vec![0.0; chunks].into_boxed_slice(),
-            masks: vec![0; chunks].into_boxed_slice(),
-            layers: vec![0; chunks].into_boxed_slice(),
+            chunks: size,
+            blends: vec![0; size].into_boxed_slice(),
+            opacities: vec![0.0; size].into_boxed_slice(),
+            masks: vec![0; size].into_boxed_slice(),
+            layers: vec![0; size].into_boxed_slice(),
             count: 0,
         }
     }
@@ -54,9 +52,7 @@ impl CpuBuffers {
     pub fn map_composite_layers(&mut self, composite_layers: &[CompositeLayer]) {
         self.reset();
         for (index, layer) in composite_layers.iter().enumerate() {
-            debug_assert_eq!(index, self.count as usize);
-
-            if index >= self.chunks as usize {
+            if index >= self.chunks {
                 break;
             }
 
@@ -65,14 +61,15 @@ impl CpuBuffers {
 
             self.blends[index] = layer.blend.to_u32();
             self.opacities[index] = layer.opacity;
-            self.count += 1;
         }
+        self.count = composite_layers.len() as u32;
     }
 }
 
 /// Shader buffers on the GPU side.
 pub(super) struct GpuBuffers<'dev> {
-    dev: &'dev GpuHandle,
+    pub(super) dev: &'dev GpuHandle,
+    size: usize,
     pub(super) blends: wgpu::Buffer,
     pub(super) opacities: wgpu::Buffer,
     pub(super) masks: wgpu::Buffer,
@@ -81,16 +78,16 @@ pub(super) struct GpuBuffers<'dev> {
 
 impl<'dev> GpuBuffers<'dev> {
     /// Create the buffers on the GPU.
-    pub fn new(dev: &'dev GpuHandle) -> Self {
-        let chunks = u64::from(dev.chunks);
+    pub fn new(dev: &'dev GpuHandle, size: usize) -> Self {
         let storage_desc: wgpu::BufferDescriptor = wgpu::BufferDescriptor {
             label: None,
-            size: 4 * chunks,
+            size: 4 * size as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         };
         GpuBuffers {
             dev,
+            size,
             blends: dev.device.create_buffer(&storage_desc),
             opacities: dev.device.create_buffer(&storage_desc),
             masks: dev.device.create_buffer(&storage_desc),
@@ -100,6 +97,9 @@ impl<'dev> GpuBuffers<'dev> {
 
     /// Write the contents of the CPU buffers into the GPU buffers.
     pub fn load(&self, cpu: &CpuBuffers) {
+        assert_eq!(self.size, cpu.chunks);
+        assert!(self.size as u32 >= cpu.count);
+
         let q = &self.dev.queue;
         q.write_buffer(&self.blends, 0, bytemuck::cast_slice(&cpu.blends));
         q.write_buffer(&self.opacities, 0, bytemuck::cast_slice(&cpu.opacities));
