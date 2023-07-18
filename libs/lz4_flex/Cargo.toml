@@ -1,0 +1,22 @@
+[package]
+authors = ["Pascal Seitz <pascal.seitz@gmail.com>", "Arthur Silva <arthurprs@gmail.com>", "ticki <Ticki@users.noreply.github.com>"]
+description = "Fastest LZ4 implementation in Rust, no unsafe by default."
+edition = "2021"
+keywords = ["compression", "lz4", "compress", "decompression", "decompress"]
+name = "lz4_flex"
+homepage = "https://github.com/pseitz/lz4_flex"
+repository = "https://github.com/pseitz/lz4_flex"
+readme = "README.md"
+license = "MIT"
+version = "0.11.1"
+include = ["src/*.rs", "src/frame/**/*", "src/block/**/*", "README.md"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]

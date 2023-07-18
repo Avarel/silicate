@@ -467,12 +467,7 @@ impl ViewerGui {
             }
             egui_dock::DockArea::new(&mut self.canvas_tree)
                 .id(Id::new("view.dock"))
-                .style(
-                    egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
-                        .show_add_buttons(true)
-                        .with_tab_bar_height(36.0)
-                        .build(),
-                )
+                .style(egui_style(ui))
                 .show_inside(
                     ui,
                     &mut CanvasGui {
@@ -494,12 +489,7 @@ impl ViewerGui {
             .frame(Frame::none())
             .show(context, |ui| {
                 egui_dock::DockArea::new(&mut self.viewer_tree)
-                    .style(
-                        egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
-                            .show_close_buttons(false)
-                            .with_tab_bar_height(36.0)
-                            .build(),
-                    )
+                    .style(egui_style(ui))
                     .show_inside(
                         ui,
                         &mut ControlsGui {
@@ -517,6 +507,13 @@ impl ViewerGui {
                 self.layout_view(ui);
             });
     }
+}
+
+fn egui_style(ui: &mut Ui) -> egui_dock::Style {
+    egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
+        .show_close_buttons(false)
+        .with_tab_bar_height(36.0)
+        .build()
 }
 
 #[derive(Clone, Copy)]
