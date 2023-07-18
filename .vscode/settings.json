@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "assert.h": "c",
-        "lz4.h": "c",
-        "lz4_constants.h": "c"
-    }
-}
