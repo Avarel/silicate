@@ -1,0 +1,49 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup nightly Rust Toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: nightly
+    - uses: actions/checkout@v3
+    - name: Ensure no_std compiles
+      run: cargo build --no-default-features
+    - name: Ensure no_std compiles for safe-decode
+      run: cargo build --no-default-features --features safe-decode
+    - name: Ensure no_std compiles for safe-encode
+      run: cargo build --no-default-features --features safe-encode
+    - name: Ensure no_std compiles for safe-encode and safe-decode
+      run: cargo build --no-default-features --features safe-encode --features safe-decode
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test
+    - name: Run tests with nightly
+      run: cargo +nightly test --features nightly
+    - name: Run tests safe-encode
+      run: cargo test --features safe-encode
+    - name: Run tests safe-decode
+      run: cargo test --features safe-decode
+    - name: Run tests --no-default-features with frame
+      run: cargo test --no-default-features --features frame
+    - name: Run tests --no-default-features with frame, with nightly features
+      run: cargo +nightly test --no-default-features --features frame --features nightly
+    - name: Run tests unsafe with checked-decode and frame
+      run: cargo test --no-default-features --features frame
+    - name: Install cargo fuzz
+      run: cargo install cargo-fuzz
+    - name: Run fuzz tests (safe)
+      run: for fuzz_test in `cargo fuzz list`; do cargo +nightly fuzz run $fuzz_test -- -max_total_time=30 || exit 1; done
+    - name: Run fuzz tests (unsafe)
+      run: for fuzz_test in `cargo fuzz list`; do cargo +nightly fuzz run $fuzz_test --no-default-features -- -max_total_time=30 || exit 1; done

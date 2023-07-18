@@ -10,7 +10,8 @@ license = "MIT"
 
 [workspace]
 members = [
-    "libs/egui_dock"
+    "libs/egui_dock",
+    "libs/lz4_flex"
 ]
 
 [features]
@@ -20,7 +21,8 @@ psd = ["dep:psd"]
 [dependencies]
 # Procreate support
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
-# lz4_flex = "0.10.0"
+# lz4_flex = "0.11.0"
+lz4_flex = { path = "libs/lz4_flex" }
 # lz4 = "1.24.0"
 minilzo-rs = "0.6.0"
 plist = "1.3"
@@ -28,7 +30,7 @@ thiserror = "1.0"
 regex = "1.6"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "tga", "tiff", "webp", "bmp"] }
 once_cell = "1"
-memmap2 = "0.5"
+memmap2 = "0.7"
 rayon = "1"
 # PSD support
 psd = { version = "0.3", optional = true }

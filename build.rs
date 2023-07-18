@@ -9,8 +9,5 @@ fn main() -> io::Result<()> {
             .set_icon("assets/icon.ico")
             .compile()?;
     }
-    cc::Build::new()
-        .file("src/lz4/lz4.c")
-        .compile("alz4");
     Ok(())
 }

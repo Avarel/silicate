@@ -47,51 +47,6 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
     }
 }
 
-// struct AppleLz4Decoder<'a> {
-//     inner: std::io::Cursor<&'a [u8]>
-// }
-
-// impl<'a> AppleLz4Decoder<'a> {
-//     fn new(inner: std::io::Cursor<&'a [u8]>) -> Self {
-//         Self { inner }
-//     }
-
-//     fn decode_block(&mut self) -> Result<usize, std::io::Error> {
-//         let mut magic = [0u8; 4];
-//         self.inner.read_exact(&mut magic)?;
-//         if magic != [0x62, 0x76, 0x34, 0x31] {
-//             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid magic number"));
-//         }       
-
-//         let mut header = [0u8; 4];
-//         self.inner.read_exact(&mut header)?;
-
-//         let size = u32::from_le_bytes(header) as usize;
-
-//         let start = self.inner.position();
-
-//         loop {
-//             match self.inner.get_ref()[self.inner.position() as usize..] {
-//                 [0x62, 0x76, 0x34, 0x24, ..] => {
-//                     let end = self.inner.position();
-//                     // lz4_flex::decompress(input, uncompressed_size)
-//                 }
-//                 _ => {
-//                     self.inner.read(&mut [0]);
-//                 }
-//             }
-//         }
-//         unimplemented!()
-
-//         // let mut decompressed = vec![0u8; buf.len()];
-//         // let mut decompressed_size = decompressed.len();
-//         // // lz4::block::decompress(&compressed, &mut decompressed, &mut decompressed_size)?;
-
-//         // buf.copy_from_slice(&decompressed[..decompressed_size]);
-//         // Ok(decompressed_size)
-//     }
-// }
-
 impl SilicaIRLayer<'_> {
     pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
@@ -102,7 +57,6 @@ impl SilicaIRLayer<'_> {
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
-        let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
 
         let image = meta
             .counter
@@ -130,17 +84,12 @@ impl SilicaIRLayer<'_> {
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data_len = tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
                 let dst = if path.ends_with(".lz4") {
-                    // println!("{:x?} {:x?} {}", &buf[0..20],  &buf[buf.len() - 20..], data_len);
-                    // let mut decoder = lz4_flex::frame::FrameDecoder::new(std::io::Cursor::new(&buf[4..buf.len() - 4]));
-                    // let mut dst = Vec::with_capacity(data_len);
-                    // decoder.read_to_end(&mut dst)?;
-                    // dst
-                    // lz4_flex::decompress(&buf[8..buf.len() - 4], data_len)?
-                    
-                    // todo!("lz4 decompression not implemented yet")
-                    // lz4::block::decompress(&buf[4..buf.len() - 4], None).unwrap()
-                    return Err(SilicaError::Lz4Unsupported)
+                    let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
+                    let mut dst = Vec::new();
+                    decoder.read_to_end(&mut dst)?;
+                    dst
                 } else {
+                    let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };
 
