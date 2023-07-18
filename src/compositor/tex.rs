@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use super::{dev::GpuHandle, BufferDimensions};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
@@ -82,7 +80,7 @@ impl GpuTexture {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(TEX_FORMAT),
             base_array_layer: layer,
-            array_layer_count: NonZeroU32::new(1),
+            array_layer_count: Some(1),
             ..Default::default()
         })
     }
@@ -142,8 +140,8 @@ impl GpuTexture {
             // The layout of the texture
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * width),
-                rows_per_image: NonZeroU32::new(height),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             wgpu::Extent3d {
                 width,
@@ -206,7 +204,7 @@ impl GpuTexture {
                     buffer: &output_buffer,
                     layout: wgpu::ImageDataLayout {
                         offset: 0,
-                        bytes_per_row: NonZeroU32::new(dim.padded_bytes_per_row),
+                        bytes_per_row: Some(dim.padded_bytes_per_row),
                         rows_per_image: None,
                     },
                 },

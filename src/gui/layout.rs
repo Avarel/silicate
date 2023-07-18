@@ -510,10 +510,10 @@ impl ViewerGui {
 }
 
 fn egui_style(ui: &mut Ui) -> egui_dock::Style {
-    egui_dock::StyleBuilder::from_egui(ui.style().as_ref())
-        .show_close_buttons(false)
-        .with_tab_bar_height(36.0)
-        .build()
+    egui_dock::Style::from_egui(ui.style())
+        // .show_close_buttons(false)
+        // .with_tab_bar_height(36.0)
+        // .build()
 }
 
 #[derive(Clone, Copy)]

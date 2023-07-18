@@ -3,9 +3,9 @@
 // Nothing special about this section. It gets fed vertices in a triangle strip
 // configuration to draw a square on the texture.
 
-type vec2f = vec2<f32>;
-type vec3f = vec3<f32>;
-type vec4f = vec4<f32>;
+alias vec2f = vec2<f32>;
+alias vec3f = vec3<f32>;
+alias vec4f = vec4<f32>;
 
 struct VertexInput {
     @location(0) position: vec3f,
