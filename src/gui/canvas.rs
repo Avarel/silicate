@@ -147,8 +147,8 @@ impl ScreenTransform {
     }
 
     pub fn translate_bounds(&mut self, mut delta_pos: Vec2) {
-        delta_pos.x *= self.dvalue_dpos()[0] as f32;
-        delta_pos.y *= self.dvalue_dpos()[1] as f32;
+        delta_pos.x *= self.dvalue_dpos()[0];
+        delta_pos.y *= self.dvalue_dpos()[1];
         self.bounds.translate(delta_pos);
     }
 

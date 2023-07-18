@@ -119,10 +119,8 @@ impl GpuTexture {
     pub fn replace(
         &self,
         dev: &GpuHandle,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
+        (x, y): (u32, u32),
+        (width, height): (u32, u32),
         layer: u32,
         data: &[u8],
     ) {
@@ -140,7 +138,7 @@ impl GpuTexture {
                 aspect: wgpu::TextureAspect::All,
             },
             // The actual pixel data
-            &data,
+            data,
             // The layout of the texture
             wgpu::ImageDataLayout {
                 offset: 0,
@@ -228,13 +226,12 @@ impl GpuTexture {
         rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();
-        drop(buffer_slice);
         output_buffer.unmap();
 
         eprintln!("Loading data to CPU");
         let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-            dim.padded_bytes_per_row as u32 / 4,
-            dim.height as u32,
+            dim.padded_bytes_per_row / 4,
+            dim.height,
             data,
         )
         .unwrap();

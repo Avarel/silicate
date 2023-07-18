@@ -273,10 +273,10 @@ impl ControlsGui<'_> {
 
             ui.label("Blend");
             *changed |= ComboBox::from_id_source(0)
-                .selected_text(l.blend.to_str())
+                .selected_text(l.blend.as_str())
                 .show_ui(ui, |ui| {
                     for b in BlendingMode::all() {
-                        ui.selectable_value(&mut l.blend, *b, b.to_str());
+                        ui.selectable_value(&mut l.blend, *b, b.as_str());
                     }
                 })
                 .response
@@ -472,7 +472,7 @@ impl ViewerGui {
                     ui,
                     &mut CanvasGui {
                         statics: &self.statics,
-                        rt: &self.rt,
+                        rt: self.rt,
 
                         view_options: &self.view_options,
                         canvases: &mut self.canvases,
@@ -494,9 +494,9 @@ impl ViewerGui {
                         ui,
                         &mut ControlsGui {
                             statics: &self.statics,
-                            rt: &self.rt,
+                            rt: self.rt,
                             selected_canvas: &self.selected_canvas,
-                            view_options: &mut &mut self.view_options,
+                            view_options: &mut self.view_options,
                         },
                     );
             });

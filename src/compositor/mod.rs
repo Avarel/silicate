@@ -148,7 +148,7 @@ impl<'dev> CompositorStage<'dev> {
     pub fn new(target: &CompositorTarget<'dev>) -> Self {
         Self {
             bindings: CpuBuffers::new(target.dev.chunks),
-            buffers: GpuBuffers::new(&target.dev),
+            buffers: GpuBuffers::new(target.dev),
             output: target.create_texture(),
         }
     }
@@ -214,7 +214,7 @@ impl<'dev> CompositorTarget<'dev> {
 
     /// Create an empty texture for this compositor target.
     fn create_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
+        GpuTexture::empty_with_extent(self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
     }
 
     /// Flip the vertex data's foreground UV of the compositor target.
@@ -267,7 +267,7 @@ impl<'dev> CompositorTarget<'dev> {
         self.dim = buffer_dimensions;
         self.output_texture = Some({
             let tex = GpuTexture::empty_with_extent(
-                &self.dev,
+                self.dev,
                 self.dim.extent,
                 wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::RENDER_ATTACHMENT

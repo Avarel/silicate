@@ -82,7 +82,7 @@ impl<'a> NsKeyedArchive {
     ) -> Result<Option<&'a Value>, NsArchiveError> {
         return match coder.get(key) {
             Some(Value::Uid(uid)) => self.resolve_index_nullable(uid.get() as usize),
-            value @ _ => Ok(value),
+            value => Ok(value),
         };
     }
 
@@ -120,12 +120,17 @@ pub trait NsDecode<'a>: Sized {
         Self::decode(nka, key, nka.fetch_value(coder, key)?)
     }
 
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError>;
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError>;
 }
 
 impl NsDecode<'_> for bool {
     fn decode(_: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        val.as_boolean().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_boolean()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
@@ -154,25 +159,29 @@ impl NsDecode<'_> for u64 {
 
 impl NsDecode<'_> for i64 {
     fn decode(_: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        val.as_signed_integer().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_signed_integer()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl NsDecode<'_> for f64 {
     fn decode(_: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        val.as_real().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_real()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl NsDecode<'_> for u32 {
     fn decode(nka: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        u32::try_from(u64::decode(nka, key, val)?).map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))
+        u32::try_from(u64::decode(nka, key, val)?)
+            .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl NsDecode<'_> for i32 {
     fn decode(nka: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        i32::try_from(i64::decode(nka, key, val)?).map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))
+        i32::try_from(i64::decode(nka, key, val)?)
+            .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
@@ -184,7 +193,8 @@ impl NsDecode<'_> for f32 {
 
 impl<'a> NsDecode<'a> for &'a Dictionary {
     fn decode(_: &NsKeyedArchive, key: &str, val: &'a Value) -> Result<Self, NsArchiveError> {
-        val.as_dictionary().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_dictionary()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
@@ -196,26 +206,30 @@ impl<'a> NsDecode<'a> for &'a Value {
 
 impl<'a> NsDecode<'a> for &'a [u8] {
     fn decode(_: &NsKeyedArchive, key: &str, val: &'a Value) -> Result<Self, NsArchiveError> {
-        val.as_data().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_data()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl NsDecode<'_> for Uid {
     fn decode(_: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        val.as_uid().copied().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_uid()
+            .copied()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl<'a> NsDecode<'a> for &'a str {
     fn decode(_: &NsKeyedArchive, key: &str, val: &'a Value) -> Result<Self, NsArchiveError> {
-        val.as_string().ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
+        val.as_string()
+            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))
     }
 }
 
 impl<'a> NsDecode<'a> for String {
     fn decode(a: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
         if let Ok(s) = NsString::decode(a, key, val) {
-            return Ok(s.string)
+            return Ok(s.string);
         }
         Ok(<&'_ str>::decode(a, key, val)?.to_owned())
     }
@@ -252,7 +266,11 @@ where
             .transpose()
     }
 
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
         Ok(Some(T::decode(nka, key, val)?))
     }
 }
@@ -287,13 +305,16 @@ impl<'a, T> NsDecode<'a> for Vec<T>
 where
     T: NsDecode<'a>,
 {
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
-        Ok(val
-            .as_array()
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
+        val.as_array()
             .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))?
             .iter()
             .map(|val| T::decode(nka, key, val))
-            .collect::<Result<Vec<_>, _>>()?)
+            .collect::<Result<Vec<_>, _>>()
     }
 }
 
@@ -306,7 +327,11 @@ impl<'a, T> NsDecode<'a> for WrappedArray<T>
 where
     T: NsDecode<'a>,
 {
-    fn decode(nka: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
         Ok(Self {
             objects: WrappedRawArray::decode(nka, key, val)?
                 .inner
@@ -350,7 +375,7 @@ impl NsDecode<'_> for NsClass {
 #[derive(Debug)]
 pub struct NsString {
     pub class: NsClass,
-    pub string: String
+    pub string: String,
 }
 
 impl NsDecode<'_> for NsString {

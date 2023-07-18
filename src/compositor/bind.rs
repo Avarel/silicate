@@ -53,7 +53,7 @@ impl CpuBuffers {
     /// Resolves the given composite layers and fill the CPU buffer.
     pub fn map_composite_layers(&mut self, composite_layers: &[CompositeLayer]) {
         self.reset();
-        for (index, layer) in composite_layers.into_iter().enumerate() {
+        for (index, layer) in composite_layers.iter().enumerate() {
             debug_assert_eq!(index, self.count as usize);
 
             if index >= self.chunks as usize {

@@ -68,7 +68,7 @@ pub enum BlendingMode {
 
 impl std::fmt::Display for BlendingMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.to_str())
+        f.write_str(self.as_str())
     }
 }
 
@@ -105,7 +105,7 @@ impl BlendingMode {
         ]
     }
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Normal => "Normal",
             Self::Multiply => "Multiply",
@@ -182,20 +182,18 @@ struct TilingData {
 }
 
 impl TilingData {
-    pub fn tile_size(&self, col: u32, row: u32) -> Size<usize> {
+    pub fn tile_size(&self, col: u32, row: u32) -> Size<u32> {
         Size {
-            width: (self.size
-                - if col != self.columns - 1 {
-                    0
-                } else {
-                    self.diff.width
-                }) as usize,
-            height: (self.size
-                - if row != self.rows - 1 {
-                    0
-                } else {
-                    self.diff.height
-                }) as usize,
+            width: if col != self.columns - 1 {
+                self.size
+            } else {
+                self.size - self.diff.width
+            },
+            height: if row != self.rows - 1 {
+                self.size
+            } else {
+                self.size - self.diff.height
+            },
         }
     }
 }
@@ -301,10 +299,7 @@ type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 impl ProcreateFile {
     // Load a Procreate file asynchronously.
-    pub fn open<P: AsRef<Path>>(
-        p: P,
-        dev: &GpuHandle,
-    ) -> Result<(Self, GpuTexture), SilicaError> {
+    pub fn open<P: AsRef<Path>>(p: P, dev: &GpuHandle) -> Result<(Self, GpuTexture), SilicaError> {
         // #[cfg(feature = "psd")]
         // if p.as_ref().extension().map(|e| e == "psd").unwrap_or(false) {
         //     return Self::open_psd(p, dev);
@@ -353,10 +348,16 @@ impl ProcreateFile {
         let file_names = archive.file_names().collect::<Vec<_>>();
 
         let ir_hierachy = nka
-        .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
-        .objects;
+            .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+            .objects;
 
-        let gpu_textures = GpuTexture::empty_layers(dev, size.width, size.height, ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1, GpuTexture::LAYER_USAGE);
+        let gpu_textures = GpuTexture::empty_layers(
+            dev,
+            size.width,
+            size.height,
+            ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1,
+            GpuTexture::LAYER_USAGE,
+        );
 
         let ir_data = IRData {
             tile: &tile,
@@ -365,7 +366,7 @@ impl ProcreateFile {
             file_names: &file_names,
             render: dev,
             gpu_textures: &gpu_textures,
-            counter: &AtomicU32::new(0)
+            counter: &AtomicU32::new(0),
         };
 
         Ok((
@@ -379,7 +380,9 @@ impl ProcreateFile {
                         .map(|bytes| {
                             <[u8; 4]>::try_from(bytes)
                                 .map(f32::from_le_bytes)
-                                .map_err(|_| NsArchiveError::TypeMismatch("backgroundColor".to_string()))
+                                .map_err(|_| {
+                                    NsArchiveError::TypeMismatch("backgroundColor".to_string())
+                                })
                         })
                         .collect::<Result<Vec<f32>, _>>()?,
                 )

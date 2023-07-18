@@ -158,7 +158,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
         (
             StaticRefs {
                 dev,
-                compositor: &compositor,
+                compositor,
                 toasts,
                 added_instances,
             },
@@ -243,7 +243,7 @@ pub fn start_gui(window: winit::window::Window, event_loop: winit::event_loop::E
                     WindowEvent::DroppedFile(file) => {
                         println!("File dropped: {:?}", file.as_path().display().to_string());
                         rt.spawn(async move {
-                            match load_file(file, &statics.dev, statics.compositor).await {
+                            match load_file(file, statics.dev, statics.compositor).await {
                                 Err(err) => {
                                     statics.toasts.lock().error(format!(
                                         "File from drag/drop failed to load. Reason: {err}"

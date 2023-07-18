@@ -69,9 +69,9 @@ impl SilicaIRLayer<'_> {
                 let mut archive = meta.archive.clone();
 
                 let chunk_str = &path[uuid.len()..path.find('.').unwrap_or(path.len())];
-                let captures = index_regex.captures(&chunk_str).unwrap();
-                let col = u32::from_str_radix(&captures[1], 10).unwrap();
-                let row = u32::from_str_radix(&captures[2], 10).unwrap();
+                let captures = index_regex.captures(chunk_str).unwrap();
+                let col = captures[1].parse::<u32>().unwrap();
+                let row = captures[2].parse::<u32>().unwrap();
 
                 let tile = meta.tile.tile_size(col, row);
 
@@ -82,7 +82,9 @@ impl SilicaIRLayer<'_> {
                 chunk.read_to_end(&mut buf)?;
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let data_len = tile.width * tile.height * usize::from(Rgba::<u8>::CHANNEL_COUNT);
+                let data_len = tile.width as usize
+                    * tile.height as usize
+                    * usize::from(Rgba::<u8>::CHANNEL_COUNT);
                 let dst = if path.ends_with(".lz4") {
                     let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
                     let mut dst = Vec::new();
@@ -94,12 +96,10 @@ impl SilicaIRLayer<'_> {
                 };
 
                 meta.gpu_textures.replace(
-                    &meta.render,
-                    col * meta.tile.size,
-                    row * meta.tile.size,
-                    tile.width as u32,
-                    tile.height as u32,
-                    image as u32,
+                    meta.render,
+                    (col * meta.tile.size, row * meta.tile.size),
+                    (tile.width, tile.height),
+                    image,
                     &dst,
                 );
                 Ok(())
