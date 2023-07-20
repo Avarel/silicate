@@ -68,10 +68,6 @@ async fn load_dialog(statics: StaticRefs, node_index: NodeIndex) {
         let mut dialog = rfd::AsyncFileDialog::new();
         dialog = dialog.add_filter("All Files", &["*"]);
         dialog = dialog.add_filter("Procreate Files", &["procreate"]);
-        #[cfg(feature = "psd")]
-        {
-            dialog = dialog.add_filter("Photoshop Files", &["psd"]);
-        }
         dialog
     }
     .pick_file()

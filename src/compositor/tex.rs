@@ -78,7 +78,7 @@ impl GpuTexture {
     #[allow(dead_code)]
     pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(TEX_FORMAT),
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             base_array_layer: layer,
             array_layer_count: Some(1),
             ..Default::default()
