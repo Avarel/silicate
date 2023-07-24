@@ -13,12 +13,11 @@ const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoopBuilder::new().build();
-
     let taskbar_icon =
         winit::window::Icon::from_rgba(include_bytes!("../assets/icon.rgba").to_vec(), 240, 240)
             .ok();
 
+    let event_loop = EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)

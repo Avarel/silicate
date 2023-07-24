@@ -70,13 +70,6 @@ impl<R: io::Read> FrameDecoder<R> {
                     self.dst_start,
                     self.dst_start + len,
                 ))?;
-                // if frame_info.block_checksums {
-                //     let expected_checksum = Self::read_checksum(&mut self.r)?;
-                //     Self::check_block_checksum(
-                //         &self.dst[self.dst_start..self.dst_start + len],
-                //         expected_checksum,
-                //     )?;
-                // }
 
                 self.dst_end += len;
                 self.content_len += len as u64;
@@ -93,20 +86,17 @@ impl<R: io::Read> FrameDecoder<R> {
                 self.r
                     .read_exact(vec_resize_and_get_mut(&mut self.src, 0, len))?;
 
-                // frame_info.block_mode == BlockMode::Linked && self.ext_dict_len != 0;
-                let decomp_size = {
-                    // Independent blocks OR linked blocks with only prefix data
-                    crate::block::decompress::decompress_internal::<false, _>(
-                        &self.src[..len],
-                        &mut vec_sink_for_decompression(
-                            &mut self.dst,
-                            0,
-                            self.dst_start,
-                            self.dst_start + block_size,
-                        ),
-                        b"",
-                    )
-                }
+                // Independent blocks OR linked blocks with only prefix data
+                let decomp_size = crate::block::decompress::decompress_internal::<false, _>(
+                    &self.src[..len],
+                    &mut vec_sink_for_decompression(
+                        &mut self.dst,
+                        0,
+                        self.dst_start,
+                        self.dst_start + block_size,
+                    ),
+                    b"",
+                )
                 .map_err(Error::DecompressionError)?;
 
                 if decomp_size != block_size {
@@ -116,6 +106,8 @@ impl<R: io::Read> FrameDecoder<R> {
                     }
                     .into());
                 }
+
+                debug_assert_eq!(block_size, decomp_size);
 
                 self.dst_end += decomp_size;
                 self.content_len += decomp_size as u64;
