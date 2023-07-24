@@ -14,13 +14,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use super::canvas;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct SharedData {
     pub dev: &'static GpuHandle,
     pub compositor: &'static CompositorHandle,
-    pub toasts: &'static Mutex<egui_notify::Toasts>,
-    pub added_instances: &'static Mutex<Vec<(NodeIndex, InstanceKey)>>,
-    pub eloop: winit::event_loop::EventLoopProxy<super::UserEvent>,
 }
 
 #[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -55,7 +52,12 @@ pub struct CompositorHandle {
     pub pipeline: CompositorPipeline,
 }
 
-async fn load_dialog(shared: SharedData, node_index: NodeIndex) {
+async fn load_dialog(
+    shared: SharedData,
+    eproxy: winit::event_loop::EventLoopProxy<super::UserEvent>,
+    node_index: NodeIndex,
+) {
+    let ez = eproxy.clone();
     if let Some(handle) = {
         let mut dialog = rfd::AsyncFileDialog::new();
         dialog = dialog.add_filter("All Files", &["*"]);
@@ -65,28 +67,39 @@ async fn load_dialog(shared: SharedData, node_index: NodeIndex) {
     .pick_file()
     .await
     {
-        let sz = shared.clone();
-        match super::load_file(handle.path().to_path_buf(), sz).await {
+        match super::load_file(handle.path().to_path_buf(), shared, ez).await {
             Err(err) => {
-                shared.toasts.lock().error(format!(
-                    "File {} failed to load. Reason: {err}",
-                    handle.file_name()
-                ));
+                eproxy
+                    .send_event(super::UserEvent::Toast(format!(
+                        "File {} failed to load. Reason: {err}",
+                        handle.file_name()
+                    )))
+                    .unwrap();
             }
             Ok(key) => {
-                shared
-                    .toasts
-                    .lock()
-                    .success(format!("File {} successfully opened.", handle.file_name()));
-                shared.added_instances.lock().push((node_index, key));
+                eproxy
+                    .send_event(super::UserEvent::Toast(format!(
+                        "File {} successfully opened.",
+                        handle.file_name()
+                    )))
+                    .unwrap();
+                eproxy
+                    .send_event(super::UserEvent::AddInstance(node_index, key))
+                    .unwrap();
             }
         }
     } else {
-        shared.toasts.lock().info("Load cancelled.");
+        eproxy
+            .send_event(super::UserEvent::Toast("Load cancelled.".to_string()))
+            .unwrap();
     }
 }
 
-async fn save_dialog(shared: SharedData, copied_texture: GpuTexture) {
+async fn save_dialog(
+    shared: SharedData,
+    eproxy: winit::event_loop::EventLoopProxy<super::UserEvent>,
+    copied_texture: GpuTexture,
+) {
     if let Some(handle) = rfd::AsyncFileDialog::new()
         .add_filter("png", image::ImageFormat::Png.extensions_str())
         .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())
@@ -100,23 +113,30 @@ async fn save_dialog(shared: SharedData, copied_texture: GpuTexture) {
         let dim = BufferDimensions::from_extent(copied_texture.size);
         let path = handle.path().to_path_buf();
         if let Err(err) = copied_texture.export(shared.dev, dim, path).await {
-            shared.toasts.lock().error(format!(
-                "File {} failed to export. Reason: {err}.",
-                handle.file_name()
-            ));
+            eproxy
+                .send_event(super::UserEvent::Toast(format!(
+                    "File {} failed to export. Reason: {err}.",
+                    handle.file_name()
+                )))
+                .unwrap();
         } else {
-            shared.toasts.lock().success(format!(
-                "File {} successfully exported.",
-                handle.file_name()
-            ));
+            eproxy
+                .send_event(super::UserEvent::Toast(format!(
+                    "File {} successfully exported.",
+                    handle.file_name()
+                )))
+                .unwrap();
         }
     } else {
-        shared.toasts.lock().info("Export cancelled.");
+        eproxy
+            .send_event(super::UserEvent::Toast(String::from("Export cancelled.")))
+            .unwrap();
     }
 }
 
 struct ControlsGui<'a> {
-    shared: &'a SharedData,
+    shared: SharedData,
+    eproxy: &'a winit::event_loop::EventLoopProxy<super::UserEvent>,
     rt: &'static tokio::runtime::Runtime,
 
     selected_canvas: &'a InstanceKey,
@@ -124,6 +144,12 @@ struct ControlsGui<'a> {
 }
 
 impl ControlsGui<'_> {
+    fn rebind_texture(&self) {
+        self.eproxy
+            .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
+            .unwrap();
+    }
+
     fn layout_info(&self, ui: &mut Ui) {
         Grid::new("File Grid").show(ui, |ui| {
             if let Some(Instance { file, .. }) = self
@@ -167,10 +193,7 @@ impl ControlsGui<'_> {
                 .checkbox(&mut self.view_options.smooth, "Enable")
                 .changed()
             {
-                self.shared
-                    .eloop
-                    .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
-                    .unwrap();
+                self.rebind_texture()
             }
             ui.end_row();
             ui.label("Rotation");
@@ -196,18 +219,12 @@ impl ControlsGui<'_> {
                     if ui.button("Horizontal").clicked() {
                         instance.target.lock().data.flip_vertices(false, true);
                         instance.store_change_or(true);
-                        self.shared
-                            .eloop
-                            .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
-                            .unwrap();
+                        self.rebind_texture()
                     }
                     if ui.button("Vertical").clicked() {
                         instance.target.lock().data.flip_vertices(true, false);
                         instance.store_change_or(true);
-                        self.shared
-                            .eloop
-                            .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
-                            .unwrap();
+                        self.rebind_texture()
                     }
                 });
                 ui.end_row();
@@ -217,10 +234,7 @@ impl ControlsGui<'_> {
                         let mut target = instance.target.lock();
                         target.data.rotate_vertices(true);
                         if target.transpose_dimensions() {
-                            self.shared
-                                .eloop
-                                .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
-                                .unwrap();
+                            self.rebind_texture()
                         }
                         instance.store_change_or(true);
                     }
@@ -228,10 +242,7 @@ impl ControlsGui<'_> {
                         let mut target = instance.target.lock();
                         target.data.rotate_vertices(false);
                         if target.transpose_dimensions() {
-                            self.shared
-                                .eloop
-                                .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
-                                .unwrap();
+                            self.rebind_texture()
                         }
                         instance.store_change_or(true);
                     }
@@ -246,8 +257,11 @@ impl ControlsGui<'_> {
                         if ui.button("Export View").clicked() {
                             if let Some(texture) = instance.target.lock().output.as_ref() {
                                 let copied_texture = texture.texture.clone(self.shared.dev);
-                                self.rt
-                                    .spawn(save_dialog(self.shared.clone(), copied_texture));
+                                self.rt.spawn(save_dialog(
+                                    self.shared,
+                                    self.eproxy.clone(),
+                                    copied_texture,
+                                ));
                             }
                         }
                     });
@@ -370,7 +384,8 @@ pub struct ViewOptions {
 }
 
 struct CanvasGui<'a> {
-    shared: &'a SharedData,
+    shared: SharedData,
+    eproxy: &'a winit::event_loop::EventLoopProxy<super::UserEvent>,
     rt: &'static tokio::runtime::Runtime,
 
     canvases: &'a mut HashMap<InstanceKey, (TextureId, BufferDimensions)>,
@@ -395,15 +410,15 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
-        self.shared
-            .eloop
+        self.eproxy
             .send_event(super::UserEvent::RemoveInstance(*tab))
             .unwrap();
         true
     }
 
     fn on_add(&mut self, node: egui_dock::NodeIndex) {
-        self.rt.spawn(load_dialog(self.shared.clone(), node));
+        self.rt
+            .spawn(load_dialog(self.shared, self.eproxy.clone(), node));
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -417,6 +432,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
 pub struct ViewerGui {
     pub shared: SharedData,
+    pub eproxy: winit::event_loop::EventLoopProxy<super::UserEvent>,
     pub rt: &'static tokio::runtime::Runtime,
 
     pub canvases: HashMap<InstanceKey, (TextureId, BufferDimensions)>,
@@ -445,18 +461,14 @@ impl ViewerGui {
             ui.vertical_centered(|ui| {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
-                    self.rt
-                        .spawn(load_dialog(self.shared.clone(), NodeIndex::root()));
+                    self.rt.spawn(load_dialog(
+                        self.shared,
+                        self.eproxy.clone(),
+                        NodeIndex::root(),
+                    ));
                 }
             });
         } else {
-            if let Some(mut added_instances) = self.shared.added_instances.try_lock() {
-                for (node, id) in added_instances.drain(..) {
-                    self.canvas_tree.set_focused_node(node);
-                    self.canvas_tree.push_to_focused_leaf(id);
-                }
-            }
-
             if let Some((_, id)) = self.canvas_tree.find_active_focused() {
                 self.selected_canvas = *id;
             }
@@ -467,7 +479,8 @@ impl ViewerGui {
                 .show_inside(
                     ui,
                     &mut CanvasGui {
-                        shared: &self.shared,
+                        shared: self.shared,
+                        eproxy: &self.eproxy,
                         rt: self.rt,
 
                         view_options: &self.view_options,
@@ -489,7 +502,8 @@ impl ViewerGui {
                     .show_inside(
                         ui,
                         &mut ControlsGui {
-                            shared: &self.shared,
+                            shared: self.shared,
+                            eproxy: &self.eproxy,
                             rt: self.rt,
                             selected_canvas: &self.selected_canvas,
                             view_options: &mut self.view_options,
