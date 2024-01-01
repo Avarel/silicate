@@ -9,7 +9,7 @@ use self::{
 };
 use crate::silica::BlendingMode;
 use image::{Pixel, Rgba};
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::Arc};
 use wgpu::{util::DeviceExt, CommandEncoder};
 
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
@@ -120,14 +120,14 @@ pub struct CompositeLayer {
     pub blend: BlendingMode,
 }
 
-pub struct CompositorData<'dev> {
-    dev: &'dev GpuHandle,
+pub struct CompositorData {
+    dev: Arc<GpuHandle>,
     vertices: [VertexInput; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 }
 
-impl<'dev> CompositorData<'dev> {
+impl CompositorData {
     /// Initial vertices
     const SQUARE_VERTICES: [VertexInput; 4] = [
         VertexInput {
@@ -155,7 +155,7 @@ impl<'dev> CompositorData<'dev> {
     /// Initial indices of the 2 triangle strips
     const INDICES: [u16; 4] = [0, 1, 2, 3];
 
-    fn new(dev: &'dev GpuHandle) -> Self {
+    fn new(dev: Arc<GpuHandle>) -> Self {
         let device = &dev.device;
 
         // Create the vertex buffer.
@@ -180,7 +180,7 @@ impl<'dev> CompositorData<'dev> {
             index_buffer,
         }
     }
-    
+
     /// Flip the vertex data's foreground UV of the compositor target.
     pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
         for v in &mut self.vertices {
@@ -216,7 +216,7 @@ impl<'dev> CompositorData<'dev> {
         }
         self.load_vertex_buffer();
     }
-    
+
     /// Load the GPU vertex buffer with updated data.
     fn load_vertex_buffer(&mut self) {
         self.dev
@@ -226,31 +226,33 @@ impl<'dev> CompositorData<'dev> {
 }
 
 /// Output target of a compositor pipeline.
-pub struct CompositorTarget<'dev> {
-    pub dev: &'dev GpuHandle,
-    pub data: CompositorData<'dev>,
+pub struct CompositorTarget {
+    pub dev: Arc<GpuHandle>,
+    pub data: CompositorData,
     /// Output texture dimensions.
     pub dim: BufferDimensions,
     /// Compositor output buffers and texture.
-    pub output: Option<CompositorOutput<'dev>>,
+    pub output: Option<CompositorOutput>,
 }
 
 /// Compositor stage buffers. This is so that the rendering process
 /// can reuse buffers and textures whenever possible.
-pub struct CompositorOutput<'dev> {
+pub struct CompositorOutput {
+    dev: Arc<GpuHandle>,
     size: usize,
     bindings: CpuBuffers,
-    buffers: GpuBuffers<'dev>,
+    buffers: GpuBuffers,
     pub texture: GpuTexture,
 }
 
-impl<'dev> CompositorOutput<'dev> {
+impl CompositorOutput {
     /// Create a new compositor stage.
-    pub fn new(target: &CompositorTarget<'dev>, size: usize) -> Self {
+    pub fn new(target: &CompositorTarget, size: usize) -> Self {
         Self {
+            dev: target.dev.clone(),
             size,
             bindings: CpuBuffers::new(size),
-            buffers: GpuBuffers::new(target.dev, size),
+            buffers: GpuBuffers::new(target.dev.clone(), size),
             texture: target.create_texture(),
         }
     }
@@ -262,24 +264,24 @@ impl<'dev> CompositorOutput<'dev> {
 
         self.size = size;
         self.bindings = CpuBuffers::new(size);
-        self.buffers = GpuBuffers::new(self.buffers.dev, size);
+        self.buffers = GpuBuffers::new(self.dev.clone(), size);
     }
 }
 
-impl<'dev> CompositorTarget<'dev> {
+impl CompositorTarget {
     /// Create a new compositor target.
-    pub fn new(dev: &'dev GpuHandle) -> Self {
+    pub fn new(dev: Arc<GpuHandle>) -> Self {
         Self {
+            data: CompositorData::new(dev.clone()),
             dev,
             dim: BufferDimensions::new(0, 0),
-            data: CompositorData::new(dev),
             output: None,
         }
     }
 
     /// Create an empty texture for this compositor target.
     fn create_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
+        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
     }
 
     /// Transpose the dimensions of the compositor target's output.
@@ -308,7 +310,7 @@ impl<'dev> CompositorTarget<'dev> {
     ) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
-        self.dev.queue.submit(Some({
+        let command_buffers = {
             let mut encoder = self
                 .dev
                 .device
@@ -317,7 +319,8 @@ impl<'dev> CompositorTarget<'dev> {
             self.render_command(pipeline, &mut encoder, bg, layers, textures);
 
             encoder.finish()
-        }));
+        };
+        self.dev.queue.submit(Some(command_buffers));
     }
 
     fn render_command(

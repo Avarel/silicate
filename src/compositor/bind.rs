@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /// This module computes how to bind the compositor layers to the shader
 /// variables. It is configured specifically to serve the `shader.wgsl`
 /// shader module and create bindings that match the shader's inputs.
@@ -67,8 +69,8 @@ impl CpuBuffers {
 }
 
 /// Shader buffers on the GPU side.
-pub(super) struct GpuBuffers<'dev> {
-    pub(super) dev: &'dev GpuHandle,
+pub(super) struct GpuBuffers {
+    dev: Arc<GpuHandle>,
     size: usize,
     pub(super) blends: wgpu::Buffer,
     pub(super) opacities: wgpu::Buffer,
@@ -76,9 +78,9 @@ pub(super) struct GpuBuffers<'dev> {
     pub(super) layers: wgpu::Buffer,
 }
 
-impl<'dev> GpuBuffers<'dev> {
+impl GpuBuffers {
     /// Create the buffers on the GPU.
-    pub fn new(dev: &'dev GpuHandle, size: usize) -> Self {
+    pub fn new(dev: Arc<GpuHandle>, size: usize) -> Self {
         let storage_desc: wgpu::BufferDescriptor = wgpu::BufferDescriptor {
             label: None,
             size: 4 * size as u64,
@@ -86,12 +88,12 @@ impl<'dev> GpuBuffers<'dev> {
             mapped_at_creation: false,
         };
         GpuBuffers {
-            dev,
-            size,
             blends: dev.device.create_buffer(&storage_desc),
             opacities: dev.device.create_buffer(&storage_desc),
             masks: dev.device.create_buffer(&storage_desc),
             layers: dev.device.create_buffer(&storage_desc),
+            dev,
+            size,
         }
     }
 

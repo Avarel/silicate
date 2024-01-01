@@ -1,126 +1,17 @@
-use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
-use crate::compositor::{BufferDimensions, CompositorTarget};
-use crate::silica::{ProcreateFile, SilicaGroup, SilicaLayer};
-use crate::{
-    compositor::CompositorPipeline,
-    silica::{BlendingMode, SilicaHierarchy},
-};
+use crate::compositor::BufferDimensions;
+use crate::silica::{BlendingMode, SilicaHierarchy};
+use crate::silica::{SilicaGroup, SilicaLayer};
 use egui::load::SizedTexture;
 use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
-use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::atomic::Ordering::{Acquire, Release};
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::Arc;
 
+use super::app::{App, Instance, InstanceKey};
 use super::canvas;
 
-#[derive(Clone)]
-pub struct SharedData {
-    pub dev: &'static GpuHandle,
-    pub compositor: &'static CompositorHandle,
-    pub toasts: &'static Mutex<egui_notify::Toasts>,
-    pub added_instances: &'static Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
-    pub eloop: egui_winit::winit::event_loop::EventLoopProxy<super::UserEvent>,
-}
-
-#[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct InstanceKey(pub usize);
-
-pub struct Instance {
-    pub file: RwLock<ProcreateFile>,
-    pub textures: GpuTexture,
-    pub target: Mutex<CompositorTarget<'static>>,
-    pub changed: AtomicBool,
-}
-
-impl Instance {
-    pub fn store_change_or(&self, b: bool) {
-        self.changed.fetch_or(b, Release);
-    }
-
-    pub fn change_untick(&self) -> bool {
-        self.changed.swap(false, Acquire)
-    }
-}
-
-impl Drop for Instance {
-    fn drop(&mut self) {
-        println!("Closing {:?}", self.file.get_mut().name);
-    }
-}
-
-pub struct CompositorHandle {
-    pub instances: RwLock<HashMap<InstanceKey, Instance>>,
-    pub curr_id: AtomicUsize,
-    pub pipeline: CompositorPipeline,
-}
-
-async fn load_dialog(shared: SharedData, surface_index: SurfaceIndex, node_index: NodeIndex) {
-    if let Some(handle) = {
-        let mut dialog = rfd::AsyncFileDialog::new();
-        dialog = dialog.add_filter("All Files", &["*"]);
-        dialog = dialog.add_filter("Procreate Files", &["procreate"]);
-        dialog
-    }
-    .pick_file()
-    .await
-    {
-        let sz = shared.clone();
-        match super::load_file(handle.path().to_path_buf(), sz).await {
-            Err(err) => {
-                shared.toasts.lock().error(format!(
-                    "File {} failed to load. Reason: {err}",
-                    handle.file_name()
-                ));
-            }
-            Ok(key) => {
-                shared
-                    .toasts
-                    .lock()
-                    .success(format!("File {} successfully opened.", handle.file_name()));
-                shared
-                    .added_instances
-                    .lock()
-                    .push((surface_index, node_index, key));
-            }
-        }
-    } else {
-        shared.toasts.lock().info("Load cancelled.");
-    }
-}
-
-async fn save_dialog(shared: SharedData, copied_texture: GpuTexture) {
-    if let Some(handle) = rfd::AsyncFileDialog::new()
-        .add_filter("png", image::ImageFormat::Png.extensions_str())
-        .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())
-        .add_filter("tga", image::ImageFormat::Tga.extensions_str())
-        .add_filter("tiff", image::ImageFormat::Tiff.extensions_str())
-        .add_filter("webp", image::ImageFormat::WebP.extensions_str())
-        .add_filter("bmp", image::ImageFormat::Bmp.extensions_str())
-        .save_file()
-        .await
-    {
-        let dim = BufferDimensions::from_extent(copied_texture.size);
-        let path = handle.path().to_path_buf();
-        if let Err(err) = copied_texture.export(shared.dev, dim, path).await {
-            shared.toasts.lock().error(format!(
-                "File {} failed to export. Reason: {err}.",
-                handle.file_name()
-            ));
-        } else {
-            shared.toasts.lock().success(format!(
-                "File {} successfully exported.",
-                handle.file_name()
-            ));
-        }
-    } else {
-        shared.toasts.lock().info("Export cancelled.");
-    }
-}
-
 struct ControlsGui<'a> {
-    shared: &'a SharedData,
+    shared: &'a Arc<App>,
     rt: &'static tokio::runtime::Runtime,
 
     selected_canvas: &'a InstanceKey,
@@ -249,9 +140,9 @@ impl ControlsGui<'_> {
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
                             if let Some(texture) = instance.target.lock().output.as_ref() {
-                                let copied_texture = texture.texture.clone(self.shared.dev);
+                                let copied_texture = texture.texture.clone(&self.shared.dev);
                                 self.rt
-                                    .spawn(save_dialog(self.shared.clone(), copied_texture));
+                                    .spawn(self.shared.clone().save_dialog(copied_texture));
                             }
                         }
                     });
@@ -374,7 +265,7 @@ pub struct ViewOptions {
 }
 
 struct CanvasGui<'a> {
-    shared: &'a SharedData,
+    shared: &'a Arc<App>,
     rt: &'static tokio::runtime::Runtime,
 
     canvases: &'a mut HashMap<InstanceKey, (TextureId, BufferDimensions)>,
@@ -413,7 +304,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
         self.rt
-            .spawn(load_dialog(self.shared.clone(), surface, node));
+            .spawn(self.shared.clone().load_dialog(surface, node));
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -426,7 +317,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 }
 
 pub struct ViewerGui {
-    pub shared: SharedData,
+    pub shared: Arc<App>,
     pub rt: &'static tokio::runtime::Runtime,
 
     pub canvases: HashMap<InstanceKey, (TextureId, BufferDimensions)>,
@@ -455,11 +346,11 @@ impl ViewerGui {
             ui.vertical_centered(|ui| {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
-                    self.rt.spawn(load_dialog(
-                        self.shared.clone(),
-                        SurfaceIndex::main(),
-                        NodeIndex::root(),
-                    ));
+                    self.rt.spawn(
+                        self.shared
+                            .clone()
+                            .load_dialog(SurfaceIndex::main(), NodeIndex::root()),
+                    );
                 }
             });
         } else {
