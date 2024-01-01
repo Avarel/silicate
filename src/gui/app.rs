@@ -3,6 +3,8 @@ use crate::compositor::{BufferDimensions, CompositorTarget};
 use crate::compositor::{CompositeLayer, CompositorPipeline};
 use crate::silica::{ProcreateFile, SilicaError, SilicaHierarchy};
 use egui_dock::{NodeIndex, SurfaceIndex};
+use egui_notify::Toasts;
+use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -10,16 +12,22 @@ use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
-
-use super::UserEvent;
 
 pub struct App {
     pub dev: Arc<GpuHandle>,
+    pub rt: Arc<Runtime>,
     pub compositor: CompositorHandle,
-    pub toasts: Mutex<egui_notify::Toasts>,
+    pub toasts: Mutex<Toasts>,
     pub added_instances: Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
-    pub eloop: egui_winit::winit::event_loop::EventLoopProxy<super::UserEvent>,
+    pub event_loop: EventLoopProxy<UserEvent>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UserEvent {
+    RebindTexture(InstanceKey),
+    RemoveInstance(InstanceKey),
 }
 
 #[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -55,6 +63,21 @@ pub struct CompositorHandle {
 }
 
 impl App {
+    pub fn new(dev: GpuHandle, rt: Arc<Runtime>, event_loop: EventLoopProxy<UserEvent>) -> Self {
+        App {
+            compositor: CompositorHandle {
+                instances: RwLock::new(HashMap::new()),
+                pipeline: CompositorPipeline::new(&dev),
+                curr_id: AtomicUsize::new(0),
+            },
+            rt,
+            dev: Arc::new(dev),
+            toasts: Mutex::new(egui_notify::Toasts::default()),
+            added_instances: Mutex::new(Vec::with_capacity(1)),
+            event_loop,
+        }
+    }
+
     pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dev)).unwrap();
@@ -83,9 +106,7 @@ impl App {
                 changed: AtomicBool::new(true),
             },
         );
-        self.eloop
-            .send_event(UserEvent::RebindTexture(key))
-            .unwrap();
+        self.rebind_texture(key);
         Ok(key)
     }
 
@@ -229,5 +250,11 @@ impl App {
         let mut composite_layers = Vec::new();
         inner(layers, &mut composite_layers, &mut None);
         composite_layers
+    }
+
+    pub fn rebind_texture(&self, id: InstanceKey) {
+        self.event_loop
+            .send_event(UserEvent::RebindTexture(id))
+            .unwrap();
     }
 }

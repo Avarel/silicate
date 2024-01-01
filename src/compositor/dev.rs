@@ -15,7 +15,10 @@ impl GpuHandle {
     pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
         wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
-            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
+                dxil_path: None,
+                dxc_path: None,
+            },
             flags: wgpu::InstanceFlags::default(),
             gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         }
@@ -62,6 +65,7 @@ impl GpuHandle {
                     features: wgpu::Features::PUSH_CONSTANTS,
                     limits: wgpu::Limits {
                         max_push_constant_size: 4,
+                        max_buffer_size: 1024 << 20,
                         ..Default::default()
                     },
                     ..Default::default()

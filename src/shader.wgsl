@@ -256,22 +256,6 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ), vec4(0.0), vec4(1.0));
 }
 
-// 0-1 linear  from  0-1 sRGB gamma
-fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
-    let cutoff = srgb < vec3<f32>(0.04045);
-    let lower = srgb / vec3<f32>(12.92);
-    let higher = pow((srgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
-    return select(higher, lower, cutoff);
-}
-
-// 0-1 sRGB gamma  from  0-1 linear
-fn gamma_from_linear_rgb(rgb: vec3<f32>) -> vec3<f32> {
-    let cutoff = rgb < vec3<f32>(0.0031308);
-    let lower = rgb * vec3<f32>(12.92);
-    let higher = vec3<f32>(1.055) * pow(rgb, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
-    return select(higher, lower, cutoff);
-}
-
 const MASK_NONE: u32 = 0xFFFFFFFFu;
 
 @fragment

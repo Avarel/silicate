@@ -61,6 +61,10 @@ impl BufferDimensions {
     fn is_empty(&self) -> bool {
         self.width == 0 || self.height == 0
     }
+
+    pub fn to_vec2(&self) -> egui::Vec2 {
+        egui::Vec2::new(self.width as f32, self.height as f32)
+    }
 }
 
 /// Vertex input to the shader.
@@ -379,7 +383,7 @@ impl CompositorTarget {
             });
 
         let output_view = stage.texture.create_view();
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[
                 // background color clear pass
@@ -415,20 +419,20 @@ impl CompositorTarget {
         });
 
         // Finish and set the render pass's binding groups and data
-        render_pass.set_pipeline(&pipeline.render_pipeline);
+        pass.set_pipeline(&pipeline.render_pipeline);
         // We use push constants for the binding count.
-        render_pass.set_push_constants(
+        pass.set_push_constants(
             wgpu::ShaderStages::FRAGMENT,
             0,
             &stage.bindings.count.to_ne_bytes(),
         );
-        render_pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
-        render_pass.set_bind_group(1, &blending_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.data.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.data.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
+        pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
+        pass.set_bind_group(1, &blending_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.data.vertex_buffer.slice(..));
+        pass.set_index_buffer(self.data.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
 
-        drop(render_pass);
+        drop(pass);
     }
 }
 
