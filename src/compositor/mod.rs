@@ -393,7 +393,7 @@ impl<'dev> CompositorTarget<'dev> {
                             })
                             .unwrap_or(wgpu::Color::TRANSPARENT),
                         ),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 }),
                 // compositing pass
@@ -402,11 +402,13 @@ impl<'dev> CompositorTarget<'dev> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 }),
             ],
             depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
         });
 
         // Finish and set the render pass's binding groups and data

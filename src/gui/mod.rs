@@ -7,8 +7,10 @@ use crate::{
     gui::layout::ViewerTab,
     silica::{ProcreateFile, SilicaError, SilicaHierarchy},
 };
-use egui::{FullOutput, Color32};
+use egui::{FullOutput, ViewportId};
 use egui_wgpu::renderer::{Renderer, ScreenDescriptor};
+use egui_winit::winit::event::{Event, WindowEvent};
+use egui_winit::winit::event_loop::ControlFlow;
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::HashMap,
@@ -20,14 +22,10 @@ use std::{
 };
 use std::{path::PathBuf, time::Duration};
 use tokio::time::MissedTickBehavior;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::ControlFlow;
 
 /// Transform tree structure of layers into a linear list of
 /// layers for rendering.
-fn linearize_silica_layers<'a>(
-    layers: &'a crate::silica::SilicaGroup,
-) -> Vec<CompositeLayer> {
+fn linearize_silica_layers<'a>(layers: &'a crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
     fn inner<'a>(
         layers: &'a crate::silica::SilicaGroup,
         composite_layers: &mut Vec<CompositeLayer>,
@@ -151,106 +149,9 @@ pub enum UserEvent {
     RemoveInstance(InstanceKey),
 }
 
-// // Taken from Re_UI
-// fn style(ctx: &egui::Context) {
-//     let mut egui_style = egui::Style {
-//         visuals: egui::Visuals::dark(),
-//         ..Default::default()
-//     };
-//     let panel_bg_color = Color32::from_rgb(0x0d, 0x10, 0x11);
-//     let floating_color = Color32::from_gray(38); // TODO(emilk): change the content of the design_tokens.json origin instead
-
-//     // Used as the background of text edits, scroll bars and others things
-//     // that needs to look different from other interactive stuff.
-//     // We need this very dark, since the theme overall is very, very dark.
-//     egui_style.visuals.extreme_bg_color = egui::Color32::BLACK;
-
-//     egui_style.visuals.widgets.noninteractive.weak_bg_fill = panel_bg_color;
-//     egui_style.visuals.widgets.noninteractive.bg_fill = panel_bg_color;
-
-//     egui_style.visuals.button_frame = true;
-//     egui_style.visuals.widgets.inactive.weak_bg_fill = Default::default(); // Buttons have no background color when inactive
-//     egui_style.visuals.widgets.inactive.bg_fill = Color32::from_gray(40);
-//     // get_aliased_color(&json, "{Alias.Color.Action.Default.value}"); // too dark to see, especially for scroll bars
-
-//     {
-//         // Background colors for buttons (menu buttons, blueprint buttons, etc) when hovered or clicked:
-//         // let hovered_color = get_aliased_color(&json, "{Alias.Color.Action.Hovered.value}");
-//         let hovered_color = Color32::from_gray(64); // TODO(emilk): change the content of the design_tokens.json origin instead
-//         egui_style.visuals.widgets.hovered.weak_bg_fill = hovered_color;
-//         egui_style.visuals.widgets.hovered.bg_fill = hovered_color;
-//         egui_style.visuals.widgets.active.weak_bg_fill = hovered_color;
-//         egui_style.visuals.widgets.active.bg_fill = hovered_color;
-//         egui_style.visuals.widgets.open.weak_bg_fill = hovered_color;
-//         egui_style.visuals.widgets.open.bg_fill = hovered_color;
-//     }
-
-//     {
-//         // Turn off strokes around buttons:
-//         egui_style.visuals.widgets.inactive.bg_stroke = Default::default();
-//         egui_style.visuals.widgets.hovered.bg_stroke = Default::default();
-//         egui_style.visuals.widgets.active.bg_stroke = Default::default();
-//         egui_style.visuals.widgets.open.bg_stroke = Default::default();
-//     }
-
-//     {
-//         // Expand hovered and active button frames:
-//         egui_style.visuals.widgets.hovered.expansion = 2.0;
-//         egui_style.visuals.widgets.active.expansion = 2.0;
-//         egui_style.visuals.widgets.open.expansion = 2.0;
-//     }
-
-//     egui_style.visuals.selection.bg_fill = Color32::from_rgb(0x00, 0x3d, 0xa1);
-
-//     egui_style.visuals.widgets.noninteractive.bg_stroke.color = Color32::from_gray(30); // from figma. separator lines, panel lines, etc
-
-//     let subudued = Color32::from_rgb(0x7d, 0x8c, 0x92);
-//     let default = Color32::from_rgb(0xca, 0xd8, 0xde);
-//     let strong = Color32::WHITE;
-
-//     egui_style.visuals.widgets.noninteractive.fg_stroke.color = subudued; // non-interactive text
-//     egui_style.visuals.widgets.inactive.fg_stroke.color = default; // button text
-//     egui_style.visuals.widgets.active.fg_stroke.color = strong; // strong text and active button text
-
-//     egui_style.visuals.popup_shadow = egui::epaint::Shadow::NONE;
-//     egui_style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-
-//     egui_style.visuals.window_fill = floating_color; // tooltips and menus
-//     egui_style.visuals.window_stroke = egui::Stroke::NONE;
-//     egui_style.visuals.panel_fill = panel_bg_color;
-
-//     egui_style.visuals.window_rounding = 12.0.into();
-//     egui_style.visuals.menu_rounding = 12.0.into();
-//     let small_rounding = 4.0.into();
-//     egui_style.visuals.widgets.noninteractive.rounding = small_rounding;
-//     egui_style.visuals.widgets.inactive.rounding = small_rounding;
-//     egui_style.visuals.widgets.hovered.rounding = small_rounding;
-//     egui_style.visuals.widgets.active.rounding = small_rounding;
-//     egui_style.visuals.widgets.open.rounding = small_rounding;
-
-//     egui_style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-//     egui_style.spacing.menu_margin = 12.0.into();
-
-//     // Add stripes to grids and tables?
-//     egui_style.visuals.striped = false;
-//     egui_style.visuals.indent_has_left_vline = false;
-//     egui_style.spacing.button_padding = egui::Vec2::new(1.0, 0.0); // Makes the icons in the blueprint panel align
-//     egui_style.spacing.indent = 14.0; // From figma
-
-//     egui_style.debug.show_blocking_widget = false; // turn this on to debug interaction problems
-
-//     // egui_style.spacing.combo_width = 8.0; // minimum width of ComboBox - keep them small, with the down-arrow close.
-
-//     egui_style.spacing.scroll_bar_inner_margin = 2.0;
-//     egui_style.spacing.scroll_bar_width = 6.0;
-//     egui_style.spacing.scroll_bar_outer_margin = 2.0;
-
-//     ctx.set_style(egui_style);
-// }
-
 pub fn start_gui(
-    window: winit::window::Window,
-    event_loop: winit::event_loop::EventLoop<UserEvent>,
+    window: egui_winit::winit::window::Window,
+    event_loop: egui_winit::winit::event_loop::EventLoop<UserEvent>,
 ) -> ! {
     let (statics, surface, rt) = {
         // LEAK: obtain static reference because this will live for the rest of
@@ -304,13 +205,14 @@ pub fn start_gui(
     };
     surface.configure(&statics.dev.device, &surface_config);
 
-    let mut integration = egui_winit::State::new(&event_loop);
-    integration.set_pixels_per_point(window.scale_factor() as f32);
+    let mut integration = egui_winit::State::new(
+        ViewportId::ROOT,
+        &window,
+        Some(window.scale_factor() as f32),
+        None,
+    );
 
     let context = egui::Context::default();
-    // style(&context);
-
-    context.set_pixels_per_point(window.scale_factor() as f32);
 
     let mut egui_rpass = Renderer::new(&statics.dev.device, surface_format, None, 1);
 
@@ -326,16 +228,20 @@ pub fn start_gui(
             bottom_bar: false,
         },
         selected_canvas: InstanceKey(0),
-        canvas_tree: egui_dock::Tree::default(),
+        canvas_tree: egui_dock::DockState::new(Vec::new()),
         viewer_tree: {
-            use egui_dock::{NodeIndex, Tree};
-            let mut tree = Tree::new(vec![
+            let tabs = vec![
                 ViewerTab::Information,
                 ViewerTab::ViewControls,
                 ViewerTab::CanvasControls,
-            ]);
-            tree.split_below(NodeIndex::root(), 0.4, vec![ViewerTab::Hierarchy]);
-            tree
+            ];
+            let mut state = egui_dock::DockState::new(tabs);
+            state.main_surface_mut().split_below(
+                egui_dock::NodeIndex::root(),
+                0.4,
+                vec![ViewerTab::Hierarchy],
+            );
+            state
         },
     };
 
@@ -371,16 +277,17 @@ pub fn start_gui(
                                 }
                                 Ok(key) => {
                                     statics.toasts.lock().success("Loaded file from drag/drop.");
-                                    statics
-                                        .added_instances
-                                        .lock()
-                                        .push((egui_dock::NodeIndex::root(), key));
+                                    statics.added_instances.lock().push((
+                                        egui_dock::SurfaceIndex::main(),
+                                        egui_dock::NodeIndex::root(),
+                                        key,
+                                    ));
                                 }
                             }
                         });
                     }
                     _ => {
-                        let response = integration.on_event(&context, &event);
+                        let response = integration.on_window_event(&context, &event);
                         *control_flow = if response.repaint {
                             window.request_redraw();
                             ControlFlow::Poll
@@ -419,8 +326,11 @@ pub fn start_gui(
                     platform_output,
                     textures_delta,
                     shapes,
-                    repaint_after,
+                    pixels_per_point,
+                    viewport_output,
                 } = context.end_frame();
+
+                let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
 
                 *control_flow = if repaint_after.is_zero() {
                     window.request_redraw();
@@ -436,7 +346,7 @@ pub fn start_gui(
                 integration.handle_platform_output(&window, &context, platform_output);
 
                 // Draw the GUI onto the output texture.
-                let paint_jobs = context.tessellate(shapes);
+                let paint_jobs = context.tessellate(shapes, pixels_per_point);
 
                 // Upload all resources for the GPU.
                 for (id, image_delta) in textures_delta.set {
@@ -472,10 +382,12 @@ pub fn start_gui(
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             },
                         })],
                         depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
                     });
 
                     egui_rpass.render(&mut rpass, &paint_jobs, &screen_descriptor);

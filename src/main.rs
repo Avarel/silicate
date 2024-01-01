@@ -5,7 +5,7 @@ mod ns_archive;
 mod silica;
 
 use std::error::Error;
-use winit::{dpi::PhysicalSize, event_loop::EventLoopBuilder, window::WindowBuilder};
+use egui_winit::winit::{dpi::PhysicalSize, event_loop::EventLoopBuilder, window::WindowBuilder};
 
 const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
     width: 1200,
@@ -14,7 +14,7 @@ const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let taskbar_icon =
-        winit::window::Icon::from_rgba(include_bytes!("../assets/icon.rgba").to_vec(), 240, 240)
+        egui_winit::winit::window::Icon::from_rgba(include_bytes!("../assets/icon.rgba").to_vec(), 240, 240)
             .ok();
 
     let event_loop = EventLoopBuilder::with_user_event().build();

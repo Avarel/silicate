@@ -252,7 +252,7 @@ pub struct CanvasView {
     data_aspect: Option<f32>,
     show_background: bool,
 
-    image: Option<Image>,
+    image: Option<Image<'static>>,
     image_rotation: f32,
 
     show_grid: bool,
@@ -304,7 +304,7 @@ impl ViewMemory {
 
 impl CanvasView {
     /// Give a unique id for each plot within the same [`Ui`].
-    pub fn new(id_source: impl std::hash::Hash, image: Option<Image>) -> Self {
+    pub fn new(id_source: impl std::hash::Hash, image: Option<Image<'static>>) -> Self {
         Self {
             id_source: Id::new(id_source),
             allow_zoom: true,
@@ -406,6 +406,8 @@ impl CanvasView {
                 rounding: Rounding::same(2.0),
                 fill: ui.visuals().extreme_bg_color,
                 stroke: ui.visuals().widgets.noninteractive.bg_stroke,
+                fill_texture_id: TextureId::default(),
+                uv: Rect::ZERO,
             });
         }
 
@@ -431,11 +433,12 @@ impl CanvasView {
                 bounds.set_y(&min_auto_bounds);
             }
 
-            if let Some(image) = self.image {
+            if let Some(image) = image.as_ref() {
+                let image_size = image.size().unwrap();
                 let image_bounds = {
                     let mut bounds = CanvasViewBounds::NOTHING;
-                    let left_top = Vec2::new(-image.size().x / 2.0, -image.size().y / 2.0);
-                    let right_bottom = Vec2::new(image.size().x / 2.0, image.size().y / 2.0);
+                    let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
+                    let right_bottom = Vec2::new(image_size.x / 2.0, image_size.y / 2.0);
                     bounds.extend_with(&left_top);
                     bounds.extend_with(&right_bottom);
                     bounds
@@ -581,7 +584,7 @@ impl CanvasView {
 }
 
 struct PreparedView {
-    image: Option<Image>,
+    image: Option<Image<'static>>,
     transform: ScreenTransform,
     image_rotation: f32,
     show_grid: bool,
@@ -622,15 +625,15 @@ impl PreparedView {
         }
 
         if let Some(image) = self.image {
+            let image_size = image.size().unwrap();
             let rect = {
-                let size = image.size();
-                let left_top = Vec2::new(-size.x / 2.0, -size.y / 2.0);
-                let right_bottom = Vec2::new(size.x / 2.0, size.y / 2.0);
+                let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
+                let right_bottom = Vec2::new(image_size.x / 2.0, image_size.y / 2.0);
                 let left_top_tf = transform.position_from_point(&left_top);
                 let right_bottom_tf = transform.position_from_point(&right_bottom);
                 Rect::from_two_pos(left_top_tf, right_bottom_tf)
             };
-            let image_screen_center = ((rect.max - rect.min) / 2.0) / image.size();
+            let image_screen_center = ((rect.max - rect.min) / 2.0) / image_size;
 
             let painter = plot_ui.painter();
             painter.add(Shape::mesh({
@@ -653,7 +656,7 @@ impl PreparedView {
                 }
                 mesh.rotate(
                     emath::Rot2::from_angle(self.image_rotation),
-                    rect.min + image_screen_center * image.size(),
+                    rect.min + image_screen_center * image_size,
                 );
                 mesh
             }));

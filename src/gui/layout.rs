@@ -5,8 +5,9 @@ use crate::{
     compositor::CompositorPipeline,
     silica::{BlendingMode, SilicaHierarchy},
 };
+use egui::load::SizedTexture;
 use egui::*;
-use egui_dock::NodeIndex;
+use egui_dock::{NodeIndex, SurfaceIndex};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -19,8 +20,8 @@ pub struct SharedData {
     pub dev: &'static GpuHandle,
     pub compositor: &'static CompositorHandle,
     pub toasts: &'static Mutex<egui_notify::Toasts>,
-    pub added_instances: &'static Mutex<Vec<(NodeIndex, InstanceKey)>>,
-    pub eloop: winit::event_loop::EventLoopProxy<super::UserEvent>,
+    pub added_instances: &'static Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
+    pub eloop: egui_winit::winit::event_loop::EventLoopProxy<super::UserEvent>,
 }
 
 #[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -55,7 +56,7 @@ pub struct CompositorHandle {
     pub pipeline: CompositorPipeline,
 }
 
-async fn load_dialog(shared: SharedData, node_index: NodeIndex) {
+async fn load_dialog(shared: SharedData, surface_index: SurfaceIndex, node_index: NodeIndex) {
     if let Some(handle) = {
         let mut dialog = rfd::AsyncFileDialog::new();
         dialog = dialog.add_filter("All Files", &["*"]);
@@ -78,7 +79,10 @@ async fn load_dialog(shared: SharedData, node_index: NodeIndex) {
                     .toasts
                     .lock()
                     .success(format!("File {} successfully opened.", handle.file_name()));
-                shared.added_instances.lock().push((node_index, key));
+                shared
+                    .added_instances
+                    .lock()
+                    .push((surface_index, node_index, key));
             }
         }
     } else {
@@ -385,7 +389,12 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         let tex = self.canvases.get(tab);
         canvas::CanvasView::new(
             *tab,
-            tex.map(|(tex, size)| Image::new(*tex, (size.width as f32, size.height as f32))),
+            tex.map(|(tex, size)| {
+                Image::from_texture(SizedTexture::new(
+                    *tex,
+                    (size.width as f32, size.height as f32),
+                ))
+            }),
         )
         .with_rotation(self.view_options.rotation)
         .show_extended_crosshair(self.view_options.extended_crosshair)
@@ -402,8 +411,9 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         true
     }
 
-    fn on_add(&mut self, node: egui_dock::NodeIndex) {
-        self.rt.spawn(load_dialog(self.shared.clone(), node));
+    fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
+        self.rt
+            .spawn(load_dialog(self.shared.clone(), surface, node));
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -422,8 +432,8 @@ pub struct ViewerGui {
     pub canvases: HashMap<InstanceKey, (TextureId, BufferDimensions)>,
     pub selected_canvas: InstanceKey,
     pub view_options: ViewOptions,
-    pub canvas_tree: egui_dock::Tree<InstanceKey>,
-    pub viewer_tree: egui_dock::Tree<ViewerTab>,
+    pub canvas_tree: egui_dock::DockState<InstanceKey>,
+    pub viewer_tree: egui_dock::DockState<ViewerTab>,
 }
 
 impl ViewerGui {
@@ -445,14 +455,18 @@ impl ViewerGui {
             ui.vertical_centered(|ui| {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
-                    self.rt
-                        .spawn(load_dialog(self.shared.clone(), NodeIndex::root()));
+                    self.rt.spawn(load_dialog(
+                        self.shared.clone(),
+                        SurfaceIndex::main(),
+                        NodeIndex::root(),
+                    ));
                 }
             });
         } else {
             if let Some(mut added_instances) = self.shared.added_instances.try_lock() {
-                for (node, id) in added_instances.drain(..) {
-                    self.canvas_tree.set_focused_node(node);
+                for (surface, node, id) in added_instances.drain(..) {
+                    self.canvas_tree
+                        .set_focused_node_and_surface((surface, node));
                     self.canvas_tree.push_to_focused_leaf(id);
                 }
             }
