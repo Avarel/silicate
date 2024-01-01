@@ -11,8 +11,8 @@ use super::app::{App, Instance, InstanceKey};
 use super::canvas;
 
 struct ControlsGui<'a> {
-    shared: &'a Arc<App>,
-    rt: &'static tokio::runtime::Runtime,
+    app: &'a Arc<App>,
+    rt: &'a tokio::runtime::Runtime,
 
     selected_canvas: &'a InstanceKey,
     view_options: &'a mut ViewOptions,
@@ -22,7 +22,7 @@ impl ControlsGui<'_> {
     fn layout_info(&self, ui: &mut Ui) {
         Grid::new("File Grid").show(ui, |ui| {
             if let Some(Instance { file, .. }) = self
-                .shared
+                .app
                 .compositor
                 .instances
                 .read()
@@ -62,7 +62,7 @@ impl ControlsGui<'_> {
                 .checkbox(&mut self.view_options.smooth, "Enable")
                 .changed()
             {
-                self.shared
+                self.app
                     .eloop
                     .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
                     .unwrap();
@@ -79,7 +79,7 @@ impl ControlsGui<'_> {
 
     fn layout_canvas_control(&mut self, ui: &mut Ui) {
         if let Some(instance) = self
-            .shared
+            .app
             .compositor
             .instances
             .read()
@@ -91,7 +91,7 @@ impl ControlsGui<'_> {
                     if ui.button("Horizontal").clicked() {
                         instance.target.lock().data.flip_vertices(false, true);
                         instance.store_change_or(true);
-                        self.shared
+                        self.app
                             .eloop
                             .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
                             .unwrap();
@@ -99,7 +99,7 @@ impl ControlsGui<'_> {
                     if ui.button("Vertical").clicked() {
                         instance.target.lock().data.flip_vertices(true, false);
                         instance.store_change_or(true);
-                        self.shared
+                        self.app
                             .eloop
                             .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
                             .unwrap();
@@ -112,7 +112,7 @@ impl ControlsGui<'_> {
                         let mut target = instance.target.lock();
                         target.data.rotate_vertices(true);
                         if target.transpose_dimensions() {
-                            self.shared
+                            self.app
                                 .eloop
                                 .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
                                 .unwrap();
@@ -123,7 +123,7 @@ impl ControlsGui<'_> {
                         let mut target = instance.target.lock();
                         target.data.rotate_vertices(false);
                         if target.transpose_dimensions() {
-                            self.shared
+                            self.app
                                 .eloop
                                 .send_event(super::UserEvent::RebindTexture(*self.selected_canvas))
                                 .unwrap();
@@ -132,7 +132,7 @@ impl ControlsGui<'_> {
                     }
                 });
             });
-            let instances = self.shared.compositor.instances.read();
+            let instances = self.app.compositor.instances.read();
             if let Some(instance) = instances.get(self.selected_canvas) {
                 ui.separator();
                 Grid::new("File Grid").num_columns(2).show(ui, |ui| {
@@ -140,9 +140,8 @@ impl ControlsGui<'_> {
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
                             if let Some(texture) = instance.target.lock().output.as_ref() {
-                                let copied_texture = texture.texture.clone(&self.shared.dev);
-                                self.rt
-                                    .spawn(self.shared.clone().save_dialog(copied_texture));
+                                let copied_texture = texture.texture.clone(&self.app.dev);
+                                self.rt.spawn(self.app.clone().save_dialog(copied_texture));
                             }
                         }
                     });
@@ -222,7 +221,7 @@ impl ControlsGui<'_> {
 
     fn layout_layers(&self, ui: &mut Ui) {
         if let Some(instance) = self
-            .shared
+            .app
             .compositor
             .instances
             .read()
@@ -265,8 +264,8 @@ pub struct ViewOptions {
 }
 
 struct CanvasGui<'a> {
-    shared: &'a Arc<App>,
-    rt: &'static tokio::runtime::Runtime,
+    app: &'a Arc<App>,
+    rt: &'a tokio::runtime::Runtime,
 
     canvases: &'a mut HashMap<InstanceKey, (TextureId, BufferDimensions)>,
     instances: &'a HashMap<InstanceKey, Instance>,
@@ -295,7 +294,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
-        self.shared
+        self.app
             .eloop
             .send_event(super::UserEvent::RemoveInstance(*tab))
             .unwrap();
@@ -303,8 +302,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
-        self.rt
-            .spawn(self.shared.clone().load_dialog(surface, node));
+        self.rt.spawn(self.app.clone().load_dialog(surface, node));
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -317,8 +315,8 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 }
 
 pub struct ViewerGui {
-    pub shared: Arc<App>,
-    pub rt: &'static tokio::runtime::Runtime,
+    pub app: Arc<App>,
+    pub rt: Arc<tokio::runtime::Runtime>,
 
     pub canvases: HashMap<InstanceKey, (TextureId, BufferDimensions)>,
     pub selected_canvas: InstanceKey,
@@ -330,13 +328,13 @@ pub struct ViewerGui {
 impl ViewerGui {
     pub fn remove_index(&mut self, index: InstanceKey) {
         self.canvases.remove(&index);
-        self.shared.compositor.instances.write().remove(&index);
+        self.app.compositor.instances.write().remove(&index);
     }
 
     fn layout_view(&mut self, ui: &mut Ui) {
         ui.set_min_size(ui.available_size());
 
-        let mut instances = self.shared.compositor.instances.read();
+        let mut instances = self.app.compositor.instances.read();
 
         if instances.is_empty() {
             ui.allocate_space(vec2(
@@ -347,14 +345,14 @@ impl ViewerGui {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
                     self.rt.spawn(
-                        self.shared
+                        self.app
                             .clone()
                             .load_dialog(SurfaceIndex::main(), NodeIndex::root()),
                     );
                 }
             });
         } else {
-            if let Some(mut added_instances) = self.shared.added_instances.try_lock() {
+            if let Some(mut added_instances) = self.app.added_instances.try_lock() {
                 for (surface, node, id) in added_instances.drain(..) {
                     self.canvas_tree
                         .set_focused_node_and_surface((surface, node));
@@ -372,8 +370,8 @@ impl ViewerGui {
                 .show_inside(
                     ui,
                     &mut CanvasGui {
-                        shared: &self.shared,
-                        rt: self.rt,
+                        app: &self.app,
+                        rt: &self.rt,
 
                         view_options: &self.view_options,
                         canvases: &mut self.canvases,
@@ -394,8 +392,8 @@ impl ViewerGui {
                     .show_inside(
                         ui,
                         &mut ControlsGui {
-                            shared: &self.shared,
-                            rt: self.rt,
+                            app: &self.app,
+                            rt: &self.rt,
                             selected_canvas: &self.selected_canvas,
                             view_options: &mut self.view_options,
                         },

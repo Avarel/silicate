@@ -22,10 +22,6 @@ use std::{
     time::Instant,
 };
 
-fn leak<T>(value: T) -> &'static T {
-    &*Box::leak(Box::new(value))
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum UserEvent {
     RebindTexture(InstanceKey),
@@ -36,7 +32,7 @@ pub fn start_gui(
     window: egui_winit::winit::window::Window,
     event_loop: egui_winit::winit::event_loop::EventLoop<UserEvent>,
 ) -> ! {
-    let rt = leak(
+    let rt = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -92,8 +88,8 @@ pub fn start_gui(
     let mut egui_rpass = Renderer::new(&app.dev.device, surface_format, None, 1);
 
     let mut editor = ViewerGui {
-        shared: app.clone(),
-        rt,
+        app: app.clone(),
+        rt: rt.clone(),
         canvases: HashMap::new(),
         view_options: ViewOptions {
             smooth: false,
@@ -209,7 +205,7 @@ pub fn start_gui(
 
                 context.begin_frame(input);
                 editor.layout_gui(&context);
-                editor.shared.toasts.lock().show(&context);
+                editor.app.toasts.lock().show(&context);
                 let FullOutput {
                     platform_output,
                     textures_delta,

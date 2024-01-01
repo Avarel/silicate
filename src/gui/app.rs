@@ -1,6 +1,6 @@
-use crate::compositor::{CompositorPipeline, CompositeLayer};
 use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::compositor::{BufferDimensions, CompositorTarget};
+use crate::compositor::{CompositeLayer, CompositorPipeline};
 use crate::silica::{ProcreateFile, SilicaError, SilicaHierarchy};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use parking_lot::{Mutex, RwLock};
@@ -55,7 +55,7 @@ pub struct CompositorHandle {
 }
 
 impl App {
-    pub async fn load_file(self: Arc<App>, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+    pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dev)).unwrap();
         let mut target = CompositorTarget::new(self.dev.clone());
