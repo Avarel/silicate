@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .ok();
 
-    let event_loop = EventLoopBuilder::with_user_event().build();
+    let event_loop = EventLoopBuilder::with_user_event().build()?;
     let window = WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)
@@ -43,5 +43,5 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (dev, surface) = rt.block_on(GpuHandle::with_window(&window)).unwrap();
     let app = Arc::new(App::new(dev, rt, event_loop.create_proxy()));
-    app.run(window, surface, event_loop)
+    Ok(app.run(&window, surface, event_loop)?)
 }

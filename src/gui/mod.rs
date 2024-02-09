@@ -8,15 +8,11 @@ use self::{
 };
 use crate::gui::layout::ViewerTab;
 use egui::{load::SizedTexture, FullOutput, ViewportId};
-use egui_wgpu::renderer::{Renderer, ScreenDescriptor};
+use egui_wgpu::{Renderer, ScreenDescriptor};
 
 use crate::winit;
 use std::time::Duration;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::ControlFlow,
@@ -25,10 +21,10 @@ use winit::{
 impl App {
     pub fn run(
         self: Arc<Self>,
-        window: winit::window::Window,
+        window: &winit::window::Window,
         surface: wgpu::Surface,
         event_loop: egui_winit::winit::event_loop::EventLoop<app::UserEvent>,
-    ) -> ! {
+    ) -> Result<(), winit::error::EventLoopError> {
         let surface_caps = surface.get_capabilities(&self.dev.adapter);
         let surface_format = surface_caps.formats[0];
         let surface_alpha = surface_caps.alpha_modes[0];
@@ -42,6 +38,7 @@ impl App {
                 present_mode: wgpu::PresentMode::Fifo,
                 view_formats: Vec::new(),
                 alpha_mode: surface_alpha,
+                desired_maximum_frame_latency: 0,
             }
         };
         let mut screen_descriptor = ScreenDescriptor {
@@ -51,13 +48,12 @@ impl App {
         surface.configure(&self.dev.device, &surface_config);
 
         let mut integration = egui_winit::State::new(
+            egui::Context::default(),
             ViewportId::ROOT,
             &window,
             Some(window.scale_factor() as f32),
             None,
         );
-
-        let context = egui::Context::default();
 
         let mut renderer = Renderer::new(&self.dev.device, surface_format, None, 1);
 
@@ -91,12 +87,120 @@ impl App {
 
         self.rt.spawn(self.clone().rendering_thread());
 
-        event_loop.run(move |event, _, control_flow| {
+        event_loop.run(move |event, eltarget| {
             match event {
+                // Event::MainEventsCleared => window.request_redraw(),
                 Event::WindowEvent { event, .. } => {
                     match event {
+                        WindowEvent::RedrawRequested => {
+                            let output_frame = match surface.get_current_texture() {
+                                Ok(frame) => frame,
+                                Err(wgpu::SurfaceError::Outdated) => {
+                                    // This error occurs when the app is minimized on Windows.
+                                    // Silently return here to prevent spamming the console with:
+                                    // "The underlying surface has changed, and therefore the swap chain must be updated"
+                                    return;
+                                }
+                                Err(e) => {
+                                    eprintln!("Dropped frame with error: {}", e);
+                                    return;
+                                }
+                            };
+
+                            let output_view = output_frame
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default());
+
+                            let input = integration.take_egui_input(&window);
+
+                            integration.egui_ctx().begin_frame(input);
+                            editor.layout_gui(&integration.egui_ctx());
+                            editor.app.toasts.lock().show(&integration.egui_ctx());
+                            let FullOutput {
+                                platform_output,
+                                textures_delta,
+                                shapes,
+                                pixels_per_point,
+                                viewport_output,
+                            } = integration.egui_ctx().end_frame();
+
+                            let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
+
+                            if repaint_after.is_zero() {
+                                window.request_redraw();
+                                eltarget.set_control_flow(ControlFlow::Poll);
+                            } else if let Some(repaint_after_instant) =
+                                Instant::now().checked_add(repaint_after)
+                            {
+                                eltarget.set_control_flow(ControlFlow::WaitUntil(
+                                    repaint_after_instant,
+                                ));
+                            } else {
+                                eltarget.set_control_flow(ControlFlow::WaitUntil(
+                                    Instant::now() + Duration::from_secs(1),
+                                ));
+                            }
+
+                            integration.handle_platform_output(&window, platform_output);
+
+                            // Draw the GUI onto the output texture.
+                            let paint_jobs =
+                                integration.egui_ctx().tessellate(shapes, pixels_per_point);
+
+                            // Upload all resources for the GPU.
+                            for (id, image_delta) in textures_delta.set {
+                                renderer.update_texture(
+                                    &self.dev.device,
+                                    &self.dev.queue,
+                                    id,
+                                    &image_delta,
+                                );
+                            }
+                            for id in textures_delta.free {
+                                renderer.free_texture(&id);
+                            }
+
+                            self.dev.queue.submit(Some({
+                                let mut encoder = self.dev.device.create_command_encoder(
+                                    &wgpu::CommandEncoderDescriptor::default(),
+                                );
+
+                                renderer.update_buffers(
+                                    &self.dev.device,
+                                    &self.dev.queue,
+                                    &mut encoder,
+                                    &paint_jobs,
+                                    &screen_descriptor,
+                                );
+
+                                renderer.render(
+                                    &mut encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: None,
+                                        color_attachments: &[Some(
+                                            wgpu::RenderPassColorAttachment {
+                                                view: &output_view,
+                                                resolve_target: None,
+                                                ops: wgpu::Operations {
+                                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                                    store: wgpu::StoreOp::Store,
+                                                },
+                                            },
+                                        )],
+                                        depth_stencil_attachment: None,
+                                        timestamp_writes: None,
+                                        occlusion_query_set: None,
+                                    }),
+                                    &paint_jobs,
+                                    &screen_descriptor,
+                                );
+
+                                encoder.finish()
+                            }));
+                            output_frame.present();
+                        }
                         WindowEvent::CloseRequested => {
-                            *control_flow = ControlFlow::Exit;
+                            eltarget.exit();
+                            return;
                         }
                         WindowEvent::Resized(size) => {
                             // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
@@ -109,16 +213,9 @@ impl App {
                                 surface.configure(&self.dev.device, &surface_config);
                             }
                         }
-                        WindowEvent::ScaleFactorChanged {
-                            scale_factor,
-                            new_inner_size: &mut size,
-                        } => {
-                            if size.width > 0 && size.height > 0 {
-                                surface_config.width = size.width;
-                                surface_config.height = size.height;
-                                screen_descriptor.pixels_per_point = scale_factor as f32;
-                                surface.configure(&self.dev.device, &surface_config);
-                            }
+                        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                            screen_descriptor.pixels_per_point = scale_factor as f32;
+                            surface.configure(&self.dev.device, &surface_config);
                         }
                         WindowEvent::DroppedFile(file) => {
                             println!("File dropped: {:?}", file.as_path().display().to_string());
@@ -146,116 +243,17 @@ impl App {
                             });
                         }
                         _ => {
-                            let response = integration.on_window_event(&context, &event);
-                            *control_flow = if response.repaint {
+                            let response = integration.on_window_event(&window, &event);
+                            if response.repaint {
                                 window.request_redraw();
-                                ControlFlow::Poll
+                                eltarget.set_control_flow(ControlFlow::Poll);
                             } else {
-                                ControlFlow::WaitUntil(Instant::now() + Duration::from_secs(1))
+                                eltarget.set_control_flow(ControlFlow::WaitUntil(
+                                    Instant::now() + Duration::from_secs(1),
+                                ))
                             }
                         }
                     }
-                }
-                Event::MainEventsCleared => window.request_redraw(),
-                Event::RedrawRequested(..) => {
-                    let output_frame = match surface.get_current_texture() {
-                        Ok(frame) => frame,
-                        Err(wgpu::SurfaceError::Outdated) => {
-                            // This error occurs when the app is minimized on Windows.
-                            // Silently return here to prevent spamming the console with:
-                            // "The underlying surface has changed, and therefore the swap chain must be updated"
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Dropped frame with error: {}", e);
-                            return;
-                        }
-                    };
-
-                    let output_view = output_frame
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
-
-                    let input = integration.take_egui_input(&window);
-
-                    context.begin_frame(input);
-                    editor.layout_gui(&context);
-                    editor.app.toasts.lock().show(&context);
-                    let FullOutput {
-                        platform_output,
-                        textures_delta,
-                        shapes,
-                        pixels_per_point,
-                        viewport_output,
-                    } = context.end_frame();
-
-                    let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
-
-                    *control_flow = if repaint_after.is_zero() {
-                        window.request_redraw();
-                        ControlFlow::Poll
-                    } else if let Some(repaint_after_instant) =
-                        Instant::now().checked_add(repaint_after)
-                    {
-                        ControlFlow::WaitUntil(repaint_after_instant)
-                    } else {
-                        ControlFlow::WaitUntil(Instant::now() + Duration::from_secs(1))
-                    };
-
-                    integration.handle_platform_output(&window, &context, platform_output);
-
-                    // Draw the GUI onto the output texture.
-                    let paint_jobs = context.tessellate(shapes, pixels_per_point);
-
-                    // Upload all resources for the GPU.
-                    for (id, image_delta) in textures_delta.set {
-                        renderer.update_texture(
-                            &self.dev.device,
-                            &self.dev.queue,
-                            id,
-                            &image_delta,
-                        );
-                    }
-                    for id in textures_delta.free {
-                        renderer.free_texture(&id);
-                    }
-
-                    self.dev.queue.submit(Some({
-                        let mut encoder = self
-                            .dev
-                            .device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-                        renderer.update_buffers(
-                            &self.dev.device,
-                            &self.dev.queue,
-                            &mut encoder,
-                            &paint_jobs,
-                            &screen_descriptor,
-                        );
-
-                        renderer.render(
-                            &mut encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &output_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            }),
-                            &paint_jobs,
-                            &screen_descriptor,
-                        );
-
-                        encoder.finish()
-                    }));
-                    output_frame.present();
                 }
                 Event::UserEvent(app::UserEvent::RemoveInstance(idx)) => {
                     editor.remove_index(idx);
@@ -308,6 +306,6 @@ impl App {
                 }
                 _ => (),
             }
-        });
+        })
     }
 }

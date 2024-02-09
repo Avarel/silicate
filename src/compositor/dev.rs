@@ -24,7 +24,7 @@ impl GpuHandle {
         }
     }
 
-    const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static> = wgpu::RequestAdapterOptions {
+    const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static, 'static> = wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: None,
         force_fallback_adapter: false,
@@ -41,7 +41,7 @@ impl GpuHandle {
     /// Create a GPU handle with a surface target compatible with the window.
     pub async fn with_window(window: &egui_winit::winit::window::Window) -> Option<(Self, wgpu::Surface)> {
         let instance = wgpu::Instance::new(Self::instance_descriptor());
-        let surface = unsafe { instance.create_surface(window) }.ok()?;
+        let surface = instance.create_surface(window).ok()?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
@@ -62,8 +62,8 @@ impl GpuHandle {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::PUSH_CONSTANTS,
-                    limits: wgpu::Limits {
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_limits: wgpu::Limits {
                         max_push_constant_size: 4,
                         max_buffer_size: 1024 << 20,
                         ..Default::default()

@@ -558,7 +558,7 @@ impl CanvasView {
                 }
             }
             if allow_scroll {
-                let scroll_delta = ui.input(|i| i.scroll_delta);
+                let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
                 if scroll_delta != Vec2::ZERO {
                     transform.translate_bounds(-scroll_delta);
                     auto_bounds = false.into();
