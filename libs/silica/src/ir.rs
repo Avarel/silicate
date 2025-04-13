@@ -10,19 +10,8 @@ use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use regex::Regex;
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
-
-pub(super) enum SilicaIRHierarchy<'a> {
-    Layer(SilicaIRLayer<'a>),
-    Group(SilicaIRGroup<'a>),
-}
-
-pub(super) struct SilicaIRLayer<'a> {
-    nka: &'a NsKeyedArchive,
-    coder: &'a Dictionary,
-}
 
 #[derive(Clone, Copy)]
 pub(super) struct IRData<'a> {
@@ -33,6 +22,16 @@ pub(super) struct IRData<'a> {
     pub(super) render: &'a GpuHandle,
     pub(super) gpu_textures: &'a GpuTexture,
     pub(super) counter: &'a AtomicU32,
+}
+
+pub(super) enum SilicaIRHierarchy<'a> {
+    Layer(SilicaIRLayer<'a>),
+    Group(SilicaIRGroup<'a>),
+}
+
+pub(super) struct SilicaIRLayer<'a> {
+    nka: &'a NsKeyedArchive,
+    coder: &'a Dictionary,
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
@@ -49,13 +48,18 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
 }
 
 impl SilicaIRLayer<'_> {
+    fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
+        let tilde_index = chunk_str.find('~').ok_or_else(|| SilicaError::CorruptedFormat)?;
+        let col = chunk_str[..tilde_index].parse::<u32>().map_err(|_| SilicaError::CorruptedFormat)?;
+        let row = chunk_str[tilde_index + 1..].parse::<u32>().map_err(|_| SilicaError::CorruptedFormat)?;
+
+        Ok((col, row))
+    }
+
     pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
         let uuid = nka.fetch::<String>(coder, "UUID")?;
-
-        static INSTANCE: OnceLock<Regex> = OnceLock::new();
-        let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
@@ -69,10 +73,8 @@ impl SilicaIRLayer<'_> {
             .map(|path| -> Result<(), SilicaError> {
                 let mut archive = meta.archive.clone();
 
-                let chunk_str = &path[uuid.len()..path.find('.').unwrap_or(path.len())];
-                let captures = index_regex.captures(chunk_str).unwrap();
-                let col = captures[1].parse::<u32>().unwrap();
-                let row = captures[2].parse::<u32>().unwrap();
+                let chunk_str = &path[uuid.len() + 1..path.find('.').unwrap_or(path.len())];
+                let (col, row) = Self::parse_chunk_str(chunk_str)?;
 
                 let tile = meta.tile.tile_size(col, row);
 
@@ -92,6 +94,7 @@ impl SilicaIRLayer<'_> {
                     decoder.read_to_end(&mut dst)?;
                     dst
                 } else {
+                    assert!(path.ends_with(".chunk"));
                     let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };

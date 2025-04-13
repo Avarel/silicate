@@ -2,8 +2,6 @@ pub mod error;
 
 use error::NsArchiveError;
 use plist::{Dictionary, Uid, Value};
-use regex::Regex;
-use std::sync::OnceLock;
 
 pub struct NsKeyedArchive {
     // version: u64,
@@ -266,23 +264,33 @@ pub struct Size<T> {
     pub width: T,
     pub height: T,
 }
-use std::str::FromStr;
-impl<T: FromStr> NsDecode<'_> for Size<T> {
+
+impl<T: std::str::FromStr> Size<T> {
+    fn parse_size_str(size_str: &str, key: &str) -> Result<(T, T), NsArchiveError> {
+        if !size_str.starts_with('{') || !size_str.ends_with('}') {
+            Err(NsArchiveError::TypeMismatch(key.to_string()))
+        } else {
+            let separator_index = size_str
+                .find(',')
+                .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))?;
+            let width = size_str[1..separator_index]
+                .trim()
+                .parse::<T>()
+                .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))?;
+            let height = size_str[separator_index + 1..size_str.len() - 1]
+                .trim()
+                .parse::<T>()
+                .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))?;
+
+            Ok((width, height))
+        }
+    }
+}
+
+impl<T: std::str::FromStr> NsDecode<'_> for Size<T> {
     fn decode(nka: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        let string = <&'_ str>::decode(nka, key, val)?;
-
-        static INSTANCE: OnceLock<Regex> = OnceLock::new();
-        let size_regex = INSTANCE.get_or_init(|| Regex::new("\\{(\\d+), ?(\\d+)\\}").unwrap());
-        let captures = size_regex
-            .captures(string)
-            .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))?;
-
-        let width = captures[1]
-            .parse::<T>()
-            .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))?;
-        let height = captures[2]
-            .parse::<T>()
-            .map_err(|_| NsArchiveError::TypeMismatch(key.to_string()))?;
+        let size_str = <&'_ str>::decode(nka, key, val)?;
+        let (width, height) = Self::parse_size_str(size_str, key)?;
         Ok(Size { width, height })
     }
 }

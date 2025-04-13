@@ -16,6 +16,8 @@ pub enum SilicaError {
     NsArchiveError(#[from] crate::ns_archive::error::NsArchiveError),
     #[error("Invalid values in file")]
     InvalidValue,
+    #[error("Corrupted format")]
+    CorruptedFormat,
     #[error("Unknown decoding error")]
     #[allow(dead_code)]
     Unknown,
