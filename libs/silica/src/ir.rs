@@ -2,13 +2,18 @@ use std::io::Read;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 
+use crate::layers::SilicaChunk;
 use crate::ns_archive::{
     NsClass, NsDecode, NsKeyedArchive, Size, WrappedArray, error::NsArchiveError,
 };
-use crate::{layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData}, error::SilicaError};
+use crate::{
+    error::SilicaError,
+    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData},
+};
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
+use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
@@ -20,8 +25,10 @@ pub(super) struct IRData<'a> {
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
     pub(super) render: &'a GpuHandle,
+    pub(super) texture_chunks: &'a GpuTexture,
     pub(super) gpu_textures: &'a GpuTexture,
-    pub(super) counter: &'a AtomicU32,
+    pub(super) combined_counter: &'a AtomicU32,
+    pub(super) chunk_counter: &'a AtomicU32,
 }
 
 pub(super) enum SilicaIRHierarchy<'a> {
@@ -49,9 +56,15 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
 
 impl SilicaIRLayer<'_> {
     fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
-        let tilde_index = chunk_str.find('~').ok_or_else(|| SilicaError::CorruptedFormat)?;
-        let col = chunk_str[..tilde_index].parse::<u32>().map_err(|_| SilicaError::CorruptedFormat)?;
-        let row = chunk_str[tilde_index + 1..].parse::<u32>().map_err(|_| SilicaError::CorruptedFormat)?;
+        let tilde_index = chunk_str
+            .find('~')
+            .ok_or_else(|| SilicaError::CorruptedFormat)?;
+        let col = chunk_str[..tilde_index]
+            .parse::<u32>()
+            .map_err(|_| SilicaError::CorruptedFormat)?;
+        let row = chunk_str[tilde_index + 1..]
+            .parse::<u32>()
+            .map_err(|_| SilicaError::CorruptedFormat)?;
 
         Ok((col, row))
     }
@@ -63,14 +76,15 @@ impl SilicaIRLayer<'_> {
 
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
-        let image = meta
-            .counter
+        let texture_index = meta
+            .combined_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        meta.file_names
+        let chunks = meta
+            .file_names
             .into_par_iter()
             .filter(|path| path.starts_with(&uuid))
-            .map(|path| -> Result<(), SilicaError> {
+            .map(|path| -> Result<SilicaChunk, SilicaError> {
                 let mut archive = meta.archive.clone();
 
                 let chunk_str = &path[uuid.len() + 1..path.find('.').unwrap_or(path.len())];
@@ -99,12 +113,46 @@ impl SilicaIRLayer<'_> {
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };
 
-                meta.gpu_textures.replace(
+                let atlas_index = meta
+                    .chunk_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                let (x, y, z) = meta.tile.atlas.index(atlas_index);
+
+                meta.texture_chunks.replace_from_bytes(
                     meta.render,
-                    (col * meta.tile.size, row * meta.tile.size),
+                    (x * meta.tile.size, y * meta.tile.size),
                     (tile.width, tile.height),
-                    image,
+                    z,
                     &dst,
+                );
+                Ok(SilicaChunk {
+                    col,
+                    row,
+                    atlas_index,
+                })
+            })
+            .collect::<Result<Vec<SilicaChunk>, _>>()?;
+
+        chunks
+            .par_iter()
+            .map(|chunk| -> Result<(), SilicaError> {
+                let tile = meta.tile.tile_size(chunk.col, chunk.row);
+
+                let (x, y, z) = meta.tile.atlas.index(chunk.atlas_index);
+
+                meta.gpu_textures.replace_from_tex_chunk(
+                    meta.render,
+                    (chunk.col * meta.tile.size, chunk.row * meta.tile.size),
+                    (tile.width, tile.height),
+                    texture_index,
+                    tile.height,
+                    (
+                        meta.texture_chunks,
+                        x * meta.tile.size,
+                        y * meta.tile.size,
+                        z,
+                    ),
                 );
                 Ok(())
             })
@@ -125,7 +173,8 @@ impl SilicaIRLayer<'_> {
             size: meta.size,
             uuid,
             version: nka.fetch::<u64>(coder, "version")?,
-            image,
+            texture_index,
+            chunks,
         })
     }
 }

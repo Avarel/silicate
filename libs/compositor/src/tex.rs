@@ -1,4 +1,4 @@
-use super::{dev::GpuHandle, BufferDimensions};
+use super::{BufferDimensions, dev::GpuHandle};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -11,6 +11,9 @@ pub struct GpuTexture {
 }
 
 impl GpuTexture {
+    pub const ATLAS_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_DST
+        .union(wgpu::TextureUsages::COPY_SRC)
+        .union(wgpu::TextureUsages::TEXTURE_BINDING);
     pub const LAYER_USAGE: wgpu::TextureUsages =
         wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::TEXTURE_BINDING);
     pub const OUTPUT_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_SRC
@@ -117,7 +120,7 @@ impl GpuTexture {
     /// ### Note
     /// The position `x` and `y` and size `width` and `height` data
     /// should strictly fit within the texture boundaries.
-    pub fn replace(
+    pub fn replace_from_bytes(
         &self,
         dev: &GpuHandle,
         (x, y): (u32, u32),
@@ -154,6 +157,53 @@ impl GpuTexture {
         );
     }
 
+    pub fn replace_from_tex_chunk(
+        &self,
+        dev: &GpuHandle,
+        (x, y): (u32, u32),
+        (width, height): (u32, u32),
+        layer: u32,
+        (data, data_x, data_y, data_z): (&GpuTexture, u32, u32, u32),
+    ) {
+        assert!(
+            layer < self.layers(),
+            "index {layer} must be less than {}",
+            self.layers()
+        );
+        // Copy the texture to the output buffer
+        dev.queue.submit(Some({
+            let mut encoder = dev
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            // Copy the data from the texture to the buffer
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &data.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: data_x,
+                        y: data_y,
+                        z: data_z,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x, y, z: layer },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            encoder.finish()
+        }));
+    }
+
     /// Clone the texture.
     ///
     /// ### Note
@@ -180,11 +230,7 @@ impl GpuTexture {
         clone
     }
 
-    pub fn export_buffer(
-        &self,
-        dev: &GpuHandle,
-        dim: BufferDimensions,
-    ) -> wgpu::Buffer {
+    pub fn export_buffer(&self, dev: &GpuHandle, dim: BufferDimensions) -> wgpu::Buffer {
         let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row * dim.height) as u64,

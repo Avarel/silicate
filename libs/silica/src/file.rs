@@ -1,4 +1,4 @@
-use crate::layers::{Flipped, SilicaGroup, SilicaLayer, TilingData};
+use crate::layers::{AtlasData, Flipped, SilicaGroup, SilicaLayer, TilingData};
 use crate::{
     error::SilicaError,
     ir::{IRData, SilicaIRHierarchy, SilicaIRLayer},
@@ -88,16 +88,6 @@ impl ProcreateFile {
         let columns = (size.width + tile_size - 1) / tile_size;
         let rows = (size.height + tile_size - 1) / tile_size;
 
-        let tile = TilingData {
-            columns,
-            rows,
-            diff: Size {
-                width: columns * tile_size - size.width,
-                height: rows * tile_size - size.height,
-            },
-            size: tile_size,
-        };
-
         let file_names = archive.file_names().collect::<Vec<_>>();
 
         let ir_hierachy = nka
@@ -112,14 +102,40 @@ impl ProcreateFile {
             GpuTexture::LAYER_USAGE,
         );
 
+        let chunk_count = file_names.len() as u32;
+
+        let tile = TilingData {
+            columns,
+            rows,
+            diff: Size {
+                width: columns * tile_size - size.width,
+                height: rows * tile_size - size.height,
+            },
+            size: tile_size,
+            atlas: AtlasData::compute_atlas_size(chunk_count, tile_size)
+        };
+        
+        dbg!(chunk_count);
+        dbg!(&tile);
+
+        let texture_chunks = GpuTexture::empty_layers(
+            dev,
+            tile.size * tile.atlas.columns,
+            tile.size * tile.atlas.rows,
+            tile.atlas.layers,
+            GpuTexture::ATLAS_USAGE,
+        );
+
         let ir_data = IRData {
             tile: &tile,
             archive: &archive,
             size,
             file_names: &file_names,
             render: dev,
+            texture_chunks: &texture_chunks,
             gpu_textures: &gpu_textures,
-            counter: &AtomicU32::new(0),
+            combined_counter: &AtomicU32::new(0),
+            chunk_counter: &AtomicU32::new(0),
         };
 
         Ok((

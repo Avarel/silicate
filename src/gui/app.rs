@@ -227,11 +227,11 @@ impl CompositorApp {
                         }
 
                         if !layer.clipped {
-                            *mask_layer = Some((layer.image, layer));
+                            *mask_layer = Some((layer.texture_index, layer));
                         }
 
                         composite_layers.push(CompositeLayer {
-                            texture: layer.image,
+                            texture: layer.texture_index,
                             clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                             opacity: layer.opacity,
                             blend: layer.blend,
