@@ -2435,6 +2435,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "silica"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lz4_flex",
+ "memmap2",
+ "minilzo-rs",
+ "plist",
+ "rayon",
+ "regex",
+ "silicate-compositor",
+ "thiserror 2.0.12",
+ "zip",
+]
+
+[[package]]
 name = "silicate"
 version = "0.2.1"
 dependencies = [
@@ -2446,21 +2462,13 @@ dependencies = [
  "egui_dock",
  "futures",
  "image",
- "lz4_flex",
- "memmap2",
- "minilzo-rs",
- "once_cell",
  "parking_lot",
- "plist",
- "rayon",
- "regex",
  "rfd",
+ "silica",
  "silicate-compositor",
- "thiserror 2.0.12",
  "tokio",
  "wgpu",
  "winres",
- "zip",
 ]
 
 [[package]]

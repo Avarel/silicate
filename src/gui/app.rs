@@ -1,8 +1,9 @@
-use crate::silica::{ProcreateFile, SilicaError, SilicaHierarchy};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toasts;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
+use silica::layers::{SilicaGroup, SilicaLayer};
+use silica::{error::SilicaError, file::ProcreateFile, layers::SilicaHierarchy};
 use silicate_compositor::{buffer::BufferDimensions, Target};
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
 use silicate_compositor::{pipeline::Pipeline, CompositeLayer};
@@ -165,11 +166,11 @@ impl App {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    fn linearize_silica_layers<'a>(layers: &'a crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
+    fn linearize_silica_layers<'a>(layers: &'a SilicaGroup) -> Vec<CompositeLayer> {
         fn inner<'a>(
-            layers: &'a crate::silica::SilicaGroup,
+            layers: &'a SilicaGroup,
             composite_layers: &mut Vec<CompositeLayer>,
-            mask_layer: &mut Option<(u32, &'a crate::silica::SilicaLayer)>,
+            mask_layer: &mut Option<(u32, &'a SilicaLayer)>,
         ) {
             for layer in layers.children.iter().rev() {
                 match layer {

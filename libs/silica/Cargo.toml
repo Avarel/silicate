@@ -1,0 +1,18 @@
+[package]
+name = "silica"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+silicate-compositor = { path = "../compositor" }
+thiserror = "2.0"
+plist = "1.3"
+regex = "1.6"
+memmap2 = "0.9"
+image = { version = "0.25", default-features = false }
+
+# Procreate support
+zip = { version = "2.6", default-features = false, features = ["deflate"] }
+minilzo-rs = "0.6.0"
+lz4_flex = { path = "../lz4_flex" }
+rayon = "1"

@@ -1,7 +1,4 @@
-mod error;
 mod gui;
-mod ns_archive;
-mod silica;
 
 use egui_winit::winit::{
     application::ApplicationHandler,

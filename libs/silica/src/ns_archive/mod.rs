@@ -1,23 +1,9 @@
-use once_cell::sync::OnceCell;
+pub mod error;
+
+use error::NsArchiveError;
 use plist::{Dictionary, Uid, Value};
 use regex::Regex;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum NsArchiveError {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    #[error("Plist decoding error")]
-    PlistError(#[from] plist::Error),
-    #[error("Zip decoding error")]
-    ZipError(#[from] zip::result::ZipError),
-    #[error("Type mismatch: key {0}")]
-    TypeMismatch(String),
-    #[error("Missing key {0}")]
-    MissingKey(String),
-    #[error("Bad index")]
-    BadIndex,
-}
+use std::sync::OnceLock;
 
 pub struct NsKeyedArchive {
     // version: u64,
@@ -285,7 +271,7 @@ impl<T: FromStr> NsDecode<'_> for Size<T> {
     fn decode(nka: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
         let string = <&'_ str>::decode(nka, key, val)?;
 
-        static INSTANCE: OnceCell<Regex> = OnceCell::new();
+        static INSTANCE: OnceLock<Regex> = OnceLock::new();
         let size_regex = INSTANCE.get_or_init(|| Regex::new("\\{(\\d+), ?(\\d+)\\}").unwrap());
         let captures = size_regex
             .captures(string)

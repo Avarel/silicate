@@ -1,16 +1,17 @@
 use std::io::Read;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 
-use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData, ZipArchiveMmap};
-use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
-use crate::ns_archive::{NsDecode, NsKeyedArchive};
-use crate::silica::BlendingMode;
+use crate::ns_archive::{
+    NsClass, NsDecode, NsKeyedArchive, Size, WrappedArray, error::NsArchiveError,
+};
+use crate::{layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData}, error::SilicaError};
 use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
-use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
+use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
 
 pub(super) enum SilicaIRHierarchy<'a> {
@@ -26,7 +27,7 @@ pub(super) struct SilicaIRLayer<'a> {
 #[derive(Clone, Copy)]
 pub(super) struct IRData<'a> {
     pub(super) tile: &'a TilingData,
-    pub(super) archive: &'a ZipArchiveMmap<'a>,
+    pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
     pub(super) render: &'a GpuHandle,
@@ -53,10 +54,10 @@ impl SilicaIRLayer<'_> {
         let coder = self.coder;
         let uuid = nka.fetch::<String>(coder, "UUID")?;
 
-        static INSTANCE: OnceCell<Regex> = OnceCell::new();
+        static INSTANCE: OnceLock<Regex> = OnceLock::new();
         let index_regex = INSTANCE.get_or_init(|| Regex::new("(\\d+)~(\\d+)").unwrap());
 
-        static LZO_INSTANCE: OnceCell<LZO> = OnceCell::new();
+        static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let image = meta
             .counter

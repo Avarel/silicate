@@ -1,68 +1,20 @@
-mod ir;
-
-use self::ir::{IRData, SilicaIRHierarchy, SilicaIRLayer};
-use crate::ns_archive::{NsArchiveError, NsKeyedArchive, Size, WrappedArray};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use silicate_compositor::{blend::BlendingMode, dev::GpuHandle, tex::GpuTexture};
-use std::fs::OpenOptions;
-use std::io::Cursor;
-use std::io::Read;
-use std::path::Path;
-use std::sync::atomic::AtomicU32;
-use thiserror::Error;
+use crate::layers::{Flipped, SilicaGroup, SilicaLayer, TilingData};
+use crate::{
+    error::SilicaError,
+    ir::{IRData, SilicaIRHierarchy, SilicaIRLayer},
+    ns_archive::{NsKeyedArchive, Size, WrappedArray, error::NsArchiveError},
+};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
+use std::{
+    fs::OpenOptions,
+    io::{Cursor, Read},
+    path::Path,
+    sync::atomic::AtomicU32,
+};
 use zip::read::ZipArchive;
 
-#[derive(Error, Debug)]
-pub enum SilicaError {
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Plist error: {0}")]
-    PlistError(#[from] plist::Error),
-    #[error("Zip error: {0}")]
-    ZipError(#[from] zip::result::ZipError),
-    #[error("LZO error: {0}")]
-    LzoError(#[from] minilzo_rs::Error),
-    #[error("LZ4 error: {0}")]
-    Lz4Error(#[from] lz4_flex::block::DecompressError),
-    #[error("Ns archive error: {0}")]
-    NsArchiveError(#[from] NsArchiveError),
-    #[error("Invalid values in file")]
-    InvalidValue,
-    #[error("Unknown decoding error")]
-    #[allow(dead_code)]
-    Unknown,
-}
-
-#[derive(Debug)]
-struct TilingData {
-    columns: u32,
-    rows: u32,
-    diff: Size<u32>,
-    size: u32,
-}
-
-impl TilingData {
-    pub fn tile_size(&self, col: u32, row: u32) -> Size<u32> {
-        Size {
-            width: if col != self.columns - 1 {
-                self.size
-            } else {
-                self.size - self.diff.width
-            },
-            height: if row != self.rows - 1 {
-                self.size
-            } else {
-                self.size - self.diff.height
-            },
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Flipped {
-    pub horizontally: bool,
-    pub vertically: bool,
-}
+pub(crate) type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 #[derive(Debug)]
 pub struct ProcreateFile {
@@ -103,62 +55,6 @@ pub struct ProcreateFile {
     pub size: Size<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum SilicaHierarchy {
-    Layer(SilicaLayer),
-    Group(SilicaGroup),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaGroup {
-    pub hidden: bool,
-    pub children: Vec<SilicaHierarchy>,
-    pub name: Option<String>,
-}
-
-impl SilicaGroup {
-    #[allow(dead_code)]
-    pub const fn empty() -> Self {
-        Self {
-            hidden: true,
-            children: Vec::new(),
-            name: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaLayer {
-    // animationHeldLength:Int?
-    pub blend: BlendingMode,
-    // bundledImagePath:String?
-    // bundledMaskPath:String?
-    // bundledVideoPath:String?
-    pub clipped: bool,
-    // contentsRect:Data?
-    // contentsRectValid:Bool?
-    // document:SilicaDocument?
-    // extendedBlend:Int?
-    pub hidden: bool,
-    // locked:Bool?
-    pub mask: Option<usize>,
-    pub name: Option<String>,
-    pub opacity: f32,
-    // perspectiveAssisted:Bool?
-    // preserve:Bool?
-    // private:Bool?
-    // text:ValkyrieText?
-    // textPDF:Data?
-    // transform:Data?
-    // type:Int?
-    pub size: Size<u32>,
-    pub uuid: String,
-    pub version: u64,
-    pub image: u32,
-}
-
-type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
-
 impl ProcreateFile {
     // Load a Procreate file asynchronously.
     pub fn open<P: AsRef<Path>>(p: P, dev: &GpuHandle) -> Result<(Self, GpuTexture), SilicaError> {
@@ -180,7 +76,7 @@ impl ProcreateFile {
         Self::from_ns(archive, nka, dev)
     }
 
-    fn from_ns(
+    pub(crate) fn from_ns(
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dev: &GpuHandle,

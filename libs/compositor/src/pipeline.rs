@@ -172,7 +172,7 @@ fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     // the binary does not rely on the shader file being at a specific location.
     #[cfg(not(debug_assertions))]
     {
-        wgpu::include_wgsl!("../shader.wgsl")
+        wgpu::include_wgsl!("shader.wgsl")
     }
     // In debug mode, this reads directly from a file so that recompilation
     // will not be necessary in the event that only the shader file changes.
@@ -185,7 +185,7 @@ fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
                 use std::io::Read;
                 let mut file = OpenOptions::new()
                     .read(true)
-                    .open("./src/shader.wgsl")
+                    .open("./libs/compositor/src/shader.wgsl")
                     .unwrap();
 
                 let mut buf = String::new();
