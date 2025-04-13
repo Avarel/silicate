@@ -35,10 +35,6 @@ pub struct CompositeLayer {
 struct VertexInput {
     /// Position of the vertex.
     position: [f32; 3],
-    /// Holds the UV information of the background.
-    /// The base texture uses this, which may be the texture from a
-    /// previous pass.
-    bg_coords: [f32; 2],
     /// Holds the UV information of the foreground.
     /// The layers to be composited on the output texture uses this.
     fg_coords: [f32; 2],
@@ -56,13 +52,8 @@ impl VertexInput {
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::offset_of!(VertexInput, bg_coords) as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
                     offset: std::mem::offset_of!(VertexInput, fg_coords) as wgpu::BufferAddress,
-                    shader_location: 2,
+                    shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
                 },
             ],
@@ -81,29 +72,29 @@ impl CompositorData {
     /// Initial vertices
     const SQUARE_VERTICES: [VertexInput; 4] = [
         VertexInput {
+            // top left
             position: [-1.0, 1.0, 0.0],
-            bg_coords: [0.0, 0.0],
             fg_coords: [0.0, 1.0],
         },
         VertexInput {
+            // bottom left
             position: [-1.0, -1.0, 0.0],
-            bg_coords: [0.0, 1.0],
             fg_coords: [0.0, 0.0],
         },
         VertexInput {
+            // top right
             position: [1.0, 1.0, 0.0],
-            bg_coords: [1.0, 0.0],
             fg_coords: [1.0, 1.0],
         },
         VertexInput {
+            // bottom right
             position: [1.0, -1.0, 0.0],
-            bg_coords: [1.0, 1.0],
             fg_coords: [1.0, 0.0],
         },
     ];
 
     /// Initial indices of the 2 triangle strips
-    const INDICES: [u16; 4] = [0, 1, 2, 3];
+    const INDICES: [u16; 4] = [0, 2, 1, 3];
 
     fn new(dev: Arc<GpuHandle>) -> Self {
         let device = &dev.device;

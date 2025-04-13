@@ -112,7 +112,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
                     }
                 });
             }
-            
+
             self.running = Some(instance);
         }
     }

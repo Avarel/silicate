@@ -16,7 +16,7 @@ impl AtlasData {
             AtlasData {
                 columns: chunk_count,
                 rows: 1,
-                layers: 1
+                layers: 1,
             }
         } else {
             let columns = TEX_MAX_DIM / tile_size;
@@ -26,7 +26,7 @@ impl AtlasData {
                 AtlasData {
                     columns,
                     rows,
-                    layers: 1
+                    layers: 1,
                 }
             } else {
                 let rows = TEX_MAX_DIM / tile_size;
@@ -34,15 +34,18 @@ impl AtlasData {
                 AtlasData {
                     columns,
                     rows,
-                    layers
+                    layers,
                 }
             }
-
         }
     }
 
     pub fn index(&self, chunk_index: u32) -> (u32, u32, u32) {
-        return (chunk_index % self.columns, chunk_index / self.columns % self.rows, chunk_index / (self.columns * self.rows))
+        return (
+            chunk_index % self.columns,
+            chunk_index / self.columns % self.rows,
+            chunk_index / (self.columns * self.rows),
+        );
     }
 }
 
@@ -52,7 +55,7 @@ pub struct TilingData {
     pub rows: u32,
     pub diff: Size<u32>,
     pub size: u32,
-    pub atlas: AtlasData
+    pub atlas: AtlasData,
 }
 
 impl TilingData {

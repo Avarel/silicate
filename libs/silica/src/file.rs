@@ -112,9 +112,9 @@ impl ProcreateFile {
                 height: rows * tile_size - size.height,
             },
             size: tile_size,
-            atlas: AtlasData::compute_atlas_size(chunk_count, tile_size)
+            atlas: AtlasData::compute_atlas_size(chunk_count, tile_size),
         };
-        
+
         dbg!(chunk_count);
         dbg!(&tile);
 

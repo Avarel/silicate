@@ -3,20 +3,14 @@
 // Nothing special about this section. It gets fed vertices in a triangle strip
 // configuration to draw a square on the texture.
 
-alias vec2f = vec2<f32>;
-alias vec3f = vec3<f32>;
-alias vec4f = vec4<f32>;
-
 struct VertexInput {
     @location(0) position: vec3f,
-    @location(1) bg_coords: vec2f,
-    @location(2) fg_coords: vec2f,
+    @location(1) coords: vec2f,
 };
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4f,
-    @location(0) bg_coords: vec2f,
-    @location(1) fg_coords: vec2f,
+    @builtin(position) position: vec4f,
+    @location(0) coords: vec2f,
 };
 
 @vertex
@@ -24,9 +18,8 @@ fn vs_main(
     model: VertexInput
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.bg_coords = model.bg_coords;
-    out.fg_coords = model.fg_coords;
-    out.clip_position = vec4(model.position, 1.0);
+    out.coords = model.coords;
+    out.position = vec4(model.position, 1.0);
     return out;
 }
  
@@ -261,11 +254,11 @@ const MASK_NONE: u32 = 0xFFFFFFFFu;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    var bga = textureSample(composite, splr, in.bg_coords);
+    var bga = textureSample(composite, splr, in.coords);
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = select(textureSample(textures, splr, in.fg_coords, i32(masks[i])).a, 1.0, masks[i] == MASK_NONE);
-        var fga = textureSample(textures, splr, in.fg_coords, i32(layers[i])) * maska;
+        var maska = select(textureSample(textures, splr, in.coords, masks[i]).a, 1.0, masks[i] == MASK_NONE);
+        var fga = textureSample(textures, splr, in.coords, layers[i]) * maska;
 
         // Short circuit
         // if (bga.a == 0.0) {

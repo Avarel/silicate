@@ -31,8 +31,7 @@ impl BufferDimensions {
         debug_assert!(extent.depth_or_array_layers == 1);
         let width = extent.width;
         let height = extent.height;
-        let bytes_per_pixel =
-            (Self::RGBA_CHANNEL_COUNT * std::mem::size_of::<u8>()) as u32;
+        let bytes_per_pixel = (Self::RGBA_CHANNEL_COUNT * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
