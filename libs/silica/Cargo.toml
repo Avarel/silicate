@@ -8,7 +8,6 @@ silicate-compositor = { path = "../compositor" }
 thiserror = "2.0"
 plist = "1.3"
 memmap2 = "0.9"
-image = { version = "0.25", default-features = false }
 
 # Procreate support
 zip = { version = "2.6", default-features = false, features = ["deflate"] }

@@ -11,7 +11,6 @@ pub struct AtlasData {
 impl AtlasData {
     pub fn compute_atlas_size(chunk_count: u32, tile_size: u32) -> Self {
         const TEX_MAX_DIM: u32 = 8192;
-        const TEX_MAX_WIDTH_POW2: u32 = TEX_MAX_DIM * TEX_MAX_DIM;
         if chunk_count * tile_size <= TEX_MAX_DIM {
             AtlasData {
                 columns: chunk_count,

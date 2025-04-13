@@ -9,7 +9,7 @@ pub struct BufferDimensions {
 }
 
 impl BufferDimensions {
-    const RGBA_CHANNEL_COUNT: usize = 4;
+    pub const RGBA_CHANNEL_COUNT: usize = 4;
 
     /// Computes the buffer dimensions between the texture's actual dimensions
     /// and its buffer dimensions on the GPU.

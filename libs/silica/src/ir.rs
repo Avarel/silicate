@@ -10,12 +10,12 @@ use crate::{
     error::SilicaError,
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData},
 };
-use image::{Pixel, Rgba};
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::blend::BlendingMode;
+use silicate_compositor::buffer::BufferDimensions;
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
 
 #[derive(Clone, Copy)]
@@ -99,9 +99,6 @@ impl SilicaIRLayer<'_> {
                 chunk.read_to_end(&mut buf)?;
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let data_len = tile.width as usize
-                    * tile.height as usize
-                    * usize::from(Rgba::<u8>::CHANNEL_COUNT);
                 let dst = if path.ends_with(".lz4") {
                     let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
                     let mut dst = Vec::new();
@@ -109,6 +106,9 @@ impl SilicaIRLayer<'_> {
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
+                    let data_len = tile.width as usize
+                        * tile.height as usize
+                        * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
                     let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };

@@ -2465,7 +2465,6 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "silica"
 version = "0.1.0"
 dependencies = [
- "image",
  "lz4_flex",
  "memmap2",
  "minilzo-rs",
