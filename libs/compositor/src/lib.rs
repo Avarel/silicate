@@ -51,7 +51,7 @@ impl VertexInput {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
-                    offset: 0,
+                    offset: std::mem::offset_of!(VertexInput, position) as wgpu::BufferAddress,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },

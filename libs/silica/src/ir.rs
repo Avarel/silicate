@@ -146,7 +146,6 @@ impl SilicaIRLayer<'_> {
                     (chunk.col * meta.tile.size, chunk.row * meta.tile.size),
                     (tile.width, tile.height),
                     texture_index,
-                    tile.height,
                     (
                         meta.texture_chunks,
                         x * meta.tile.size,
