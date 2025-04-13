@@ -132,7 +132,7 @@ impl GpuTexture {
         );
         dev.queue.write_texture(
             // Tells wgpu where to copy the pixel data
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x, y, z: layer },
@@ -141,7 +141,7 @@ impl GpuTexture {
             // The actual pixel data
             data,
             // The layout of the texture
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -203,9 +203,9 @@ impl GpuTexture {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_buffer(
                 self.texture.as_image_copy(),
-                wgpu::ImageCopyBuffer {
+                wgpu::TexelCopyBufferInfo {
                     buffer: &output_buffer,
-                    layout: wgpu::ImageDataLayout {
+                    layout: wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(dim.padded_bytes_per_row),
                         rows_per_image: None,
@@ -223,7 +223,7 @@ impl GpuTexture {
         // the future. Otherwise the application will freeze.
         let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dev.device.poll(wgpu::Maintain::Wait);
+        dev.device.poll(wgpu::MaintainBase::Wait);
         rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();

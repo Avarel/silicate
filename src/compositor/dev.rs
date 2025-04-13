@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 /// Represents a grouping of useful GPU resources.
 #[derive(Debug)]
 pub struct GpuHandle {
     /// WGPU instance.
+    #[allow(dead_code)]
     pub instance: wgpu::Instance,
     /// Physical compute device.
     pub adapter: wgpu::Adapter,
@@ -14,13 +17,12 @@ pub struct GpuHandle {
 impl GpuHandle {
     pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
         wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: None,
-                dxc_path: None,
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions::default(),
+                gl: wgpu::GlBackendOptions::default(),
             },
+            backends: wgpu::Backends::PRIMARY,
             flags: wgpu::InstanceFlags::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         }
     }
 
@@ -33,14 +35,14 @@ impl GpuHandle {
     #[allow(dead_code)]
     /// Create a bare GPU handle with no surface target.
     pub async fn new() -> Option<Self> {
-        let instance = wgpu::Instance::new(Self::instance_descriptor());
+        let instance = wgpu::Instance::new(&Self::instance_descriptor());
         let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await?;
         Self::from_adapter(instance, adapter).await
     }
 
     /// Create a GPU handle with a surface target compatible with the window.
-    pub async fn with_window(window: &egui_winit::winit::window::Window) -> Option<(Self, wgpu::Surface)> {
-        let instance = wgpu::Instance::new(Self::instance_descriptor());
+    pub async fn with_window(window: Arc<egui_winit::winit::window::Window>) -> Option<(Self, wgpu::Surface<'static>)> {
+        let instance = wgpu::Instance::new(&Self::instance_descriptor());
         let surface = instance.create_surface(window).ok()?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {

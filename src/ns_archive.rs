@@ -359,6 +359,7 @@ impl NsDecode<'_> for WrappedRawArray {
 #[derive(Debug)]
 pub struct NsClass {
     pub class_name: String,
+    #[allow(dead_code)]
     pub classes: Vec<String>,
 }
 
@@ -374,6 +375,7 @@ impl NsDecode<'_> for NsClass {
 
 #[derive(Debug)]
 pub struct NsString {
+    #[allow(dead_code)]
     pub class: NsClass,
     pub string: String,
 }

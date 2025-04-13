@@ -18,10 +18,10 @@ use tokio::time::MissedTickBehavior;
 pub struct App {
     pub dev: Arc<GpuHandle>,
     pub rt: Arc<Runtime>,
-    pub compositor: CompositorHandle,
+    pub compositor: Arc<CompositorApp>,
     pub toasts: Mutex<Toasts>,
     pub added_instances: Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
-    pub event_loop: EventLoopProxy<UserEvent>,
+    pub(crate) event_loop: EventLoopProxy<UserEvent>
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -56,28 +56,13 @@ impl Drop for Instance {
     }
 }
 
-pub struct CompositorHandle {
+pub struct CompositorApp {
     pub instances: RwLock<HashMap<InstanceKey, Instance>>,
     pub curr_id: AtomicUsize,
     pub pipeline: CompositorPipeline,
 }
 
 impl App {
-    pub fn new(dev: GpuHandle, rt: Arc<Runtime>, event_loop: EventLoopProxy<UserEvent>) -> Self {
-        App {
-            compositor: CompositorHandle {
-                instances: RwLock::new(HashMap::new()),
-                pipeline: CompositorPipeline::new(&dev),
-                curr_id: AtomicUsize::new(0),
-            },
-            rt,
-            dev: Arc::new(dev),
-            toasts: Mutex::new(egui_notify::Toasts::default()),
-            added_instances: Mutex::new(Vec::with_capacity(1)),
-            event_loop,
-        }
-    }
-
     pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dev)).unwrap();
@@ -170,47 +155,14 @@ impl App {
         }
     }
 
-    pub async fn rendering_thread(self: Arc<App>) {
-        let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
-        limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        loop {
-            // Ensures that we are not generating frames faster than 60FPS
-            // to avoid putting unnecessary computational pressure on the GPU.
-            limiter.tick().await;
-
-            for instance in self.compositor.instances.read().values() {
-                // If the file is contended then it might be edited by the GUI.
-                // Might as well not render a soon to be outdated result.
-                if let Some(file) = instance.file.try_read() {
-                    // Only force a recompute if we need to.
-                    if !instance.change_untick() {
-                        continue;
-                    }
-
-                    let new_layer_config = file.layers.clone();
-                    let background = (!file.background_hidden).then_some(file.background_color);
-                    // Drop the guard here, we no longer need it.
-                    drop(file);
-
-                    let resolved_layers = Self::linearize_silica_layers(&new_layer_config);
-
-                    let mut lock = instance.target.lock();
-                    lock.render(
-                        &self.compositor.pipeline,
-                        background,
-                        &resolved_layers,
-                        &instance.textures,
-                    );
-                    // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-                    // std::thread::sleep(std::time::Duration::from_secs(1));
-                    // Debugging notes: if the GPU is highly contended, the main
-                    // GUI rendering can still be somewhat sluggish.
-                    drop(lock);
-                }
-            }
-        }
+    pub fn rebind_texture(&self, id: InstanceKey) {
+        self.event_loop
+            .send_event(UserEvent::RebindTexture(id))
+            .unwrap();
     }
+}
 
+impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
     fn linearize_silica_layers<'a>(layers: &'a crate::silica::SilicaGroup) -> Vec<CompositeLayer> {
@@ -252,9 +204,44 @@ impl App {
         composite_layers
     }
 
-    pub fn rebind_texture(&self, id: InstanceKey) {
-        self.event_loop
-            .send_event(UserEvent::RebindTexture(id))
-            .unwrap();
+    pub async fn rendering_thread(self: Arc<Self>) {
+        let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
+        limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            // Ensures that we are not generating frames faster than 60FPS
+            // to avoid putting unnecessary computational pressure on the GPU.
+            limiter.tick().await;
+
+            for instance in self.instances.read().values() {
+                // If the file is contended then it might be edited by the GUI.
+                // Might as well not render a soon to be outdated result.
+                if let Some(file) = instance.file.try_read() {
+                    // Only force a recompute if we need to.
+                    if !instance.change_untick() {
+                        continue;
+                    }
+
+                    let new_layer_config = file.layers.clone();
+                    let background = (!file.background_hidden).then_some(file.background_color);
+                    // Drop the guard here, we no longer need it.
+                    drop(file);
+
+                    let resolved_layers = Self::linearize_silica_layers(&new_layer_config);
+
+                    let mut lock = instance.target.lock();
+                    lock.render(
+                        &self.pipeline,
+                        background,
+                        &resolved_layers,
+                        &instance.textures,
+                    );
+                    // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+                    // std::thread::sleep(std::time::Duration::from_secs(1));
+                    // Debugging notes: if the GPU is highly contended, the main
+                    // GUI rendering can still be somewhat sluggish.
+                    drop(lock);
+                }
+            }
+        }
     }
 }

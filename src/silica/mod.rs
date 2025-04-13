@@ -233,7 +233,9 @@ pub struct ProcreateFile {
     //     videoQualityKey: String?
     //     videoResolutionKey: String?
     //     videoDuration: String? = "Calculating..."
+    #[allow(dead_code)]
     pub tile_size: u32,
+    #[allow(dead_code)]
     pub composite: Option<SilicaLayer>,
     pub size: Size<u32>,
 }

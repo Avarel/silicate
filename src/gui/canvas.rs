@@ -403,11 +403,13 @@ impl CanvasView {
         if show_background {
             ui.painter().with_clip_rect(rect).add(epaint::RectShape {
                 rect,
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fill: ui.visuals().extreme_bg_color,
                 stroke: ui.visuals().widgets.noninteractive.bg_stroke,
-                fill_texture_id: TextureId::default(),
-                uv: Rect::ZERO,
+                stroke_kind: StrokeKind::Middle,
+                round_to_pixels: None,
+                blur_width: 0.0,
+                brush: None,
             });
         }
 
@@ -514,15 +516,17 @@ impl CanvasView {
                         rect,
                         0.0,
                         epaint::Stroke::new(4., Color32::DARK_BLUE),
+                        StrokeKind::Outside,
                     ));
                     painter.add(epaint::RectShape::stroke(
                         rect,
                         0.0,
                         epaint::Stroke::new(2., Color32::WHITE),
+                        StrokeKind::Outside,
                     ));
                 }
                 // when the click is release perform the zoom
-                if response.drag_released() {
+                if response.drag_stopped() {
                     let box_start_pos = transform.value_from_position(box_start_pos);
                     let box_end_pos = transform.value_from_position(box_end_pos);
                     let new_bounds = CanvasViewBounds {
@@ -596,13 +600,14 @@ impl PreparedView {
     fn ui(self, ui: &mut Ui, response: &Response) {
         let transform = &self.transform;
 
-        let mut plot_ui = ui.child_ui(*transform.frame(), Layout::default());
+        let mut plot_ui = ui.new_child(UiBuilder::new().max_rect(*transform.frame()));
         plot_ui.set_clip_rect(*transform.frame());
         plot_ui.painter().rect(
             plot_ui.max_rect(),
-            Rounding::default(),
+            CornerRadius::default(),
             Color32::from_gray(20),
             Stroke::NONE,
+            StrokeKind::Outside,
         );
 
         if self.show_grid {

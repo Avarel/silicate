@@ -549,16 +549,19 @@ impl CompositorPipeline {
                     }],
                 });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                cache: None,
                 label: Some("render_pipeline"),
                 layout: Some(&render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: "vs_main",
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    entry_point: Some("vs_main"),
                     buffers: &[VertexInput::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[
                         // Used to clear a background color
                         Some(wgpu::ColorTargetState {

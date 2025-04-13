@@ -143,7 +143,7 @@ impl ControlsGui<'_> {
         });
         Grid::new(i).show(ui, |ui| {
             ui.label("Blend");
-            ComboBox::from_id_source(0)
+            ComboBox::from_id_salt(0)
                 .selected_text(l.blend.as_str())
                 .show_ui(ui, |ui| {
                     for b in BlendingMode::all() {
@@ -340,6 +340,7 @@ impl ViewerGui {
                 .id(Id::new("view.dock"))
                 .style(egui_dock::Style::from_egui(ui.style()))
                 .show_add_buttons(true)
+                .show_leaf_close_all_buttons(false)
                 .show_inside(
                     ui,
                     &mut CanvasGui {
@@ -355,11 +356,12 @@ impl ViewerGui {
     pub fn layout_gui(&mut self, context: &Context) {
         SidePanel::new(panel::Side::Right, "Side Panel")
             .default_width(300.0)
-            .frame(Frame::none())
+            .frame(Frame::NONE)
             .show(context, |ui| {
                 egui_dock::DockArea::new(&mut self.viewer_tree)
                     .style(egui_dock::Style::from_egui(ui.style()))
                     .show_close_buttons(false)
+                    .show_leaf_close_all_buttons(false)
                     .show_inside(
                         ui,
                         &mut ControlsGui {
@@ -371,7 +373,7 @@ impl ViewerGui {
             });
 
         CentralPanel::default()
-            .frame(Frame::none())
+            .frame(Frame::NONE)
             .show(context, |ui| {
                 self.layout_view(ui);
             });
@@ -390,8 +392,8 @@ impl egui_dock::TabViewer for ControlsGui<'_> {
     type Tab = ViewerTab;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        Frame::none()
-            .inner_margin(style::Margin::same(10.0))
+        Frame::NONE
+            .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| match *tab {
                 ViewerTab::Information => self.layout_info(ui),
                 ViewerTab::ViewControls => self.layout_view_control(ui),
