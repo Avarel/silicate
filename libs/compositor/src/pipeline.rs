@@ -166,32 +166,30 @@ impl Pipeline {
     }
 }
 
-/// Load the shader.
+#[cfg(not(debug_assertions))]
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     // In release mode, the final binary includes the file directly so that
     // the binary does not rely on the shader file being at a specific location.
-    #[cfg(not(debug_assertions))]
-    {
-        wgpu::include_wgsl!("shader.wgsl")
-    }
+    wgpu::include_wgsl!("shader.wgsl")
+}
+
+#[cfg(debug_assertions)]
+fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     // In debug mode, this reads directly from a file so that recompilation
     // will not be necessary in the event that only the shader file changes.
-    #[cfg(debug_assertions)]
-    {
-        wgpu::ShaderModuleDescriptor {
-            label: Some("Dynamically loaded shader module"),
-            source: wgpu::ShaderSource::Wgsl({
-                use std::fs::OpenOptions;
-                use std::io::Read;
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open("./libs/compositor/src/shader.wgsl")
-                    .unwrap();
+    wgpu::ShaderModuleDescriptor {
+        label: Some("Dynamically loaded shader module"),
+        source: wgpu::ShaderSource::Wgsl({
+            use std::fs::OpenOptions;
+            use std::io::Read;
+            let mut file = OpenOptions::new()
+                .read(true)
+                .open("./libs/compositor/src/shader.wgsl")
+                .unwrap();
 
-                let mut buf = String::new();
-                file.read_to_string(&mut buf).unwrap();
-                buf.into()
-            }),
-        }
+            let mut buf = String::new();
+            file.read_to_string(&mut buf).unwrap();
+            buf.into()
+        }),
     }
 }
