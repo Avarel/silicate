@@ -1,4 +1,4 @@
-use super::{BufferDimensions, dev::GpuHandle};
+use super::{dev::GpuHandle, BufferDimensions};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -180,13 +180,11 @@ impl GpuTexture {
         clone
     }
 
-    /// Export the texture to the given path.
-    pub async fn export(
+    pub fn export_buffer(
         &self,
         dev: &GpuHandle,
         dim: BufferDimensions,
-        path: std::path::PathBuf,
-    ) -> image::ImageResult<()> {
+    ) -> wgpu::Buffer {
         let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row * dim.height) as u64,
@@ -217,31 +215,6 @@ impl GpuTexture {
             encoder.finish()
         }));
 
-        let buffer_slice = output_buffer.slice(..);
-
-        // NOTE: We have to create the mapping THEN device.poll() before await
-        // the future. Otherwise the application will freeze.
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dev.device.poll(wgpu::MaintainBase::Wait);
-        rx.await.unwrap().expect("Buffer mapping failed");
-
-        let data = buffer_slice.get_mapped_range().to_vec();
-        output_buffer.unmap();
-
-        eprintln!("Loading data to CPU");
-        let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-            dim.padded_bytes_per_row / 4,
-            dim.height,
-            data,
-        )
-        .unwrap();
-
-        let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
-
-        eprintln!("Saving the file to {}", path.display());
-        tokio::task::spawn_blocking(move || buffer.save(path))
-            .await
-            .unwrap()
+        output_buffer
     }
 }

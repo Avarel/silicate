@@ -26,8 +26,6 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
     "bmp",
 ] }
-# GPU rendering
-wgpu = "24.0"
 # Synchronization
 parking_lot = "0.12"
 # Display GUI
@@ -45,7 +43,6 @@ tokio = { version = "1.21", features = [
     "rt-multi-thread",
     "time",
 ] }
-futures = "0.3"
 
 [profile.release]
 strip = true

@@ -9,7 +9,7 @@ use self::{
 use crate::gui::layout::ViewerTab;
 use app::{App, CompositorApp, UserEvent};
 use egui::{load::SizedTexture, FullOutput, ViewportId};
-use egui_wgpu::{Renderer, ScreenDescriptor};
+use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 use egui_winit::winit::{
     event_loop::{ActiveEventLoop, EventLoopProxy},
     window::Window,

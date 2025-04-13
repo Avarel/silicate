@@ -1,5 +1,6 @@
 mod gui;
 
+use egui_wgpu::wgpu;
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,

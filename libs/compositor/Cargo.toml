@@ -5,6 +5,4 @@ edition = "2024"
 
 [dependencies]
 wgpu = "24.0"
-image = { version = "0.25", default-features = false }
 bytemuck = { version = "1.12", features = ["derive"] }
-tokio = { version = "1.21", default-features = false }

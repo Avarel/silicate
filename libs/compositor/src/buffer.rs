@@ -1,5 +1,3 @@
-use image::{Pixel, Rgba};
-
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferDimensions {
@@ -11,6 +9,8 @@ pub struct BufferDimensions {
 }
 
 impl BufferDimensions {
+    const RGBA_CHANNEL_COUNT: usize = 4;
+
     /// Computes the buffer dimensions between the texture's actual dimensions
     /// and its buffer dimensions on the GPU.
     pub const fn new(width: u32, height: u32) -> Self {
@@ -32,7 +32,7 @@ impl BufferDimensions {
         let width = extent.width;
         let height = extent.height;
         let bytes_per_pixel =
-            (Rgba::<u8>::CHANNEL_COUNT as usize * std::mem::size_of::<u8>()) as u32;
+            (Self::RGBA_CHANNEL_COUNT * std::mem::size_of::<u8>()) as u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;

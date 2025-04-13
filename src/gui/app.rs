@@ -1,12 +1,17 @@
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toasts;
+use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
-use silica::layers::{SilicaGroup, SilicaLayer};
-use silica::{error::SilicaError, file::ProcreateFile, layers::SilicaHierarchy};
-use silicate_compositor::{buffer::BufferDimensions, Target};
-use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
-use silicate_compositor::{pipeline::Pipeline, CompositeLayer};
+use silica::{
+    error::SilicaError,
+    file::ProcreateFile,
+    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
+};
+use silicate_compositor::{
+    buffer::BufferDimensions, dev::GpuHandle, pipeline::Pipeline, tex::GpuTexture, CompositeLayer,
+    Target,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -140,7 +145,7 @@ impl App {
         {
             let dim = BufferDimensions::from_extent(copied_texture.size);
             let path = handle.path().to_path_buf();
-            if let Err(err) = copied_texture.export(&self.dev, dim, path).await {
+            if let Err(err) = Self::export(&copied_texture, &self.dev, dim, path).await {
                 self.toasts.lock().error(format!(
                     "File {} failed to export. Reason: {err}.",
                     handle.file_name()
@@ -154,6 +159,43 @@ impl App {
         } else {
             self.toasts.lock().info("Export cancelled.");
         }
+    }
+
+    /// Export the texture to the given path.
+    pub async fn export(
+        texture: &GpuTexture,
+        dev: &GpuHandle,
+        dim: BufferDimensions,
+        path: std::path::PathBuf,
+    ) -> image::ImageResult<()> {
+        let output_buffer = texture.export_buffer(dev, dim);
+
+        let buffer_slice = output_buffer.slice(..);
+
+        // NOTE: We have to create the mapping THEN device.poll() before await
+        // the future. Otherwise the application will freeze.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+        dev.device.poll(wgpu::MaintainBase::Wait);
+        rx.await.unwrap().expect("Buffer mapping failed");
+
+        let data = buffer_slice.get_mapped_range().to_vec();
+        output_buffer.unmap();
+
+        eprintln!("Loading data to CPU");
+        let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+            dim.padded_bytes_per_row / 4,
+            dim.height,
+            data,
+        )
+        .unwrap();
+
+        let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
+
+        eprintln!("Saving the file to {}", path.display());
+        tokio::task::spawn_blocking(move || buffer.save(path))
+            .await
+            .unwrap()
     }
 
     pub fn rebind_texture(&self, id: InstanceKey) {
