@@ -1,5 +1,6 @@
 mod gui;
 
+use clap::Parser;
 use egui_wgpu::wgpu;
 use egui_winit::winit::{
     application::ApplicationHandler,
@@ -12,7 +13,7 @@ use gui::{
     AppInstance,
 };
 use silicate_compositor::dev::GpuHandle;
-use std::{error::Error, sync::Arc};
+use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;
 
 pub use egui_winit::winit;
@@ -24,12 +25,13 @@ const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
 
 struct AppMultiplexer {
     rt: Arc<Runtime>,
+    initial_file: Vec<PathBuf>,
     running: Option<AppInstance>,
     proxy: EventLoopProxy<UserEvent>,
 }
 
 impl AppMultiplexer {
-    fn new(proxy: EventLoopProxy<UserEvent>) -> Self {
+    fn new(initial_file: Vec<PathBuf>, proxy: EventLoopProxy<UserEvent>) -> Self {
         Self {
             rt: Arc::new(
                 tokio::runtime::Builder::new_multi_thread()
@@ -37,6 +39,7 @@ impl AppMultiplexer {
                     .build()
                     .expect("tokio runtime creation successful"),
             ),
+            initial_file,
             running: None,
             proxy,
         }
@@ -84,8 +87,33 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
                 .block_on(Self::handle_with_window(window.clone()))
                 .unwrap();
 
-            let app = AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
-            self.running = Some(app);
+            let instance =
+                AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
+
+            for path in self.initial_file.drain(..) {
+                self.rt.spawn({
+                    let app = instance.app.clone();
+                    async move {
+                        match app.load_file(path).await {
+                            Err(err) => {
+                                app.toasts.lock().error(format!(
+                                    "File from drag/drop failed to load. Reason: {err}"
+                                ));
+                            }
+                            Ok(key) => {
+                                app.toasts.lock().success("Loaded file from command line.");
+                                app.added_instances.lock().push((
+                                    egui_dock::SurfaceIndex::main(),
+                                    egui_dock::NodeIndex::root(),
+                                    key,
+                                ));
+                            }
+                        }
+                    }
+                });
+            }
+            
+            self.running = Some(instance);
         }
     }
 
@@ -107,12 +135,21 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// Files to open in the pager
+    files: Vec<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
     let event_loop = EventLoop::<app::UserEvent>::with_user_event()
         .build()
         .unwrap();
 
     let proxy = event_loop.create_proxy();
 
-    Ok(event_loop.run_app(&mut AppMultiplexer::new(proxy))?)
+    Ok(event_loop.run_app(&mut AppMultiplexer::new(args.files, proxy))?)
 }

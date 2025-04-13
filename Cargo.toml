@@ -18,6 +18,8 @@ default = []
 silicate-compositor = { path = "libs/compositor" }
 silica = { path = "libs/silica" }
 
+clap = { version = "4.5", features = ["cargo", "derive"] }
+
 image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",

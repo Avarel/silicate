@@ -294,7 +294,7 @@ impl AppInstance {
                 self.app.rt.spawn({
                     let app = self.app.clone();
                     async move {
-                        match app.clone().load_file(file).await {
+                        match app.load_file(file).await {
                             Err(err) => {
                                 app.toasts.lock().error(format!(
                                     "File from drag/drop failed to load. Reason: {err}"
