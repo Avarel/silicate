@@ -50,21 +50,18 @@ impl VertexInput {
             array_stride: std::mem::size_of::<VertexInput>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                // position
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },
-                // bg_coords
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: std::mem::offset_of!(VertexInput, bg_coords) as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
                 },
-                // fg_coords
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2 + 3]>() as wgpu::BufferAddress,
+                    offset: std::mem::offset_of!(VertexInput, fg_coords) as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x2,
                 },
