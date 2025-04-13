@@ -2,7 +2,6 @@ use std::io::Read;
 use std::sync::atomic::AtomicU32;
 
 use super::{SilicaError, SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData, ZipArchiveMmap};
-use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
 use crate::ns_archive::{NsArchiveError, NsClass, Size, WrappedArray};
 use crate::ns_archive::{NsDecode, NsKeyedArchive};
 use crate::silica::BlendingMode;
@@ -12,6 +11,7 @@ use once_cell::sync::OnceCell;
 use plist::{Dictionary, Value};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
+use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
 
 pub(super) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
@@ -111,7 +111,8 @@ impl SilicaIRLayer<'_> {
                 nka.fetch::<Option<u32>>(coder, "extendedBlend")
                     .transpose()
                     .unwrap_or_else(|| nka.fetch::<u32>(coder, "blend"))?,
-            )?,
+            )
+            .ok_or_else(|| SilicaError::InvalidValue)?,
             clipped: nka.fetch::<bool>(coder, "clipped")?,
             hidden: nka.fetch::<bool>(coder, "hidden")?,
             mask: None,

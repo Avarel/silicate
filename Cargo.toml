@@ -9,7 +9,7 @@ repository = "https://github.com/Avarel/procreate-rs"
 license = "MIT"
 
 [workspace]
-members = [
+members = [ "libs/compositor",
     # "libs/egui_dock",
     "libs/lz4_flex"
 ]
@@ -18,6 +18,8 @@ members = [
 default = []
 
 [dependencies]
+silicate-compositor = { path = "libs/compositor" }
+
 # Procreate support
 zip = { version = "2.6", default-features = false, features = ["deflate"] }
 lz4_flex = { path = "libs/lz4_flex" }
@@ -31,7 +33,6 @@ memmap2 = "0.9"
 rayon = "1"
 # GPU rendering
 wgpu = "24.0"
-bytemuck = { version = "1.12", features = ["derive"] }
 # Synchronization
 parking_lot = "0.12"
 # Display GUI

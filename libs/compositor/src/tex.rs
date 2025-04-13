@@ -1,4 +1,4 @@
-use super::{dev::GpuHandle, BufferDimensions};
+use super::{BufferDimensions, dev::GpuHandle};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;

@@ -25,7 +25,6 @@ pub trait Sink {
     /// read byte at position
     fn byte_at(&mut self, pos: usize) -> u8;
 
-
     unsafe fn base_mut_ptr(&mut self) -> *mut u8;
 
     fn pos(&self) -> usize;
@@ -34,13 +33,10 @@ pub trait Sink {
 
     unsafe fn set_pos(&mut self, new_pos: usize);
 
-
     /// Extends the Sink with `data`.
     fn extend_from_slice(&mut self, data: &[u8]);
 
     fn extend_from_slice_wild(&mut self, data: &[u8], copy_len: usize);
-
-
 }
 
 /// SliceSink is used as target to de/compress data into a preallocated and possibly uninitialized

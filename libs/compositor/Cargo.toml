@@ -1,0 +1,10 @@
+[package]
+name = "silicate-compositor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "24.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "webp", "bmp"] }
+bytemuck = { version = "1.12", features = ["derive"] }
+tokio = { version = "1.21", default-features = false }

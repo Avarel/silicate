@@ -1,8 +1,9 @@
-use crate::silica::{BlendingMode, SilicaHierarchy};
+use crate::silica::SilicaHierarchy;
 use crate::silica::{SilicaGroup, SilicaLayer};
 use egui::load::SizedTexture;
 use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
+use silicate_compositor::blend::BlendingMode;
 use std::collections::HashMap;
 use std::sync::Arc;
 

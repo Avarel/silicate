@@ -2438,7 +2438,6 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "silicate"
 version = "0.2.1"
 dependencies = [
- "bytemuck",
  "cc",
  "egui",
  "egui-notify",
@@ -2456,11 +2455,22 @@ dependencies = [
  "rayon",
  "regex",
  "rfd",
+ "silicate-compositor",
  "thiserror 2.0.12",
  "tokio",
  "wgpu",
  "winres",
  "zip",
+]
+
+[[package]]
+name = "silicate-compositor"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "image",
+ "tokio",
+ "wgpu",
 ]
 
 [[package]]

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 /// Represents a grouping of useful GPU resources.
 #[derive(Debug)]
 pub struct GpuHandle {
@@ -26,11 +24,12 @@ impl GpuHandle {
         }
     }
 
-    const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static, 'static> = wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    };
+    pub const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static, 'static> =
+        wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        };
 
     #[allow(dead_code)]
     /// Create a bare GPU handle with no surface target.
@@ -40,23 +39,8 @@ impl GpuHandle {
         Self::from_adapter(instance, adapter).await
     }
 
-    /// Create a GPU handle with a surface target compatible with the window.
-    pub async fn with_window(window: Arc<egui_winit::winit::window::Window>) -> Option<(Self, wgpu::Surface<'static>)> {
-        let instance = wgpu::Instance::new(&Self::instance_descriptor());
-        let surface = instance.create_surface(window).ok()?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Self::ADAPTER_OPTIONS
-            })
-            .await?;
-        Self::from_adapter(instance, adapter)
-            .await
-            .map(|dev| (dev, surface))
-    }
-
     /// Request device.
-    async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
+    pub async fn from_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Option<Self> {
         // Debugging information
         dbg!(adapter.get_info());
         dbg!(adapter.limits());

@@ -4,7 +4,7 @@ use std::sync::Arc;
 /// variables. It is configured specifically to serve the `shader.wgsl`
 /// shader module and create bindings that match the shader's inputs.
 use super::dev::GpuHandle;
-use crate::compositor::CompositeLayer;
+use crate::CompositeLayer;
 
 /// Shader buffers on the CPU side.
 #[derive(Debug)]

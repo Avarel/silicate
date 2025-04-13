@@ -1,11 +1,11 @@
-use crate::compositor::{dev::GpuHandle, tex::GpuTexture};
-use crate::compositor::{BufferDimensions, CompositorTarget};
-use crate::compositor::{CompositeLayer, CompositorPipeline};
 use crate::silica::{ProcreateFile, SilicaError, SilicaHierarchy};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toasts;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
+use silicate_compositor::{buffer::BufferDimensions, Target};
+use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
+use silicate_compositor::{pipeline::Pipeline, CompositeLayer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -21,7 +21,7 @@ pub struct App {
     pub compositor: Arc<CompositorApp>,
     pub toasts: Mutex<Toasts>,
     pub added_instances: Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
-    pub(crate) event_loop: EventLoopProxy<UserEvent>
+    pub(crate) event_loop: EventLoopProxy<UserEvent>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +36,7 @@ pub struct InstanceKey(pub usize);
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
     pub textures: GpuTexture,
-    pub target: Mutex<CompositorTarget>,
+    pub target: Mutex<Target>,
     pub changed: AtomicBool,
 }
 
@@ -59,14 +59,14 @@ impl Drop for Instance {
 pub struct CompositorApp {
     pub instances: RwLock<HashMap<InstanceKey, Instance>>,
     pub curr_id: AtomicUsize,
-    pub pipeline: CompositorPipeline,
+    pub pipeline: Pipeline,
 }
 
 impl App {
     pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dev)).unwrap();
-        let mut target = CompositorTarget::new(self.dev.clone());
+        let mut target = Target::new(self.dev.clone());
         target
             .data
             .flip_vertices(file.flipped.horizontally, file.flipped.vertically);

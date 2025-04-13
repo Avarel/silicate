@@ -1,17 +1,19 @@
-mod compositor;
 mod error;
 mod gui;
 mod ns_archive;
 mod silica;
 
-use compositor::dev::GpuHandle;
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
-use gui::{app::{self, UserEvent}, AppInstance};
+use gui::{
+    app::{self, UserEvent},
+    AppInstance,
+};
+use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, sync::Arc};
 use tokio::runtime::Runtime;
 
@@ -41,6 +43,23 @@ impl AppMultiplexer {
             proxy,
         }
     }
+
+    /// Create a GPU handle with a surface target compatible with the window.
+    pub async fn handle_with_window(
+        window: Arc<egui_winit::winit::window::Window>,
+    ) -> Option<(GpuHandle, wgpu::Surface<'static>)> {
+        let instance = wgpu::Instance::new(&GpuHandle::instance_descriptor());
+        let surface = instance.create_surface(window).ok()?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..GpuHandle::ADAPTER_OPTIONS
+            })
+            .await?;
+        GpuHandle::from_adapter(instance, adapter)
+            .await
+            .map(|dev| (dev, surface))
+    }
 }
 
 impl ApplicationHandler<UserEvent> for AppMultiplexer {
@@ -64,7 +83,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
             let (dev, surface) = self
                 .rt
-                .block_on(GpuHandle::with_window(window.clone()))
+                .block_on(Self::handle_with_window(window.clone()))
                 .unwrap();
 
             let app = AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());

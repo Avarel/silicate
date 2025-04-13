@@ -6,10 +6,7 @@ use self::{
     app::InstanceKey,
     layout::{ViewOptions, ViewerGui},
 };
-use crate::{
-    compositor::{dev::GpuHandle, CompositorPipeline},
-    gui::layout::ViewerTab,
-};
+use crate::gui::layout::ViewerTab;
 use app::{App, CompositorApp, UserEvent};
 use egui::{load::SizedTexture, FullOutput, ViewportId};
 use egui_wgpu::{Renderer, ScreenDescriptor};
@@ -18,6 +15,7 @@ use egui_winit::winit::{
     window::Window,
 };
 use parking_lot::{Mutex, RwLock};
+use silicate_compositor::{dev::GpuHandle, pipeline::Pipeline};
 use tokio::runtime::Runtime;
 use wgpu::Surface;
 
@@ -85,7 +83,7 @@ impl AppInstance {
         let app = Arc::new(App {
             compositor: Arc::new(CompositorApp {
                 instances: RwLock::new(HashMap::new()),
-                pipeline: CompositorPipeline::new(&dev),
+                pipeline: Pipeline::new(&dev),
                 curr_id: AtomicUsize::new(0),
             }),
             rt,
@@ -362,7 +360,7 @@ impl AppInstance {
                                         texture_filter,
                                         tex.id,
                                     );
-                                tex.size = target.dim.to_vec2();
+                                tex.size = target.dim.to_vec2().into();
                             } else {
                                 let tex = self.rendering.renderer.register_native_texture(
                                     &self.app.dev.device,
@@ -373,7 +371,7 @@ impl AppInstance {
                                     idx,
                                     SizedTexture {
                                         id: tex,
-                                        size: target.dim.to_vec2(),
+                                        size: target.dim.to_vec2().into(),
                                     },
                                 );
                             }
