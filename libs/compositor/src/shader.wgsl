@@ -240,8 +240,6 @@ var textures: texture_2d_array<f32>;
 @group(1) @binding(2)
 var<storage, read> layers: array<LayerData>;
 
-var<push_constant> layer_count: i32;
-
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     return clamp(vec4(
@@ -257,7 +255,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
     var bga = textureSample(composite, splr, in.coords);
 
-    for (var i: i32 = 0; i < layer_count; i++) {
+    for (var i: u32 = 0; i < arrayLength(&layers); i++) {
         var maska = select(textureSample(textures, splr, in.coords, layers[i].mask_index).a, 1.0, layers[i].mask_index == MASK_NONE);
         var fga = textureSample(textures, splr, in.coords, layers[i].texture_index) * maska;
 

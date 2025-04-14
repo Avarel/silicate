@@ -86,10 +86,7 @@ impl Pipeline {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("render_pipeline_layout"),
                     bind_group_layouts: &[&constant_bind_group_layout, &blending_bind_group_layout],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStages::FRAGMENT,
-                        range: 0..4,
-                    }],
+                    push_constant_ranges: &[],
                 });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 cache: None,

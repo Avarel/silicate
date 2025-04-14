@@ -388,12 +388,6 @@ impl Target {
 
         // Finish and set the render pass's binding groups and data
         pass.set_pipeline(&pipeline.render_pipeline);
-        // We use push constants for the binding count.
-        pass.set_push_constants(
-            wgpu::ShaderStages::FRAGMENT,
-            0,
-            &self.data.layer_count.to_ne_bytes(),
-        );
         pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
         pass.set_bind_group(1, &blending_bind_group, &[]);
         pass.set_vertex_buffer(0, self.data.vertex_buffer.slice(..));
