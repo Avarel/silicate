@@ -1,4 +1,3 @@
-pub mod bind;
 pub mod blend;
 pub mod buffer;
 pub mod dev;
@@ -6,7 +5,7 @@ pub mod pipeline;
 pub mod tex;
 
 use self::{
-    bind::{CpuBuffers, GpuBuffers},
+    // bind::{CpuBuffers},
     dev::GpuHandle,
     tex::GpuTexture,
 };
@@ -61,11 +60,22 @@ impl VertexInput {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
+struct LayerData {
+    texture_index: u32,
+    mask_index: u32,
+    blend: u32,
+    opacity: f32,
+}
+
 pub struct CompositorData {
     dev: Arc<GpuHandle>,
     vertices: [VertexInput; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    layer_buffer: wgpu::Buffer,
+    layer_count: u32,
 }
 
 impl CompositorData {
@@ -114,11 +124,22 @@ impl CompositorData {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let layer_buffer = dev
+            .device
+            .create_buffer(&wgpu::BufferDescriptor {
+                label: Some("layer_buffer"),
+                size: 0,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+
         Self {
             dev,
             vertices,
             vertex_buffer,
             index_buffer,
+            layer_buffer,
+            layer_count: 0,
         }
     }
 
@@ -164,6 +185,35 @@ impl CompositorData {
             .queue
             .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
     }
+
+    fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
+        let mut layers = Vec::new();
+        const MASK_NONE: u32 = u32::MAX;
+        for layer in composite_layers.iter() {
+            layers.push(LayerData {
+                texture_index: layer.texture,
+                mask_index: layer.clipped.unwrap_or(MASK_NONE),
+                blend: layer.blend.to_u32(),
+                opacity: layer.opacity,
+            });
+        }
+
+        let data = bytemuck::cast_slice(&layers);
+
+        if self.layer_buffer.size() < data.len() as u64 {
+            self.layer_buffer =
+                self.dev
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("layer_buffer"),
+                        contents: data,
+                        usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
+                    });
+        } else {
+            self.dev.queue.write_buffer(&self.layer_buffer, 0, data);
+        }
+        self.layer_count = composite_layers.len() as u32;
+    }
 }
 
 /// Output target of a compositor pipeline.
@@ -179,10 +229,8 @@ pub struct Target {
 /// Compositor stage buffers. This is so that the rendering process
 /// can reuse buffers and textures whenever possible.
 pub struct Output {
-    dev: Arc<GpuHandle>,
     size: usize,
-    bindings: CpuBuffers,
-    buffers: GpuBuffers,
+    // bindings: CpuBuffers,
     pub texture: GpuTexture,
 }
 
@@ -190,10 +238,8 @@ impl Output {
     /// Create a new compositor stage.
     pub fn new(target: &Target, size: usize) -> Self {
         Self {
-            dev: target.dev.clone(),
             size,
-            bindings: CpuBuffers::new(size),
-            buffers: GpuBuffers::new(target.dev.clone(), size),
+            // bindings: CpuBuffers::new(size),
             texture: target.create_texture(),
         }
     }
@@ -204,8 +250,6 @@ impl Output {
         }
 
         self.size = size;
-        self.bindings = CpuBuffers::new(size);
-        self.buffers = GpuBuffers::new(self.dev.clone(), size);
     }
 }
 
@@ -282,8 +326,7 @@ impl Target {
                 .insert(Output::new(self, composite_layers.len()))
         };
 
-        stage.bindings.map_composite_layers(composite_layers);
-        stage.buffers.load(&stage.bindings);
+        self.data.load_layer_buffer(composite_layers);
 
         let blending_bind_group = self
             .dev
@@ -301,19 +344,7 @@ impl Target {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: stage.buffers.layers.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: stage.buffers.masks.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: stage.buffers.blends.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: stage.buffers.opacities.as_entire_binding(),
+                        resource: self.data.layer_buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("mixing_bind_group"),
@@ -361,7 +392,7 @@ impl Target {
         pass.set_push_constants(
             wgpu::ShaderStages::FRAGMENT,
             0,
-            &stage.bindings.count.to_ne_bytes(),
+            &self.data.layer_count.to_ne_bytes(),
         );
         pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
         pass.set_bind_group(1, &blending_bind_group, &[]);

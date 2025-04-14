@@ -48,7 +48,8 @@ impl GpuHandle {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_features: wgpu::Features::PUSH_CONSTANTS
+                        .union(wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY),
                     required_limits: wgpu::Limits {
                         max_push_constant_size: 4,
                         max_buffer_size: 1024 << 20,

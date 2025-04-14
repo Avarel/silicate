@@ -224,6 +224,13 @@ fn darker_color(b: vec3f, s: vec3f) -> vec3f {
 // Fragment shader /////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+struct LayerData {
+    texture_index: u32,
+    mask_index: u32,
+    blend: u32,
+    opacity: f32,
+};
+
 @group(0) @binding(0)
 var splr: sampler;
 @group(1) @binding(0)
@@ -231,13 +238,7 @@ var composite: texture_2d<f32>;
 @group(1) @binding(1)
 var textures: texture_2d_array<f32>;
 @group(1) @binding(2)
-var<storage, read> layers: array<u32>;
-@group(1) @binding(3)
-var<storage, read> masks: array<u32>;
-@group(1) @binding(4)
-var<storage, read> blends: array<u32>;
-@group(1) @binding(5)
-var<storage, read> opacities: array<f32>;
+var<storage, read> layers: array<LayerData>;
 
 var<push_constant> layer_count: i32;
 
@@ -257,24 +258,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = textureSample(composite, splr, in.coords);
 
     for (var i: i32 = 0; i < layer_count; i++) {
-        var maska = select(textureSample(textures, splr, in.coords, masks[i]).a, 1.0, masks[i] == MASK_NONE);
-        var fga = textureSample(textures, splr, in.coords, layers[i]) * maska;
-
-        // Short circuit
-        // if (bga.a == 0.0) {
-        //     bga = vec4(fga.rgb, min(fga.a, maska) * opacities[i]);
-        //     continue;
-        // } 
-        //else if (fga.a == 0.0) {
-        //     return bga;
-        // }    
+        var maska = select(textureSample(textures, splr, in.coords, layers[i].mask_index).a, 1.0, layers[i].mask_index == MASK_NONE);
+        var fga = textureSample(textures, splr, in.coords, layers[i].texture_index) * maska;
 
         var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * opacities[i]);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * layers[i].opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
-        switch (blends[i]) {
+        switch (layers[i].blend) {
             case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
             case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
             case 3u: { final_pixel = add(bg.rgb, fg.rgb); }

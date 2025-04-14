@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use crate::{VertexInput, dev::GpuHandle};
 
 pub struct Pipeline {
@@ -41,43 +39,20 @@ impl Pipeline {
 
         // This bind group changes per composition run.
         let blending_bind_group_layout = {
-            const fn fragment_bgl_buffer_ro_entry(
-                binding: u32,
-                count: Option<NonZeroU32>,
-            ) -> wgpu::BindGroupLayoutEntry {
-                wgpu::BindGroupLayoutEntry {
-                    binding,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count,
-                }
-            }
-
-            const fn fragment_bgl_tex_entry(
-                binding: u32,
-                count: Option<NonZeroU32>,
-            ) -> wgpu::BindGroupLayoutEntry {
-                wgpu::BindGroupLayoutEntry {
-                    binding,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    },
-                    count,
-                }
-            }
-
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("blending_group_layout"),
                 entries: &[
                     // composite
-                    fragment_bgl_tex_entry(0, None),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: None,
+                    },
                     // textures
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
@@ -89,14 +64,16 @@ impl Pipeline {
                         },
                         count: None,
                     },
-                    // layers
-                    fragment_bgl_buffer_ro_entry(2, None),
-                    // masks
-                    fragment_bgl_buffer_ro_entry(3, None),
-                    // blends
-                    fragment_bgl_buffer_ro_entry(4, None),
-                    // opacities
-                    fragment_bgl_buffer_ro_entry(5, None),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             })
         };
