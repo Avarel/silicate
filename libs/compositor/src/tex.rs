@@ -1,6 +1,6 @@
 use crate::dev::GpuDispatch;
 
-use super::{BufferDimensions, dev::GpuHandle};
+use super::BufferDimensions;
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;

@@ -6,7 +6,7 @@ use crate::{
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::dev::GpuDispatch;
-use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
+use silicate_compositor::tex::GpuTexture;
 use std::{
     fs::OpenOptions,
     io::{Cursor, Read},

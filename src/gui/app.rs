@@ -10,7 +10,7 @@ use silica::{
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
-    dev::{GpuDispatch, GpuHandle},
+    dev::GpuDispatch,
     pipeline::Pipeline,
     tex::GpuTexture,
     CompositeLayer, Target,

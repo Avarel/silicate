@@ -4,16 +4,11 @@ pub mod dev;
 pub mod pipeline;
 pub mod tex;
 
-use self::{
-    // bind::{CpuBuffers},
-    dev::GpuHandle,
-    tex::GpuTexture,
-};
+use self::tex::GpuTexture;
 use blend::BlendingMode;
 use buffer::BufferDimensions;
 use dev::GpuDispatch;
 use pipeline::Pipeline;
-use std::sync::Arc;
 use wgpu::{CommandEncoder, util::DeviceExt};
 
 /// Compositing layer information.
