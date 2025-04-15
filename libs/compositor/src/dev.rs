@@ -34,12 +34,19 @@ impl GpuHandle {
                 dx12: wgpu::Dx12BackendOptions::default(),
                 gl: wgpu::GlBackendOptions::default(),
             },
-            backends: wgpu::Backends::PRIMARY,
+            backends: const {
+                if !cfg!(target_os = "linux") {
+                    // Prefer native APIs... they're generally faster.
+                    wgpu::Backends::DX12.union(wgpu::Backends::METAL)
+                } else {
+                    wgpu::Backends::PRIMARY
+                }
+            },
             flags: wgpu::InstanceFlags::default(),
         }
     }
 
-    pub const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'static, 'static> =
+    pub const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'_, '_> =
         wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
@@ -63,11 +70,8 @@ impl GpuHandle {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY,
-                    required_limits: wgpu::Limits {
-                        max_buffer_size: 1024 << 20,
-                        ..Default::default()
-                    },
+                    required_features: wgpu::Features::default(),
+                    required_limits: wgpu::Limits::default(),
                     ..Default::default()
                 },
                 None,

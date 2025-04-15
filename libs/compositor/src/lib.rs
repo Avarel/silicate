@@ -11,7 +11,7 @@ use buffer::{BufferDimensions, DataBuffer};
 use canvas::CanvasUniform;
 use dev::GpuDispatch;
 use pipeline::Pipeline;
-use wgpu::{CommandEncoder, util::DeviceExt};
+use wgpu::CommandEncoder;
 
 /// Compositing layer information.
 #[derive(Debug)]
@@ -72,9 +72,7 @@ pub struct CompositorData {
     vertices: DataBuffer<[VertexInput; 4]>,
     indices: DataBuffer<[u16; 4]>,
     canvas: DataBuffer<CanvasUniform>,
-
-    layer_buffer: wgpu::Buffer,
-    layer_count: u32,
+    layers: DataBuffer<Vec<LayerData>>,
 }
 
 impl CompositorData {
@@ -116,18 +114,13 @@ impl CompositorData {
         );
 
         // Index draw buffer
-        let indices = DataBuffer::init(
-            device,
-            Self::INDICES,
-            wgpu::BufferUsages::INDEX
-        );
+        let indices = DataBuffer::init(device, Self::INDICES, wgpu::BufferUsages::INDEX);
 
-        let layer_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("layer_buffer"),
-            size: 0,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
+        let layers = DataBuffer::init_vec(
+            device,
+            Vec::new(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
 
         let canvas = DataBuffer::init(
             device,
@@ -139,8 +132,7 @@ impl CompositorData {
             dispatch,
             vertices,
             indices,
-            layer_buffer,
-            layer_count: 0,
+            layers,
             canvas,
         }
     }
@@ -182,7 +174,9 @@ impl CompositorData {
     // }
 
     fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
-        let mut layers = Vec::new();
+        let layers = self.layers.data_mut();
+        layers.clear();
+
         const MASK_NONE: u32 = u32::MAX;
         for layer in composite_layers.iter() {
             layers.push(LayerData {
@@ -193,23 +187,7 @@ impl CompositorData {
             });
         }
 
-        let data = bytemuck::cast_slice(&layers);
-
-        if self.layer_buffer.size() < data.len() as u64 {
-            self.layer_buffer =
-                self.dispatch
-                    .device()
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("layer_buffer"),
-                        contents: data,
-                        usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
-                    });
-        } else {
-            self.dispatch
-                .queue()
-                .write_buffer(&self.layer_buffer, 0, data);
-        }
-        self.layer_count = composite_layers.len() as u32;
+        self.layers.load_vec_buffer(&self.dispatch);
     }
 }
 
@@ -306,7 +284,16 @@ impl Target {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: self.data.layer_buffer.as_entire_binding(),
+                            resource: {
+                                // TODO: upgrade when egui_wgpu hits wgpu 25
+                                // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
+
+                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: self.data.layers.buffer(),
+                                    offset: 0,
+                                    size: std::num::NonZeroU64::new(self.data.layers.data_len()),
+                                })
+                            },
                         },
                     ],
                     label: Some("mixing_bind_group"),
@@ -354,9 +341,10 @@ impl Target {
         pass.set_bind_group(1, &pipeline.constant_bind_group, &[]);
         pass.set_bind_group(2, &blending_bind_group, &[]);
         pass.set_vertex_buffer(0, self.data.vertices.buffer().slice(..));
-        pass.set_index_buffer(self.data.indices.buffer().slice(..), wgpu::IndexFormat::Uint16);
+        pass.set_index_buffer(
+            self.data.indices.buffer().slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
         pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
-
-        drop(pass);
     }
 }

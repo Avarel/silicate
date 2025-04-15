@@ -1,5 +1,7 @@
 use wgpu::util::DeviceExt;
 
+use crate::dev::GpuDispatch;
+
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferDimensions<const ALIGN: u32 = { wgpu::COPY_BYTES_PER_ROW_ALIGNMENT }> {
@@ -75,18 +77,61 @@ impl<const ALIGN: u32> BufferDimensions<ALIGN> {
     }
 }
 
+/// Association between CPU buffer and GPU buffer.
 pub struct DataBuffer<T> {
     data: T,
     buffer: wgpu::Buffer,
 }
 
 impl<T> DataBuffer<T> {
+    /// Get CPU data.
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+
+    /// Get GPU data.
     pub fn buffer(&self) -> &wgpu::Buffer {
         &self.buffer
     }
+}
 
-    pub fn data_mut(&mut self) -> &mut T {
-        &mut self.data
+impl<T> DataBuffer<Vec<T>>
+where
+    T: bytemuck::NoUninit,
+{
+    pub fn init_vec(device: &wgpu::Device, data: Vec<T>, usage: wgpu::BufferUsages) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("data_buffer"),
+            contents: bytemuck::cast_slice(data.as_slice()),
+            usage,
+        });
+        Self { data, buffer }
+    }
+
+    pub(super) fn data_len(&self) -> u64 {
+        (self.data.len() * std::mem::size_of::<T>()) as u64
+    }
+
+    /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.
+    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch) {
+        if self.buffer.size() < self.data_len() {
+            self.buffer =
+                dispatch
+                    .device()
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("data_buffer"),
+                        contents: bytemuck::cast_slice(self.data.as_slice()),
+                        usage: self.buffer.usage(),
+                    });
+        } else {
+            dispatch
+                .queue()
+                .write_buffer(&self.buffer, 0, bytemuck::cast_slice(self.data.as_slice()));
+        }
+    }
+
+    pub fn buffer_slice(&self) -> wgpu::BufferSlice<'_> {
+        self.buffer.slice(..self.data_len())
     }
 }
 

@@ -667,7 +667,7 @@ impl PreparedView {
             }));
 
             image
-                .rotate(self.image_rotation, image_screen_center)
+                .rotate(self.image_rotation, Vec2::splat(0.5))
                 .paint_at(&mut plot_ui, rect);
         }
 
