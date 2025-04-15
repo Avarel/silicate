@@ -5,6 +5,7 @@ use crate::{
     ns_archive::{NsKeyedArchive, Size, WrappedArray, error::NsArchiveError},
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
 use std::{
     fs::OpenOptions,
@@ -57,7 +58,10 @@ pub struct ProcreateFile {
 
 impl ProcreateFile {
     // Load a Procreate file asynchronously.
-    pub fn open<P: AsRef<Path>>(p: P, dev: &GpuHandle) -> Result<(Self, GpuTexture), SilicaError> {
+    pub fn open<P: AsRef<Path>>(
+        p: P,
+        dispatch: &GpuDispatch,
+    ) -> Result<(Self, GpuTexture), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -73,20 +77,20 @@ impl ProcreateFile {
             NsKeyedArchive::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, nka, dev)
+        Self::from_ns(archive, nka, dispatch)
     }
 
     pub(crate) fn from_ns(
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
     ) -> Result<(Self, GpuTexture), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
         let tile_size = nka.fetch::<u32>(root, "tileSize")?;
-        let columns = (size.width + tile_size - 1) / tile_size;
-        let rows = (size.height + tile_size - 1) / tile_size;
+        let columns = size.width.div_ceil(tile_size);
+        let rows = size.height.div_ceil(tile_size);
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
@@ -95,7 +99,7 @@ impl ProcreateFile {
             .objects;
 
         let gpu_textures = GpuTexture::empty_layers(
-            dev,
+            dispatch,
             size.width,
             size.height,
             ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1,
@@ -119,7 +123,7 @@ impl ProcreateFile {
         dbg!(&tile);
 
         let texture_chunks = GpuTexture::empty_layers(
-            dev,
+            &dispatch,
             tile.size * tile.atlas.columns,
             tile.size * tile.atlas.rows,
             tile.atlas.layers,
@@ -131,7 +135,7 @@ impl ProcreateFile {
             archive: &archive,
             size,
             file_names: &file_names,
-            render: dev,
+            dispatch,
             texture_chunks: &texture_chunks,
             gpu_textures: &gpu_textures,
             combined_counter: &AtomicU32::new(0),

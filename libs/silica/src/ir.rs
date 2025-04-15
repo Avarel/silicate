@@ -2,7 +2,7 @@ use std::io::Read;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 
-use crate::layers::SilicaChunk;
+use crate::layers::{SilicaChunk, SilicaImageData};
 use crate::ns_archive::{
     NsClass, NsDecode, NsKeyedArchive, Size, WrappedArray, error::NsArchiveError,
 };
@@ -16,7 +16,8 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::buffer::BufferDimensions;
-use silicate_compositor::{dev::GpuHandle, tex::GpuTexture};
+use silicate_compositor::dev::GpuDispatch;
+use silicate_compositor::tex::GpuTexture;
 
 #[derive(Clone, Copy)]
 pub(super) struct IRData<'a> {
@@ -24,7 +25,7 @@ pub(super) struct IRData<'a> {
     pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
-    pub(super) render: &'a GpuHandle,
+    pub(super) dispatch: &'a GpuDispatch,
     pub(super) texture_chunks: &'a GpuTexture,
     pub(super) gpu_textures: &'a GpuTexture,
     pub(super) combined_counter: &'a AtomicU32,
@@ -120,7 +121,7 @@ impl SilicaIRLayer<'_> {
                 let (x, y, z) = meta.tile.atlas.index(atlas_index);
 
                 meta.texture_chunks.replace_from_bytes(
-                    meta.render,
+                    meta.dispatch,
                     (x * meta.tile.size, y * meta.tile.size),
                     (tile.width, tile.height),
                     z,
@@ -142,7 +143,7 @@ impl SilicaIRLayer<'_> {
                 let (x, y, z) = meta.tile.atlas.index(chunk.atlas_index);
 
                 meta.gpu_textures.replace_from_tex_chunk(
-                    meta.render,
+                    meta.dispatch,
                     (chunk.col * meta.tile.size, chunk.row * meta.tile.size),
                     (tile.width, tile.height),
                     texture_index,
@@ -172,8 +173,10 @@ impl SilicaIRLayer<'_> {
             size: meta.size,
             uuid,
             version: nka.fetch::<u64>(coder, "version")?,
-            texture_index,
-            chunks,
+            image: SilicaImageData {
+                texture_index,
+                chunks,
+            },
         })
     }
 }

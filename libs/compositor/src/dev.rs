@@ -6,10 +6,25 @@ pub struct GpuHandle {
     pub instance: wgpu::Instance,
     /// Physical compute device.
     pub adapter: wgpu::Adapter,
+    pub dispatch: GpuDispatch,
+}
+
+#[derive(Debug, Clone)]
+pub struct GpuDispatch {
     /// Logical compute device.
-    pub device: wgpu::Device,
+    device: wgpu::Device,
     /// Device command queue.
-    pub queue: wgpu::Queue,
+    queue: wgpu::Queue,
+}
+
+impl GpuDispatch {
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
 }
 
 impl GpuHandle {
@@ -62,9 +77,8 @@ impl GpuHandle {
 
         Some(Self {
             instance,
-            device,
             adapter,
-            queue,
+            dispatch: GpuDispatch { queue, device },
         })
     }
 }

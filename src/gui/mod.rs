@@ -67,7 +67,7 @@ impl AppInstance {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: window.scale_factor() as f32,
         };
-        surface.configure(&dev.device, &surface_config);
+        surface.configure(&dev.dispatch.device(), &surface_config);
 
         let integration = egui_winit::State::new(
             egui::Context::default(),
@@ -78,7 +78,7 @@ impl AppInstance {
             None,
         );
 
-        let renderer = Renderer::new(&dev.device, surface_format, None, 1, false);
+        let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
 
         let app = Arc::new(App {
             compositor: Arc::new(CompositorApp {
@@ -87,7 +87,7 @@ impl AppInstance {
                 curr_id: AtomicUsize::new(0),
             }),
             rt,
-            dev: Arc::new(dev),
+            dispatch: dev.dispatch,
             toasts: Mutex::new(egui_notify::Toasts::default()),
             added_instances: Mutex::new(Vec::with_capacity(1)),
             event_loop: event_loop_proxy,
@@ -216,8 +216,8 @@ impl AppInstance {
                 // Upload all resources for the GPU.
                 for (id, image_delta) in textures_delta.set {
                     self.rendering.renderer.update_texture(
-                        &self.app.dev.device,
-                        &self.app.dev.queue,
+                        &self.app.dispatch.device(),
+                        &self.app.dispatch.queue(),
                         id,
                         &image_delta,
                     );
@@ -226,16 +226,16 @@ impl AppInstance {
                     self.rendering.renderer.free_texture(&id);
                 }
 
-                self.app.dev.queue.submit(Some({
+                self.app.dispatch.queue().submit(Some({
                     let mut encoder = self
                         .app
-                        .dev
-                        .device
+                        .dispatch
+                        .device()
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
                     self.rendering.renderer.update_buffers(
-                        &self.app.dev.device,
-                        &self.app.dev.queue,
+                        &self.app.dispatch.device(),
+                        &self.app.dispatch.queue(),
                         &mut encoder,
                         &paint_jobs,
                         &self.rendering.screen_descriptor,
@@ -280,14 +280,14 @@ impl AppInstance {
                     self.rendering.screen_descriptor.size_in_pixels = [size.width, size.height];
                     self.rendering
                         .surface
-                        .configure(&self.app.dev.device, &self.rendering.surface_config);
+                        .configure(&self.app.dispatch.device(), &self.rendering.surface_config);
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.rendering.screen_descriptor.pixels_per_point = scale_factor as f32;
                 self.rendering
                     .surface
-                    .configure(&self.app.dev.device, &self.rendering.surface_config);
+                    .configure(&self.app.dispatch.device(), &self.rendering.surface_config);
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
@@ -355,15 +355,15 @@ impl AppInstance {
                                 self.rendering
                                     .renderer
                                     .update_egui_texture_from_wgpu_texture(
-                                        &self.app.dev.device,
+                                        &self.app.dispatch.device(),
                                         &texture_view,
                                         texture_filter,
                                         tex.id,
                                     );
-                                tex.size = target.dim.to_vec2().into();
+                                tex.size = target.dim().to_vec2().into();
                             } else {
                                 let tex = self.rendering.renderer.register_native_texture(
-                                    &self.app.dev.device,
+                                    &self.app.dispatch.device(),
                                     &texture_view,
                                     texture_filter,
                                 );
@@ -371,7 +371,7 @@ impl AppInstance {
                                     idx,
                                     SizedTexture {
                                         id: tex,
-                                        size: target.dim.to_vec2().into(),
+                                        size: target.dim().to_vec2().into(),
                                     },
                                 );
                             }

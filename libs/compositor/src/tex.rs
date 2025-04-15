@@ -1,3 +1,5 @@
+use crate::dev::GpuDispatch;
+
 use super::{BufferDimensions, dev::GpuHandle};
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
@@ -22,7 +24,7 @@ impl GpuTexture {
 
     /// Create an empty texture.
     pub fn empty_layers(
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
         width: u32,
         height: u32,
         layers: u32,
@@ -34,17 +36,17 @@ impl GpuTexture {
             depth_or_array_layers: layers,
         };
 
-        Self::empty_with_extent(dev, size, usage)
+        Self::empty_with_extent(dispatch, size, usage)
     }
 
     /// Create an empty texture from an extent.
     pub fn empty_with_extent(
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
         size: wgpu::Extent3d,
         usage: wgpu::TextureUsages,
     ) -> Self {
         // Canvas texture
-        let texture = dev.device.create_texture(&wgpu::TextureDescriptor {
+        let texture = dispatch.device().create_texture(&wgpu::TextureDescriptor {
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -90,10 +92,10 @@ impl GpuTexture {
 
     /// Clear the texture with a certain color.
     #[allow(dead_code)]
-    pub fn clear(&self, dev: &GpuHandle, color: wgpu::Color) {
-        dev.queue.submit(Some({
-            let mut encoder = dev
-                .device
+    pub fn clear(&self, dispatch: &GpuDispatch, color: wgpu::Color) {
+        dispatch.queue().submit(Some({
+            let mut encoder = dispatch
+                .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -122,7 +124,7 @@ impl GpuTexture {
     /// should strictly fit within the texture boundaries.
     pub fn replace_from_bytes(
         &self,
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
         (x, y): (u32, u32),
         (width, height): (u32, u32),
         layer: u32,
@@ -133,7 +135,7 @@ impl GpuTexture {
             "index {layer} must be less than {}",
             self.layers()
         );
-        dev.queue.write_texture(
+        dispatch.queue().write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
@@ -159,7 +161,7 @@ impl GpuTexture {
 
     pub fn replace_from_tex_chunk(
         &self,
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
         (x, y): (u32, u32),
         (width, height): (u32, u32),
         layer: u32,
@@ -171,9 +173,9 @@ impl GpuTexture {
             self.layers()
         );
         // Copy the texture to the output buffer
-        dev.queue.submit(Some({
-            let mut encoder = dev
-                .device
+        dispatch.queue().submit(Some({
+            let mut encoder = dispatch
+                .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
@@ -209,15 +211,15 @@ impl GpuTexture {
     /// ### Note
     /// `dev` should be the same device that created this texture
     /// in the first place.
-    pub fn clone(&self, dev: &GpuHandle) -> Self {
+    pub fn clone(&self, dispatch: &GpuDispatch) -> Self {
         let clone = Self::empty_with_extent(
-            dev,
+            dispatch,
             self.size,
             Self::OUTPUT_USAGE | wgpu::TextureUsages::COPY_DST,
         );
-        dev.queue.submit(Some({
-            let mut encoder = dev
-                .device
+        dispatch.queue().submit(Some({
+            let mut encoder = dispatch
+                .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
@@ -230,19 +232,19 @@ impl GpuTexture {
         clone
     }
 
-    pub fn export_buffer(&self, dev: &GpuHandle, dim: BufferDimensions) -> wgpu::Buffer {
-        let output_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
+    pub fn export_buffer(&self, dispatch: &GpuDispatch, dim: BufferDimensions) -> wgpu::Buffer {
+        let output_buffer = dispatch.device().create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: (dim.padded_bytes_per_row * dim.height) as u64,
+            size: (dim.padded_bytes_per_row() * dim.height()) as u64,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             // Copying texture to buffer requires that the buffer is not mapped
             mapped_at_creation: false,
         });
 
         // Copy the texture to the output buffer
-        dev.queue.submit(Some({
-            let mut encoder = dev
-                .device
+        dispatch.queue().submit(Some({
+            let mut encoder = dispatch
+                .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_buffer(
@@ -251,11 +253,11 @@ impl GpuTexture {
                     buffer: &output_buffer,
                     layout: wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(dim.padded_bytes_per_row),
+                        bytes_per_row: Some(dim.padded_bytes_per_row()),
                         rows_per_image: None,
                     },
                 },
-                dim.extent,
+                dim.extent(),
             );
 
             encoder.finish()

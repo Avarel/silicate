@@ -1,16 +1,19 @@
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BufferDimensions {
-    pub width: u32,
-    pub height: u32,
-    pub unpadded_bytes_per_row: u32,
-    pub padded_bytes_per_row: u32,
-    pub extent: wgpu::Extent3d,
+pub struct BufferDimensions<const ALIGN: u32 = { wgpu::COPY_BYTES_PER_ROW_ALIGNMENT }> {
+    width: u32,
+    height: u32,
+    unpadded_bytes_per_row: u32,
+    padded_bytes_per_row: u32,
+    extent: wgpu::Extent3d,
 }
 
 impl BufferDimensions {
     pub const RGBA_CHANNEL_COUNT: usize = 4;
+    const BYTES_PER_PIXEL: u32 = (Self::RGBA_CHANNEL_COUNT * std::mem::size_of::<u8>()) as u32;
+}
 
+impl<const ALIGN: u32> BufferDimensions<ALIGN> {
     /// Computes the buffer dimensions between the texture's actual dimensions
     /// and its buffer dimensions on the GPU.
     pub const fn new(width: u32, height: u32) -> Self {
@@ -29,16 +32,12 @@ impl BufferDimensions {
         // up to the next multiple of wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
         // https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
         debug_assert!(extent.depth_or_array_layers == 1);
-        let width = extent.width;
-        let height = extent.height;
-        let bytes_per_pixel = (Self::RGBA_CHANNEL_COUNT * std::mem::size_of::<u8>()) as u32;
-        let unpadded_bytes_per_row = width * bytes_per_pixel;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
+        let unpadded_bytes_per_row = extent.width * BufferDimensions::BYTES_PER_PIXEL;
+        let padded_bytes_per_row_padding = (ALIGN - unpadded_bytes_per_row % ALIGN) % ALIGN;
         let padded_bytes_per_row = unpadded_bytes_per_row + padded_bytes_per_row_padding;
         Self {
-            width,
-            height,
+            width: extent.width,
+            height: extent.height,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
             extent,
@@ -51,5 +50,25 @@ impl BufferDimensions {
 
     pub fn to_vec2(&self) -> (f32, f32) {
         (self.width as f32, self.height as f32)
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn unpadded_bytes_per_row(&self) -> u32 {
+        self.unpadded_bytes_per_row
+    }
+
+    pub fn padded_bytes_per_row(&self) -> u32 {
+        self.padded_bytes_per_row
+    }
+
+    pub fn extent(&self) -> wgpu::Extent3d {
+        self.extent
     }
 }

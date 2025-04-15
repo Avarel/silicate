@@ -9,8 +9,11 @@ use silica::{
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    buffer::BufferDimensions, dev::GpuHandle, pipeline::Pipeline, tex::GpuTexture, CompositeLayer,
-    Target,
+    buffer::BufferDimensions,
+    dev::{GpuDispatch, GpuHandle},
+    pipeline::Pipeline,
+    tex::GpuTexture,
+    CompositeLayer, Target,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,7 +25,7 @@ use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
 
 pub struct App {
-    pub dev: Arc<GpuHandle>,
+    pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
     pub compositor: Arc<CompositorApp>,
     pub toasts: Mutex<Toasts>,
@@ -71,17 +74,16 @@ pub struct CompositorApp {
 impl App {
     pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures) =
-            tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dev)).unwrap();
-        let mut target = Target::new(self.dev.clone());
-        target
-            .data
-            .flip_vertices(file.flipped.horizontally, file.flipped.vertically);
-        target.set_dimensions(file.size.width, file.size.height);
+            tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
+        let target = Target::new(self.dispatch.clone(), file.size.width, file.size.height);
+        // target
+        //     .data
+        //     .flip_vertices(file.flipped.horizontally, file.flipped.vertically);
 
-        for _ in 0..file.orientation {
-            target.data.rotate_vertices(true);
-            target.set_dimensions(target.dim.height, target.dim.width);
-        }
+        // for _ in 0..file.orientation {
+        //     target.data.rotate_vertices(true);
+        //     target.set_dimensions(target.dim.height, target.dim.width);
+        // }
 
         let id = self
             .compositor
@@ -145,7 +147,7 @@ impl App {
         {
             let dim = BufferDimensions::from_extent(copied_texture.size);
             let path = handle.path().to_path_buf();
-            if let Err(err) = Self::export(&copied_texture, &self.dev, dim, path).await {
+            if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
                 self.toasts.lock().error(format!(
                     "File {} failed to export. Reason: {err}.",
                     handle.file_name()
@@ -164,11 +166,11 @@ impl App {
     /// Export the texture to the given path.
     pub async fn export(
         texture: &GpuTexture,
-        dev: &GpuHandle,
+        dispatch: &GpuDispatch,
         dim: BufferDimensions,
         path: std::path::PathBuf,
     ) -> image::ImageResult<()> {
-        let output_buffer = texture.export_buffer(dev, dim);
+        let output_buffer = texture.export_buffer(dispatch, dim);
 
         let buffer_slice = output_buffer.slice(..);
 
@@ -176,7 +178,7 @@ impl App {
         // the future. Otherwise the application will freeze.
         let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dev.device.poll(wgpu::MaintainBase::Wait);
+        dispatch.device().poll(wgpu::MaintainBase::Wait);
         rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();
@@ -184,13 +186,13 @@ impl App {
 
         eprintln!("Loading data to CPU");
         let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-            dim.padded_bytes_per_row / 4,
-            dim.height,
+            dim.padded_bytes_per_row() / 4,
+            dim.height(),
             data,
         )
         .unwrap();
 
-        let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width, dim.height).to_image();
+        let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width(), dim.height()).to_image();
 
         eprintln!("Saving the file to {}", path.display());
         tokio::task::spawn_blocking(move || buffer.save(path))
@@ -227,11 +229,11 @@ impl CompositorApp {
                         }
 
                         if !layer.clipped {
-                            *mask_layer = Some((layer.texture_index, layer));
+                            *mask_layer = Some((layer.image.texture_index, layer));
                         }
 
                         composite_layers.push(CompositeLayer {
-                            texture: layer.texture_index,
+                            texture: layer.image.texture_index,
                             clipped: layer.clipped.then(|| mask_layer.unwrap().0),
                             opacity: layer.opacity,
                             blend: layer.blend,

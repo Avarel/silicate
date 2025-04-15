@@ -112,6 +112,12 @@ pub struct SilicaChunk {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct SilicaImageData {
+    pub chunks: Vec<SilicaChunk>,
+    pub texture_index: u32, // soon to be deprecated
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
     // animationHeldLength:Int?
     pub blend: BlendingMode,
@@ -139,6 +145,5 @@ pub struct SilicaLayer {
     pub uuid: String,
     pub version: u64,
 
-    pub chunks: Vec<SilicaChunk>,
-    pub texture_index: u32,
+    pub image: SilicaImageData,
 }

@@ -9,7 +9,7 @@ pub struct Pipeline {
 impl Pipeline {
     /// Create a new compositor pipeline.
     pub fn new(dev: &GpuHandle) -> Self {
-        let device = &dev.device;
+        let device = &dev.dispatch.device();
 
         // This bind group only binds the sampler, which is a constant
         // through out all rendering passes.

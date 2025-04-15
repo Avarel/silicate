@@ -94,25 +94,25 @@ impl ControlsGui<'_> {
                     }
                 });
                 ui.end_row();
-                ui.label("Rotate");
-                ui.horizontal(|ui| {
-                    if ui.button("CCW").clicked() {
-                        let mut target = instance.target.lock();
-                        target.data.rotate_vertices(true);
-                        if target.transpose_dimensions() {
-                            self.app.rebind_texture(self.active_canvas);
-                        }
-                        instance.store_change_or(true);
-                    }
-                    if ui.button("CW").clicked() {
-                        let mut target = instance.target.lock();
-                        target.data.rotate_vertices(false);
-                        if target.transpose_dimensions() {
-                            self.app.rebind_texture(self.active_canvas);
-                        }
-                        instance.store_change_or(true);
-                    }
-                });
+                // ui.label("Rotate");
+                // ui.horizontal(|ui| {
+                //     if ui.button("CCW").clicked() {
+                //         let mut target = instance.target.lock();
+                //         target.data.rotate_vertices(true);
+                //         if target.transpose_dimensions() {
+                //             self.app.rebind_texture(self.active_canvas);
+                //         }
+                //         instance.store_change_or(true);
+                //     }
+                //     if ui.button("CW").clicked() {
+                //         let mut target = instance.target.lock();
+                //         target.data.rotate_vertices(false);
+                //         if target.transpose_dimensions() {
+                //             self.app.rebind_texture(self.active_canvas);
+                //         }
+                //         instance.store_change_or(true);
+                //     }
+                // });
             });
             let instances = self.app.compositor.instances.read();
             if let Some(instance) = instances.get(&self.active_canvas) {
@@ -122,7 +122,7 @@ impl ControlsGui<'_> {
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
                             if let Some(texture) = instance.target.lock().output.as_ref() {
-                                let copied_texture = texture.clone(&self.app.dev);
+                                let copied_texture = texture.clone(&self.app.dispatch);
                                 self.app
                                     .rt
                                     .spawn(self.app.clone().save_dialog(copied_texture));

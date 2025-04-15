@@ -11,6 +11,7 @@ use self::{
 };
 use blend::BlendingMode;
 use buffer::BufferDimensions;
+use dev::GpuDispatch;
 use pipeline::Pipeline;
 use std::sync::Arc;
 use wgpu::{CommandEncoder, util::DeviceExt};
@@ -70,7 +71,7 @@ struct LayerData {
 }
 
 pub struct CompositorData {
-    dev: Arc<GpuHandle>,
+    dispatch: GpuDispatch,
     vertices: [VertexInput; 4],
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -106,8 +107,8 @@ impl CompositorData {
     /// Initial indices of the 2 triangle strips
     const INDICES: [u16; 4] = [0, 2, 1, 3];
 
-    fn new(dev: Arc<GpuHandle>) -> Self {
-        let device = &dev.device;
+    fn new(dispatch: GpuDispatch) -> Self {
+        let device = &dispatch.device();
 
         // Create the vertex buffer.
         let vertices = Self::SQUARE_VERTICES;
@@ -124,7 +125,7 @@ impl CompositorData {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let layer_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
+        let layer_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("layer_buffer"),
             size: 0,
             usage: wgpu::BufferUsages::STORAGE,
@@ -132,7 +133,7 @@ impl CompositorData {
         });
 
         Self {
-            dev,
+            dispatch,
             vertices,
             vertex_buffer,
             index_buffer,
@@ -179,9 +180,11 @@ impl CompositorData {
 
     /// Load the GPU vertex buffer with updated data.
     fn load_vertex_buffer(&mut self) {
-        self.dev
-            .queue
-            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
+        self.dispatch.queue().write_buffer(
+            &self.vertex_buffer,
+            0,
+            bytemuck::cast_slice(&self.vertices),
+        );
     }
 
     fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
@@ -200,15 +203,17 @@ impl CompositorData {
 
         if self.layer_buffer.size() < data.len() as u64 {
             self.layer_buffer =
-                self.dev
-                    .device
+                self.dispatch
+                    .device()
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("layer_buffer"),
                         contents: data,
                         usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
                     });
         } else {
-            self.dev.queue.write_buffer(&self.layer_buffer, 0, data);
+            self.dispatch
+                .queue()
+                .write_buffer(&self.layer_buffer, 0, data);
         }
         self.layer_count = composite_layers.len() as u32;
     }
@@ -216,44 +221,32 @@ impl CompositorData {
 
 /// Output target of a compositor pipeline.
 pub struct Target {
-    pub dev: Arc<GpuHandle>,
+    dispatch: GpuDispatch,
     pub data: CompositorData,
     /// Output texture dimensions.
-    pub dim: BufferDimensions,
+    dim: BufferDimensions,
     /// Compositor output buffers and texture.
     pub output: Option<GpuTexture>,
 }
 
 impl Target {
     /// Create a new compositor target.
-    pub fn new(dev: Arc<GpuHandle>) -> Self {
+    pub fn new(dispatch: GpuDispatch, width: u32, height: u32) -> Self {
         Self {
-            data: CompositorData::new(dev.clone()),
-            dev,
-            dim: BufferDimensions::new(0, 0),
+            dispatch: dispatch.clone(),
+            data: CompositorData::new(dispatch),
+            dim: BufferDimensions::new(width, height),
             output: None,
         }
     }
 
+    pub fn dim(&self) -> BufferDimensions {
+        self.dim
+    }
+
     /// Create an empty texture for this compositor target.
     fn create_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(&self.dev, self.dim.extent, GpuTexture::OUTPUT_USAGE)
-    }
-
-    /// Transpose the dimensions of the compositor target's output.
-    pub fn transpose_dimensions(&mut self) -> bool {
-        self.set_dimensions(self.dim.height, self.dim.width)
-    }
-
-    /// Set the dimensions of the compositor target's output.
-    pub fn set_dimensions(&mut self, width: u32, height: u32) -> bool {
-        let buffer_dimensions = BufferDimensions::new(width, height);
-        if self.dim == buffer_dimensions {
-            return false;
-        }
-        self.dim = buffer_dimensions;
-        self.output = None;
-        true
+        GpuTexture::empty_with_extent(&self.dispatch, self.dim.extent(), GpuTexture::OUTPUT_USAGE)
     }
 
     /// Render composite layers using the compositor pipeline.
@@ -268,15 +261,15 @@ impl Target {
 
         let command_buffers = {
             let mut encoder = self
-                .dev
-                .device
+                .dispatch
+                .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
             self.render_command(pipeline, &mut encoder, bg, layers, textures);
 
             encoder.finish()
         };
-        self.dev.queue.submit(Some(command_buffers));
+        self.dispatch.queue().submit(Some(command_buffers));
     }
 
     fn render_command(
@@ -295,23 +288,23 @@ impl Target {
 
         self.data.load_layer_buffer(composite_layers);
 
-        let blending_bind_group = self
-            .dev
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &pipeline.blending_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&textures.create_view()),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.data.layer_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("mixing_bind_group"),
-            });
+        let blending_bind_group =
+            self.dispatch
+                .device()
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &pipeline.blending_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&textures.create_view()),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.data.layer_buffer.as_entire_binding(),
+                        },
+                    ],
+                    label: Some("mixing_bind_group"),
+                });
 
         let output_view = output_texture.create_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
