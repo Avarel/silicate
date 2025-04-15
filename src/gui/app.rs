@@ -18,15 +18,15 @@ use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
+use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
 pub struct App {
     pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
     pub compositor: Arc<CompositorApp>,
     pub toasts: Mutex<Toasts>,
-    pub added_instances: Mutex<Vec<(SurfaceIndex, NodeIndex, InstanceKey)>>,
+    pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
 }
 
@@ -69,7 +69,7 @@ pub struct CompositorApp {
 }
 
 impl App {
-    pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+    pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, textures, tile) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
 
@@ -106,7 +106,7 @@ impl App {
         Ok(key)
     }
 
-    pub async fn load_dialog(self: Arc<Self>, surface_index: SurfaceIndex, node_index: NodeIndex) {
+    pub async fn load_dialog(&self, surface_index: SurfaceIndex, node_index: NodeIndex) {
         if let Some(handle) = {
             let mut dialog = rfd::AsyncFileDialog::new();
             dialog = dialog.add_filter("All Files", &["*"]);
@@ -116,7 +116,7 @@ impl App {
         .pick_file()
         .await
         {
-            match self.clone().load_file(handle.path().to_path_buf()).await {
+            match self.load_file(handle.path().to_path_buf()) {
                 Err(err) => {
                     self.toasts.lock().error(format!(
                         "File {} failed to load. Reason: {err}",
@@ -127,9 +127,10 @@ impl App {
                     self.toasts
                         .lock()
                         .success(format!("File {} successfully opened.", handle.file_name()));
-                    self.added_instances
-                        .lock()
-                        .push((surface_index, node_index, key));
+                    self.new_instances
+                        .send((surface_index, node_index, key))
+                        .await
+                        .unwrap();
                 }
             }
         } else {
@@ -137,7 +138,7 @@ impl App {
         }
     }
 
-    pub async fn save_dialog(self: Arc<Self>, copied_texture: GpuTexture) {
+    pub async fn save_dialog(&self, copied_texture: GpuTexture) {
         if let Some(handle) = rfd::AsyncFileDialog::new()
             .add_filter("png", image::ImageFormat::Png.extensions_str())
             .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())

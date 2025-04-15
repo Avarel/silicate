@@ -198,17 +198,18 @@ pub struct Target {
     /// Output texture dimensions.
     dim: BufferDimensions,
     /// Compositor output buffers and texture.
-    pub output: Option<GpuTexture>,
+    output: GpuTexture,
 }
 
 impl Target {
     /// Create a new compositor target.
     pub fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
+        let dim = BufferDimensions::new(canvas.width, canvas.height);
         Self {
+            output: GpuTexture::empty_with_extent(&dispatch, dim.extent(), GpuTexture::OUTPUT_USAGE),
             dispatch: dispatch.clone(),
             data: CompositorData::new(dispatch, canvas),
-            dim: BufferDimensions::new(canvas.width, canvas.height),
-            output: None,
+            dim,
         }
     }
 
@@ -216,9 +217,8 @@ impl Target {
         self.dim
     }
 
-    /// Create an empty texture for this compositor target.
-    fn create_texture(&self) -> GpuTexture {
-        GpuTexture::empty_with_extent(&self.dispatch, self.dim.extent(), GpuTexture::OUTPUT_USAGE)
+    pub fn output(&self) -> &GpuTexture {
+        &self.output
     }
 
     /// Render composite layers using the compositor pipeline.
@@ -252,12 +252,6 @@ impl Target {
         composite_layers: &[CompositeLayer],
         textures: &GpuTexture,
     ) {
-        let output_texture = if let Some(tex) = self.output.as_mut() {
-            tex
-        } else {
-            self.output.insert(self.create_texture())
-        };
-
         self.data.load_layer_buffer(composite_layers);
 
         let canvas_bind_group =
@@ -299,7 +293,7 @@ impl Target {
                     label: Some("mixing_bind_group"),
                 });
 
-        let output_view = output_texture.create_view();
+        let output_view = self.output.create_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[

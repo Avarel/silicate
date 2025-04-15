@@ -80,6 +80,8 @@ impl AppInstance {
 
         let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
 
+        let (tx, rx) = tokio::sync::mpsc::channel(2);
+
         let app = Arc::new(App {
             compositor: Arc::new(CompositorApp {
                 instances: RwLock::new(HashMap::new()),
@@ -89,7 +91,7 @@ impl AppInstance {
             rt,
             dispatch: dev.dispatch,
             toasts: Mutex::new(egui_notify::Toasts::default()),
-            added_instances: Mutex::new(Vec::with_capacity(1)),
+            new_instances: tx,
             event_loop: event_loop_proxy,
         });
 
@@ -103,6 +105,7 @@ impl AppInstance {
                 rotation: 0.0,
                 bottom_bar: false,
             },
+            new_instances: rx,
             active_canvas: InstanceKey(0),
             canvas_tree: egui_dock::DockState::new(Vec::new()),
             viewer_tree: {
@@ -294,7 +297,7 @@ impl AppInstance {
                 self.app.rt.spawn({
                     let app = self.app.clone();
                     async move {
-                        match app.load_file(file).await {
+                        match app.load_file(file) {
                             Err(err) => {
                                 app.toasts.lock().error(format!(
                                     "File from drag/drop failed to load. Reason: {err}"
@@ -302,11 +305,13 @@ impl AppInstance {
                             }
                             Ok(key) => {
                                 app.toasts.lock().success("Loaded file from drag/drop.");
-                                app.added_instances.lock().push((
-                                    egui_dock::SurfaceIndex::main(),
-                                    egui_dock::NodeIndex::root(),
-                                    key,
-                                ));
+                                app.new_instances
+                                    .blocking_send((
+                                        egui_dock::SurfaceIndex::main(),
+                                        egui_dock::NodeIndex::root(),
+                                        key,
+                                    ))
+                                    .unwrap();
                             }
                         }
                     }
@@ -348,35 +353,34 @@ impl AppInstance {
                 let instances = self.app.compositor.instances.read();
                 if let Some(instance) = instances.get(&idx) {
                     if let Some(target) = instance.target.try_lock() {
-                        if let Some(output) = target.output.as_ref() {
-                            let texture_view = output.create_srgb_view();
+                        let output = target.output();
+                        let texture_view = output.create_srgb_view();
 
-                            if let Some(tex) = self.editor.canvases.get_mut(&idx) {
-                                self.rendering
-                                    .renderer
-                                    .update_egui_texture_from_wgpu_texture(
-                                        &self.app.dispatch.device(),
-                                        &texture_view,
-                                        texture_filter,
-                                        tex.id,
-                                    );
-                                tex.size = target.dim().to_vec2().into();
-                            } else {
-                                let tex = self.rendering.renderer.register_native_texture(
+                        if let Some(tex) = self.editor.canvases.get_mut(&idx) {
+                            self.rendering
+                                .renderer
+                                .update_egui_texture_from_wgpu_texture(
                                     &self.app.dispatch.device(),
                                     &texture_view,
                                     texture_filter,
+                                    tex.id,
                                 );
-                                self.editor.canvases.insert(
-                                    idx,
-                                    SizedTexture {
-                                        id: tex,
-                                        size: target.dim().to_vec2().into(),
-                                    },
-                                );
-                            }
-                            return;
+                            tex.size = target.dim().to_vec2().into();
+                        } else {
+                            let tex = self.rendering.renderer.register_native_texture(
+                                &self.app.dispatch.device(),
+                                &texture_view,
+                                texture_filter,
+                            );
+                            self.editor.canvases.insert(
+                                idx,
+                                SizedTexture {
+                                    id: tex,
+                                    size: target.dim().to_vec2().into(),
+                                },
+                            );
                         }
+                        return;
                     }
                 }
                 // bounce the event

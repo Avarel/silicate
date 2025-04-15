@@ -91,26 +91,22 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
                 AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
 
             for path in self.initial_file.drain(..) {
-                self.rt.spawn({
-                    let app = instance.app.clone();
-                    async move {
-                        match app.load_file(path).await {
-                            Err(err) => {
-                                app.toasts.lock().error(format!(
-                                    "File from drag/drop failed to load. Reason: {err}"
-                                ));
-                            }
-                            Ok(key) => {
-                                app.toasts.lock().success("Loaded file from command line.");
-                                app.added_instances.lock().push((
-                                    egui_dock::SurfaceIndex::main(),
-                                    egui_dock::NodeIndex::root(),
-                                    key,
-                                ));
-                            }
-                        }
+                let app = &instance.app;
+                match app.load_file(path) {
+                    Err(err) => {
+                        app.toasts.lock().error(format!(
+                            "File from drag/drop failed to load. Reason: {err}"
+                        ));
                     }
-                });
+                    Ok(key) => {
+                        app.toasts.lock().success("Loaded file from command line.");
+                        app.new_instances.blocking_send((
+                            egui_dock::SurfaceIndex::main(),
+                            egui_dock::NodeIndex::root(),
+                            key,
+                        )).unwrap();
+                    }
+                }
             }
 
             self.running = Some(instance);

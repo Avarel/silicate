@@ -5,6 +5,7 @@ use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::blend::BlendingMode;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc::Receiver;
 
 use super::app::{App, Instance, InstanceKey, UserEvent};
 use super::canvas;
@@ -121,12 +122,13 @@ impl ControlsGui<'_> {
                     ui.label("Actions");
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
-                            if let Some(texture) = instance.target.lock().output.as_ref() {
-                                let copied_texture = texture.clone(&self.app.dispatch);
-                                self.app
-                                    .rt
-                                    .spawn(self.app.clone().save_dialog(copied_texture));
-                            }
+                            let target = instance.target.lock();
+                            let texture = target.output();
+                            let copied_texture = texture.clone(&self.app.dispatch);
+                            self.app.rt.spawn({
+                                let app = self.app.clone();
+                                async move { app.save_dialog(copied_texture).await }
+                            });
                         }
                     });
                 });
@@ -274,9 +276,10 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
-        self.app
-            .rt
-            .spawn(self.app.clone().load_dialog(surface, node));
+        self.app.rt.spawn({
+            let app = self.app.clone();
+            async move { app.load_dialog(surface, node).await }
+        });
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -296,6 +299,7 @@ pub struct ViewerGui {
     pub view_options: ViewOptions,
     pub canvas_tree: egui_dock::DockState<InstanceKey>,
     pub viewer_tree: egui_dock::DockState<ViewerTab>,
+    pub(crate) new_instances: Receiver<(SurfaceIndex, NodeIndex, InstanceKey)>,
 }
 
 impl ViewerGui {
@@ -317,20 +321,20 @@ impl ViewerGui {
             ui.vertical_centered(|ui| {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
-                    self.app.rt.spawn(
-                        self.app
-                            .clone()
-                            .load_dialog(SurfaceIndex::main(), NodeIndex::root()),
-                    );
+                    self.app.rt.spawn({
+                        let app = self.app.clone();
+                        async move {
+                            app.load_dialog(SurfaceIndex::main(), NodeIndex::root())
+                                .await
+                        }
+                    });
                 }
             });
         } else {
-            if let Some(mut added_instances) = self.app.added_instances.try_lock() {
-                for (surface, node, id) in added_instances.drain(..) {
-                    self.canvas_tree
-                        .set_focused_node_and_surface((surface, node));
-                    self.canvas_tree.push_to_focused_leaf(id);
-                }
+            while let Ok((surface, node, id)) = self.new_instances.try_recv() {
+                self.canvas_tree
+                    .set_focused_node_and_surface((surface, node));
+                self.canvas_tree.push_to_focused_leaf(id);
             }
 
             if let Some((_, &mut id)) = self.canvas_tree.find_active_focused() {
