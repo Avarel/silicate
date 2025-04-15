@@ -124,14 +124,12 @@ impl CompositorData {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let layer_buffer = dev
-            .device
-            .create_buffer(&wgpu::BufferDescriptor {
-                label: Some("layer_buffer"),
-                size: 0,
-                usage: wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            });
+        let layer_buffer = dev.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer_buffer"),
+            size: 0,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
 
         Self {
             dev,
@@ -223,34 +221,7 @@ pub struct Target {
     /// Output texture dimensions.
     pub dim: BufferDimensions,
     /// Compositor output buffers and texture.
-    pub output: Option<Output>,
-}
-
-/// Compositor stage buffers. This is so that the rendering process
-/// can reuse buffers and textures whenever possible.
-pub struct Output {
-    size: usize,
-    // bindings: CpuBuffers,
-    pub texture: GpuTexture,
-}
-
-impl Output {
-    /// Create a new compositor stage.
-    pub fn new(target: &Target, size: usize) -> Self {
-        Self {
-            size,
-            // bindings: CpuBuffers::new(size),
-            texture: target.create_texture(),
-        }
-    }
-
-    fn reserve_buffers(&mut self, size: usize) {
-        if size <= self.size {
-            return;
-        }
-
-        self.size = size;
-    }
+    pub output: Option<GpuTexture>,
 }
 
 impl Target {
@@ -316,14 +287,10 @@ impl Target {
         composite_layers: &[CompositeLayer],
         textures: &GpuTexture,
     ) {
-        let composite_view = self.create_texture().create_view();
-
-        let stage = if let Some(stage) = self.output.as_mut() {
-            stage.reserve_buffers(composite_layers.len());
-            stage
+        let output_texture = if let Some(tex) = self.output.as_mut() {
+            tex
         } else {
-            self.output
-                .insert(Output::new(self, composite_layers.len()))
+            self.output.insert(self.create_texture())
         };
 
         self.data.load_layer_buffer(composite_layers);
@@ -334,10 +301,6 @@ impl Target {
             .create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &pipeline.blending_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&composite_view),
-                    },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureView(&textures.create_view()),
@@ -350,7 +313,7 @@ impl Target {
                 label: Some("mixing_bind_group"),
             });
 
-        let output_view = stage.texture.create_view();
+        let output_view = output_texture.create_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[

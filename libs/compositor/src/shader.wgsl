@@ -233,8 +233,6 @@ struct LayerData {
 
 @group(0) @binding(0)
 var splr: sampler;
-@group(1) @binding(0)
-var composite: texture_2d<f32>;
 @group(1) @binding(1)
 var textures: texture_2d_array<f32>;
 @group(1) @binding(2)
@@ -253,7 +251,7 @@ const MASK_NONE: u32 = 0xFFFFFFFFu;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Premultiplied colors
-    var bga = textureSample(composite, splr, in.coords);
+    var bga = vec4(0.0);
 
     for (var i: u32 = 0; i < arrayLength(&layers); i++) {
         var maska = select(textureSample(textures, splr, in.coords, layers[i].mask_index).a, 1.0, layers[i].mask_index == MASK_NONE);

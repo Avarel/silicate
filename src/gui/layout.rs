@@ -122,7 +122,7 @@ impl ControlsGui<'_> {
                     ui.vertical(|ui| {
                         if ui.button("Export View").clicked() {
                             if let Some(texture) = instance.target.lock().output.as_ref() {
-                                let copied_texture = texture.texture.clone(&self.app.dev);
+                                let copied_texture = texture.clone(&self.app.dev);
                                 self.app
                                     .rt
                                     .spawn(self.app.clone().save_dialog(copied_texture));

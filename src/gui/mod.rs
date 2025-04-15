@@ -349,7 +349,7 @@ impl AppInstance {
                 if let Some(instance) = instances.get(&idx) {
                     if let Some(target) = instance.target.try_lock() {
                         if let Some(output) = target.output.as_ref() {
-                            let texture_view = output.texture.create_srgb_view();
+                            let texture_view = output.create_srgb_view();
 
                             if let Some(tex) = self.editor.canvases.get_mut(&idx) {
                                 self.rendering
