@@ -3,7 +3,7 @@
 // Nothing special about this section. It gets fed vertices in a triangle strip
 // configuration to draw a square on the texture.
 
-struct CanvasUniform {
+struct CanvasTiling {
     height: u32,
     width: u32,
     columns: u32,
@@ -12,7 +12,7 @@ struct CanvasUniform {
 };
 
 @group(0) @binding(0)
-var<uniform> canvas: CanvasUniform;
+var<uniform> canvas: CanvasTiling;
 
 struct VertexInput {
     @location(0) position: vec3f,

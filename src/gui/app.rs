@@ -9,8 +9,8 @@ use silica::{
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    buffer::BufferDimensions, dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture,
-    CompositeLayer, Target,
+    buffer::BufferDimensions, canvas::CanvasTiling, dev::GpuDispatch, pipeline::Pipeline,
+    tex::GpuTexture, CompositeLayer, Target,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -70,9 +70,15 @@ pub struct CompositorApp {
 
 impl App {
     pub async fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        let (file, textures) =
+        let (file, textures, tile) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
-        let target = Target::new(self.dispatch.clone(), file.size.width, file.size.height);
+
+        let canvas = CanvasTiling::new(
+            (file.size.width, file.size.height),
+            (tile.columns, tile.rows),
+            tile.size,
+        );
+        let target = Target::new(self.dispatch.clone(), canvas);
         // target
         //     .data
         //     .flip_vertices(file.flipped.horizontally, file.flipped.vertically);

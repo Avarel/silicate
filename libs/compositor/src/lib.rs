@@ -8,7 +8,7 @@ pub mod tex;
 use self::tex::GpuTexture;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, DataBuffer};
-use canvas::CanvasUniform;
+use canvas::CanvasTiling;
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::CommandEncoder;
@@ -71,7 +71,7 @@ pub struct CompositorData {
     dispatch: GpuDispatch,
     vertices: DataBuffer<[VertexInput; 4]>,
     indices: DataBuffer<[u16; 4]>,
-    canvas: DataBuffer<CanvasUniform>,
+    canvas: DataBuffer<CanvasTiling>,
     layers: DataBuffer<Vec<LayerData>>,
 }
 
@@ -103,7 +103,7 @@ impl CompositorData {
     /// Initial indices of the 2 triangle strips
     const INDICES: [u16; 4] = [0, 2, 1, 3];
 
-    fn new(dispatch: GpuDispatch) -> Self {
+    fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
         let device = dispatch.device();
 
         // Create the vertex buffer.
@@ -124,7 +124,7 @@ impl CompositorData {
 
         let canvas = DataBuffer::init(
             device,
-            CanvasUniform::new((0, 0), (0, 0), 0),
+            canvas,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -203,11 +203,11 @@ pub struct Target {
 
 impl Target {
     /// Create a new compositor target.
-    pub fn new(dispatch: GpuDispatch, width: u32, height: u32) -> Self {
+    pub fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
         Self {
             dispatch: dispatch.clone(),
-            data: CompositorData::new(dispatch),
-            dim: BufferDimensions::new(width, height),
+            data: CompositorData::new(dispatch, canvas),
+            dim: BufferDimensions::new(canvas.width, canvas.height),
             output: None,
         }
     }

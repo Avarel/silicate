@@ -115,18 +115,19 @@ where
     /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.
     pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch) {
         if self.buffer.size() < self.data_len() {
-            self.buffer =
-                dispatch
-                    .device()
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("data_buffer"),
-                        contents: bytemuck::cast_slice(self.data.as_slice()),
-                        usage: self.buffer.usage(),
-                    });
+            self.buffer = dispatch
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("data_buffer"),
+                    contents: bytemuck::cast_slice(self.data.as_slice()),
+                    usage: self.buffer.usage(),
+                });
         } else {
-            dispatch
-                .queue()
-                .write_buffer(&self.buffer, 0, bytemuck::cast_slice(self.data.as_slice()));
+            dispatch.queue().write_buffer(
+                &self.buffer,
+                0,
+                bytemuck::cast_slice(self.data.as_slice()),
+            );
         }
     }
 

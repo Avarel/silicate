@@ -46,12 +46,11 @@ impl GpuHandle {
         }
     }
 
-    pub const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'_, '_> =
-        wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        };
+    pub const ADAPTER_OPTIONS: wgpu::RequestAdapterOptions<'_, '_> = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    };
 
     #[allow(dead_code)]
     /// Create a bare GPU handle with no surface target.

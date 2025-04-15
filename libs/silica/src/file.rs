@@ -61,7 +61,7 @@ impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(
         p: P,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture), SilicaError> {
+    ) -> Result<(Self, GpuTexture, TilingData), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -84,7 +84,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture), SilicaError> {
+    ) -> Result<(Self, GpuTexture, TilingData), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
@@ -182,6 +182,7 @@ impl ProcreateFile {
                 },
             },
             gpu_textures,
+            tile,
         ))
     }
 }
