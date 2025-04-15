@@ -1,12 +1,14 @@
 pub mod blend;
 pub mod buffer;
+pub mod canvas;
 pub mod dev;
 pub mod pipeline;
 pub mod tex;
 
 use self::tex::GpuTexture;
 use blend::BlendingMode;
-use buffer::BufferDimensions;
+use buffer::{BufferDimensions, DataBuffer};
+use canvas::CanvasUniform;
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::{CommandEncoder, util::DeviceExt};
@@ -67,9 +69,10 @@ struct LayerData {
 
 pub struct CompositorData {
     dispatch: GpuDispatch,
-    vertices: [VertexInput; 4],
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    vertices: DataBuffer<[VertexInput; 4]>,
+    indices: DataBuffer<[u16; 4]>,
+    canvas: DataBuffer<CanvasUniform>,
+
     layer_buffer: wgpu::Buffer,
     layer_count: u32,
 }
@@ -103,22 +106,21 @@ impl CompositorData {
     const INDICES: [u16; 4] = [0, 2, 1, 3];
 
     fn new(dispatch: GpuDispatch) -> Self {
-        let device = &dispatch.device();
+        let device = dispatch.device();
 
         // Create the vertex buffer.
-        let vertices = Self::SQUARE_VERTICES;
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex_buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        let vertices = DataBuffer::init(
+            device,
+            Self::SQUARE_VERTICES,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
 
         // Index draw buffer
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("index_buffer"),
-            contents: bytemuck::cast_slice(&Self::INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let indices = DataBuffer::init(
+            device,
+            Self::INDICES,
+            wgpu::BufferUsages::INDEX
+        );
 
         let layer_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("layer_buffer"),
@@ -127,19 +129,25 @@ impl CompositorData {
             mapped_at_creation: false,
         });
 
+        let canvas = DataBuffer::init(
+            device,
+            CanvasUniform::new((0, 0), (0, 0), 0),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
         Self {
             dispatch,
             vertices,
-            vertex_buffer,
-            index_buffer,
+            indices,
             layer_buffer,
             layer_count: 0,
+            canvas,
         }
     }
 
     /// Flip the vertex data's foreground UV of the compositor target.
     pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
-        for v in &mut self.vertices {
+        for v in self.vertices.data_mut() {
             v.fg_coords = [
                 if horizontal {
                     1.0 - v.fg_coords[0]
@@ -153,34 +161,25 @@ impl CompositorData {
                 },
             ];
         }
-        self.load_vertex_buffer();
+        self.vertices.load_buffer(self.dispatch.queue());
     }
 
-    /// Rotate the vertex data's foreground UV of the compositor target.
-    pub fn rotate_vertices(&mut self, ccw: bool) {
-        let temp = self.vertices[0].fg_coords;
-        if ccw {
-            self.vertices[0].fg_coords = self.vertices[1].fg_coords;
-            self.vertices[1].fg_coords = self.vertices[3].fg_coords;
-            self.vertices[3].fg_coords = self.vertices[2].fg_coords;
-            self.vertices[2].fg_coords = temp;
-        } else {
-            self.vertices[0].fg_coords = self.vertices[2].fg_coords;
-            self.vertices[2].fg_coords = self.vertices[3].fg_coords;
-            self.vertices[3].fg_coords = self.vertices[1].fg_coords;
-            self.vertices[1].fg_coords = temp;
-        }
-        self.load_vertex_buffer();
-    }
-
-    /// Load the GPU vertex buffer with updated data.
-    fn load_vertex_buffer(&mut self) {
-        self.dispatch.queue().write_buffer(
-            &self.vertex_buffer,
-            0,
-            bytemuck::cast_slice(&self.vertices),
-        );
-    }
+    // /// Rotate the vertex data's foreground UV of the compositor target.
+    // pub fn rotate_vertices(&mut self, ccw: bool) {
+    //     let temp = self.vertices[0].fg_coords;
+    //     if ccw {
+    //         self.vertices[0].fg_coords = self.vertices[1].fg_coords;
+    //         self.vertices[1].fg_coords = self.vertices[3].fg_coords;
+    //         self.vertices[3].fg_coords = self.vertices[2].fg_coords;
+    //         self.vertices[2].fg_coords = temp;
+    //     } else {
+    //         self.vertices[0].fg_coords = self.vertices[2].fg_coords;
+    //         self.vertices[2].fg_coords = self.vertices[3].fg_coords;
+    //         self.vertices[3].fg_coords = self.vertices[1].fg_coords;
+    //         self.vertices[1].fg_coords = temp;
+    //     }
+    //     self.load_vertex_buffer();
+    // }
 
     fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
         let mut layers = Vec::new();
@@ -283,6 +282,18 @@ impl Target {
 
         self.data.load_layer_buffer(composite_layers);
 
+        let canvas_bind_group =
+            self.dispatch
+                .device()
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &pipeline.canvas_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.data.canvas.buffer().as_entire_binding(),
+                    }],
+                    label: Some("canvas_bind_group"),
+                });
+
         let blending_bind_group =
             self.dispatch
                 .device()
@@ -339,10 +350,11 @@ impl Target {
 
         // Finish and set the render pass's binding groups and data
         pass.set_pipeline(&pipeline.render_pipeline);
-        pass.set_bind_group(0, &pipeline.constant_bind_group, &[]);
-        pass.set_bind_group(1, &blending_bind_group, &[]);
-        pass.set_vertex_buffer(0, self.data.vertex_buffer.slice(..));
-        pass.set_index_buffer(self.data.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        pass.set_bind_group(0, &canvas_bind_group, &[]);
+        pass.set_bind_group(1, &pipeline.constant_bind_group, &[]);
+        pass.set_bind_group(2, &blending_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.data.vertices.buffer().slice(..));
+        pass.set_index_buffer(self.data.indices.buffer().slice(..), wgpu::IndexFormat::Uint16);
         pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
 
         drop(pass);

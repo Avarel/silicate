@@ -9,10 +9,7 @@ use silica::{
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    buffer::BufferDimensions,
-    dev::GpuDispatch,
-    pipeline::Pipeline,
-    tex::GpuTexture,
+    buffer::BufferDimensions, dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture,
     CompositeLayer, Target,
 };
 use std::collections::HashMap;

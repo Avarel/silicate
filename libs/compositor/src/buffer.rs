@@ -1,3 +1,5 @@
+use wgpu::util::DeviceExt;
+
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferDimensions<const ALIGN: u32 = { wgpu::COPY_BYTES_PER_ROW_ALIGNMENT }> {
@@ -70,5 +72,39 @@ impl<const ALIGN: u32> BufferDimensions<ALIGN> {
 
     pub fn extent(&self) -> wgpu::Extent3d {
         self.extent
+    }
+}
+
+pub struct DataBuffer<T> {
+    data: T,
+    buffer: wgpu::Buffer,
+}
+
+impl<T> DataBuffer<T> {
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+}
+
+impl<T> DataBuffer<T>
+where
+    T: bytemuck::NoUninit,
+{
+    pub fn init(device: &wgpu::Device, data: T, usage: wgpu::BufferUsages) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("data_buffer"),
+            contents: bytemuck::bytes_of(&data),
+            usage,
+        });
+        Self { data, buffer }
+    }
+
+    /// Load the GPU vertex buffer with updated data.
+    pub fn load_buffer(&mut self, queue: &wgpu::Queue) {
+        queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&self.data));
     }
 }

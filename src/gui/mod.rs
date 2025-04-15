@@ -83,7 +83,7 @@ impl AppInstance {
         let app = Arc::new(App {
             compositor: Arc::new(CompositorApp {
                 instances: RwLock::new(HashMap::new()),
-                pipeline: Pipeline::new(&dev),
+                pipeline: Pipeline::new(&dev.dispatch),
                 curr_id: AtomicUsize::new(0),
             }),
             rt,

@@ -3,6 +3,17 @@
 // Nothing special about this section. It gets fed vertices in a triangle strip
 // configuration to draw a square on the texture.
 
+struct CanvasUniform {
+    height: u32,
+    width: u32,
+    columns: u32,
+    rows: u32,
+    tile_size: u32,
+};
+
+@group(0) @binding(0)
+var<uniform> canvas: CanvasUniform;
+
 struct VertexInput {
     @location(0) position: vec3f,
     @location(1) coords: vec2f,
@@ -22,7 +33,7 @@ fn vs_main(
     out.position = vec4(model.position, 1.0);
     return out;
 }
- 
+
 // Blending code ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -155,7 +166,7 @@ fn linear_dodge(b: vec3f, s: vec3f) -> vec3f {
 
 fn linear_light(b: vec3f, s: vec3f) -> vec3f {
     return mix(
-        linear_dodge(b, 2.0 * (s - 0.5)), 
+        linear_dodge(b, 2.0 * (s - 0.5)),
         linear_burn(b, 2.0 * s),
         step(s, vec3(0.5))
     );
@@ -183,7 +194,7 @@ fn color_burn(b: vec3f, s: vec3f) -> vec3f {
 
 fn soft_light(b: vec3f, s: vec3f) -> vec3f {
     return mix(
-        sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s), 
+        sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s),
         2.0 * b * s + b * b * (1.0 - 2.0 * s),
         step(s, vec3(0.5))
     );
@@ -199,8 +210,8 @@ fn vivid_light(b: vec3f, s: vec3f) -> vec3f {
 
 fn hard_mix(b: vec3f, s: vec3f) -> vec3f {
     return mix(
-        vec3(1.0), 
-        vec3(0.0), 
+        vec3(1.0),
+        vec3(0.0),
         step(vivid_light(b, s), vec3(0.5))
     );
 }
@@ -231,11 +242,11 @@ struct LayerData {
     opacity: f32,
 };
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var splr: sampler;
-@group(1) @binding(1)
+@group(2) @binding(1)
 var textures: texture_2d_array<f32>;
-@group(1) @binding(2)
+@group(2) @binding(2)
 var<storage, read> layers: array<LayerData>;
 
 // Blend alpha straight colors

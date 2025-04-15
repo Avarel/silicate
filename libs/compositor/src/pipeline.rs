@@ -1,15 +1,31 @@
-use crate::{VertexInput, dev::GpuHandle};
+use crate::{VertexInput, dev::GpuDispatch};
 
 pub struct Pipeline {
     pub constant_bind_group: wgpu::BindGroup,
     pub blending_bind_group_layout: wgpu::BindGroupLayout,
     pub render_pipeline: wgpu::RenderPipeline,
+    pub canvas_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Pipeline {
     /// Create a new compositor pipeline.
-    pub fn new(dev: &GpuHandle) -> Self {
-        let device = &dev.dispatch.device();
+    pub fn new(dispatch: &GpuDispatch) -> Self {
+        let device = dispatch.device();
+
+        let canvas_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("canvas_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         // This bind group only binds the sampler, which is a constant
         // through out all rendering passes.
@@ -38,7 +54,7 @@ impl Pipeline {
         };
 
         // This bind group changes per composition run.
-        let blending_bind_group_layout = {
+        let blending_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("blending_group_layout"),
                 entries: &[
@@ -64,8 +80,7 @@ impl Pipeline {
                         count: None,
                     },
                 ],
-            })
-        };
+            });
 
         // Loads the shader and creates the render pipeline.
         let render_pipeline = {
@@ -74,9 +89,14 @@ impl Pipeline {
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("render_pipeline_layout"),
-                    bind_group_layouts: &[&constant_bind_group_layout, &blending_bind_group_layout],
+                    bind_group_layouts: &[
+                        &canvas_bind_group_layout,
+                        &constant_bind_group_layout,
+                        &blending_bind_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
+
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 cache: None,
                 label: Some("render_pipeline"),
@@ -122,6 +142,7 @@ impl Pipeline {
         };
 
         Self {
+            canvas_bind_group_layout,
             constant_bind_group,
             blending_bind_group_layout,
             render_pipeline,
