@@ -108,7 +108,7 @@ impl ProcreateFile {
 
         let chunk_count = file_names.len() as u32;
 
-        let tile = TilingData {
+        let tiling = TilingData {
             columns,
             rows,
             diff: Size {
@@ -120,26 +120,26 @@ impl ProcreateFile {
         };
 
         dbg!(chunk_count);
-        dbg!(&tile);
+        dbg!(&tiling);
 
         let texture_chunks = GpuTexture::empty_layers(
             &dispatch,
-            tile.size * tile.atlas.columns,
-            tile.size * tile.atlas.rows,
-            tile.atlas.layers,
+            tiling.size * tiling.atlas.columns,
+            tiling.size * tiling.atlas.rows,
+            tiling.atlas.layers,
             GpuTexture::ATLAS_USAGE,
         );
 
         let ir_data = IRData {
-            tile: &tile,
+            tiling,
             archive: &archive,
             size,
             file_names: &file_names,
             dispatch,
             texture_chunks: &texture_chunks,
-            gpu_textures: &gpu_textures,
-            combined_counter: &AtomicU32::new(0),
-            chunk_counter: &AtomicU32::new(0),
+            texture_layers: &gpu_textures,
+            layer_id_counter: AtomicU32::new(0),
+            chunk_id_counter: AtomicU32::new(0),
         };
 
         Ok((
@@ -182,7 +182,7 @@ impl ProcreateFile {
                 },
             },
             gpu_textures,
-            tile,
+            tiling,
         ))
     }
 }

@@ -58,8 +58,8 @@ pub struct TilingData {
 }
 
 impl TilingData {
-    pub fn tile_size(&self, col: u32, row: u32) -> Size<u32> {
-        Size {
+    pub fn tile_extent(&self, col: u32, row: u32) -> silicate_compositor::tex::Extent3d {
+        silicate_compositor::tex::Extent3d {
             width: if col != self.columns - 1 {
                 self.size
             } else {
@@ -70,6 +70,16 @@ impl TilingData {
             } else {
                 self.size - self.diff.height
             },
+            depth_or_array_layers: 1
+        }
+    }
+
+    pub fn atlas_origin(&self, index: u32) -> silicate_compositor::tex::Origin3d {
+        let (x, y, z) = self.atlas.index(index);
+        silicate_compositor::tex::Origin3d {
+            x: x * self.size,
+            y: y * self.size,
+            z,
         }
     }
 }

@@ -5,6 +5,9 @@ use super::BufferDimensions;
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
+pub use wgpu::Extent3d;
+pub use wgpu::Origin3d;
+
 /// GPU texture abstraction.
 #[derive(Debug)]
 pub struct GpuTexture {
@@ -125,14 +128,14 @@ impl GpuTexture {
     pub fn replace_from_bytes(
         &self,
         dispatch: &GpuDispatch,
-        (x, y): (u32, u32),
-        (width, height): (u32, u32),
-        layer: u32,
         data: &[u8],
+        origin: wgpu::Origin3d,
+        size: wgpu::Extent3d,
     ) {
         assert!(
-            layer < self.layers(),
-            "index {layer} must be less than {}",
+            origin.z < self.layers(),
+            "index {} must be less than {}",
+            origin.z,
             self.layers()
         );
         dispatch.queue().write_texture(
@@ -140,7 +143,7 @@ impl GpuTexture {
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d { x, y, z: layer },
+                origin,
                 aspect: wgpu::TextureAspect::All,
             },
             // The actual pixel data
@@ -148,30 +151,21 @@ impl GpuTexture {
             // The layout of the texture
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
+                bytes_per_row: Some(4 * size.width),
+                rows_per_image: Some(size.height),
             },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            size,
         );
     }
 
-    pub fn replace_from_tex_chunk(
+    pub fn copy_from_texture(
         &self,
         dispatch: &GpuDispatch,
-        (x, y): (u32, u32),
-        (width, height): (u32, u32),
-        layer: u32,
-        (data, data_x, data_y, data_z): (&GpuTexture, u32, u32, u32),
+        source_data: &GpuTexture,
+        source_origin: wgpu::Origin3d,
+        destination_origin: wgpu::Origin3d,
+        size: wgpu::Extent3d,
     ) {
-        assert!(
-            layer < self.layers(),
-            "index {layer} must be less than {}",
-            self.layers()
-        );
         // Copy the texture to the output buffer
         dispatch.queue().submit(Some({
             let mut encoder = dispatch
@@ -180,26 +174,18 @@ impl GpuTexture {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
-                    texture: &data.texture,
+                    texture: &source_data.texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: data_x,
-                        y: data_y,
-                        z: data_z,
-                    },
+                    origin: source_origin,
                     aspect: wgpu::TextureAspect::All,
                 },
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x, y, z: layer },
+                    origin: destination_origin,
                     aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
+                size,
             );
 
             encoder.finish()

@@ -19,17 +19,19 @@ use silicate_compositor::buffer::BufferDimensions;
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 
-#[derive(Clone, Copy)]
 pub(super) struct IRData<'a> {
-    pub(super) tile: &'a TilingData,
+    pub(super) dispatch: &'a GpuDispatch,
+
+    pub(super) tiling: TilingData,
     pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
-    pub(super) dispatch: &'a GpuDispatch,
+
+    pub(super) layer_id_counter: AtomicU32,
+    pub(super) texture_layers: &'a GpuTexture,
+
+    pub(super) chunk_id_counter: AtomicU32,
     pub(super) texture_chunks: &'a GpuTexture,
-    pub(super) gpu_textures: &'a GpuTexture,
-    pub(super) combined_counter: &'a AtomicU32,
-    pub(super) chunk_counter: &'a AtomicU32,
 }
 
 pub(super) enum SilicaIRHierarchy<'a> {
@@ -78,7 +80,7 @@ impl SilicaIRLayer<'_> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let texture_index = meta
-            .combined_counter
+            .layer_id_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         let chunks = meta
@@ -91,7 +93,7 @@ impl SilicaIRLayer<'_> {
                 let chunk_str = &path[uuid.len() + 1..path.find('.').unwrap_or(path.len())];
                 let (col, row) = Self::parse_chunk_str(chunk_str)?;
 
-                let tile = meta.tile.tile_size(col, row);
+                let tile_extent = meta.tiling.tile_extent(col, row);
 
                 // impossible
                 let mut chunk = archive.by_name(path).expect("path not inside zip");
@@ -100,33 +102,28 @@ impl SilicaIRLayer<'_> {
                 chunk.read_to_end(&mut buf)?;
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let dst = if path.ends_with(".lz4") {
+                let data = if path.ends_with(".lz4") {
                     let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
                     let mut dst = Vec::new();
                     decoder.read_to_end(&mut dst)?;
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
-                    let data_len = tile.width as usize
-                        * tile.height as usize
+                    let data_len = tile_extent.width as usize
+                        * tile_extent.height as usize
                         * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
                     let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };
 
                 let atlas_index = meta
-                    .chunk_counter
+                    .chunk_id_counter
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-                let (x, y, z) = meta.tile.atlas.index(atlas_index);
+                let origin = meta.tiling.atlas_origin(atlas_index);
 
-                meta.texture_chunks.replace_from_bytes(
-                    meta.dispatch,
-                    (x * meta.tile.size, y * meta.tile.size),
-                    (tile.width, tile.height),
-                    z,
-                    &dst,
-                );
+                meta.texture_chunks
+                    .replace_from_bytes(meta.dispatch, &data, origin, tile_extent);
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -138,21 +135,18 @@ impl SilicaIRLayer<'_> {
         chunks
             .par_iter()
             .map(|chunk| -> Result<(), SilicaError> {
-                let tile = meta.tile.tile_size(chunk.col, chunk.row);
+                let destination_origin = silicate_compositor::tex::Origin3d {
+                    x: chunk.col * meta.tiling.size,
+                    y: chunk.row * meta.tiling.size,
+                    z: texture_index,
+                };
 
-                let (x, y, z) = meta.tile.atlas.index(chunk.atlas_index);
-
-                meta.gpu_textures.replace_from_tex_chunk(
+                meta.texture_layers.copy_from_texture(
                     meta.dispatch,
-                    (chunk.col * meta.tile.size, chunk.row * meta.tile.size),
-                    (tile.width, tile.height),
-                    texture_index,
-                    (
-                        meta.texture_chunks,
-                        x * meta.tile.size,
-                        y * meta.tile.size,
-                        z,
-                    ),
+                    meta.texture_chunks,
+                    meta.tiling.atlas_origin(chunk.atlas_index),
+                    destination_origin,
+                    meta.tiling.tile_extent(chunk.col, chunk.row),
                 );
                 Ok(())
             })
