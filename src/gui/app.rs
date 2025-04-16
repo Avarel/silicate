@@ -216,7 +216,9 @@ impl App {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    fn linearize_silica_layers<'a>(layers: &'a SilicaGroup) -> Vec<CompositeLayer> {
+    fn linearize_silica_layers<'a>(composite_layers: &mut Vec<CompositeLayer>, layers: &'a SilicaGroup) {
+        composite_layers.clear();
+
         fn inner<'a>(
             layers: &'a SilicaGroup,
             composite_layers: &mut Vec<CompositeLayer>,
@@ -238,7 +240,7 @@ impl CompositorApp {
                             *mask_layer = Some(layer);
                         }
 
-                        let mut chunks = Vec::new();
+                        let mut chunks = Vec::with_capacity(layer.image.chunks.len());
                         for chunk in layer.image.chunks.iter() {
                             let mut mask_atlas_index: Option<NonZeroU32> = None;
 
@@ -269,12 +271,11 @@ impl CompositorApp {
             }
         }
 
-        let mut composite_layers = Vec::new();
-        inner(layers, &mut composite_layers, &mut None);
-        composite_layers
+        inner(layers, composite_layers, &mut None);
     }
 
     pub async fn rendering_thread(self: Arc<Self>) {
+        let mut composite_layers = Vec::new();
         let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
         limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
@@ -296,13 +297,13 @@ impl CompositorApp {
                     // Drop the guard here, we no longer need it.
                     drop(file);
 
-                    let resolved_layers = Self::linearize_silica_layers(&new_layer_config);
+                    Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
 
                     let mut lock = instance.target.lock();
                     lock.render(
                         &self.pipeline,
                         background,
-                        &resolved_layers,
+                        &composite_layers,
                         &AtlasData::new(instance.tiling.atlas.cols, instance.tiling.atlas.rows),
                         &instance.atlas_texture,
                     );
