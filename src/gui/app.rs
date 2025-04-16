@@ -9,15 +9,15 @@ use silica::{
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    buffer::BufferDimensions, canvas::CanvasTiling, dev::GpuDispatch, pipeline::Pipeline,
-    tex::GpuTexture, CompositeLayer, Target,
+    atlas::AtlasData, buffer::BufferDimensions, canvas::CanvasTiling, dev::GpuDispatch,
+    pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Target,
 };
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{collections::HashMap, num::NonZeroU32};
 use tokio::time::MissedTickBehavior;
 use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
@@ -41,9 +41,10 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
-    pub textures: GpuTexture,
+    pub atlas_texture: GpuTexture,
     pub target: Mutex<Target>,
     pub changed: AtomicBool,
+    tiling: silica::layers::TilingData,
 }
 
 impl Instance {
@@ -70,13 +71,13 @@ pub struct CompositorApp {
 
 impl App {
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        let (file, textures, tile) =
+        let (file, atlas_texture, tiling) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
 
         let canvas = CanvasTiling::new(
             (file.size.width, file.size.height),
-            (tile.columns, tile.rows),
-            tile.size,
+            (tiling.cols, tiling.rows),
+            tiling.size,
         );
         let target = Target::new(self.dispatch.clone(), canvas);
         // target
@@ -98,7 +99,8 @@ impl App {
             Instance {
                 file: RwLock::new(file),
                 target: Mutex::new(target),
-                textures,
+                atlas_texture,
+                tiling,
                 changed: AtomicBool::new(true),
             },
         );
@@ -218,7 +220,7 @@ impl CompositorApp {
         fn inner<'a>(
             layers: &'a SilicaGroup,
             composite_layers: &mut Vec<CompositeLayer>,
-            mask_layer: &mut Option<(u32, &'a SilicaLayer)>,
+            mask_layer: &mut Option<&'a SilicaLayer>,
         ) {
             for layer in layers.children.iter().rev() {
                 match layer {
@@ -226,19 +228,38 @@ impl CompositorApp {
                         inner(group, composite_layers, mask_layer);
                     }
                     SilicaHierarchy::Layer(layer) if !layer.hidden => {
-                        if let Some((_, mask_layer)) = mask_layer {
+                        if let Some(mask_layer) = mask_layer {
                             if layer.clipped && mask_layer.hidden {
                                 continue;
                             }
                         }
 
                         if !layer.clipped {
-                            *mask_layer = Some((layer.image.texture_index, layer));
+                            *mask_layer = Some(layer);
+                        }
+
+                        let mut chunks = Vec::new();
+                        for chunk in layer.image.chunks.iter() {
+                            let mut mask_atlas_index: Option<NonZeroU32> = None;
+
+                            if layer.clipped {
+                                for mask_chunk in mask_layer.unwrap().image.chunks.iter() {
+                                    if mask_chunk.col == chunk.col && mask_chunk.row == chunk.row {
+                                        mask_atlas_index = Some(mask_chunk.atlas_index);
+                                    }
+                                }
+                            }
+
+                            chunks.push(ChunkTile {
+                                col: chunk.col,
+                                row: chunk.row,
+                                atlas_index: chunk.atlas_index,
+                                mask_atlas_index,
+                            });
                         }
 
                         composite_layers.push(CompositeLayer {
-                            texture: layer.image.texture_index,
-                            clipped: layer.clipped.then(|| mask_layer.unwrap().0),
+                            chunks,
                             opacity: layer.opacity,
                             blend: layer.blend,
                         });
@@ -282,7 +303,8 @@ impl CompositorApp {
                         &self.pipeline,
                         background,
                         &resolved_layers,
-                        &instance.textures,
+                        &AtlasData::new(instance.tiling.atlas.cols, instance.tiling.atlas.rows),
+                        &instance.atlas_texture,
                     );
                     // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
                     // std::thread::sleep(std::time::Duration::from_secs(1));

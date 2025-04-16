@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::num::NonZeroU32;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 
@@ -12,7 +13,6 @@ use crate::{
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
-use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::buffer::BufferDimensions;
@@ -26,9 +26,6 @@ pub(super) struct IRData<'a> {
     pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],
-
-    pub(super) layer_id_counter: AtomicU32,
-    pub(super) texture_layers: &'a GpuTexture,
 
     pub(super) chunk_id_counter: AtomicU32,
     pub(super) texture_chunks: &'a GpuTexture,
@@ -79,10 +76,6 @@ impl SilicaIRLayer<'_> {
 
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
-        let texture_index = meta
-            .layer_id_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let chunks = meta
             .file_names
             .into_par_iter()
@@ -116,11 +109,13 @@ impl SilicaIRLayer<'_> {
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };
 
-                let atlas_index = meta
-                    .chunk_id_counter
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let atlas_index = NonZeroU32::new(
+                    meta.chunk_id_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+                )
+                .unwrap();
 
-                let origin = meta.tiling.atlas_origin(atlas_index);
+                let origin = meta.tiling.atlas_origin(atlas_index.get());
 
                 meta.texture_chunks
                     .replace_from_bytes(meta.dispatch, &data, origin, tile_extent);
@@ -131,26 +126,6 @@ impl SilicaIRLayer<'_> {
                 })
             })
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
-
-        chunks
-            .par_iter()
-            .map(|chunk| -> Result<(), SilicaError> {
-                let destination_origin = silicate_compositor::tex::Origin3d {
-                    x: chunk.col * meta.tiling.size,
-                    y: chunk.row * meta.tiling.size,
-                    z: texture_index,
-                };
-
-                meta.texture_layers.copy_from_texture(
-                    meta.dispatch,
-                    meta.texture_chunks,
-                    meta.tiling.atlas_origin(chunk.atlas_index),
-                    destination_origin,
-                    meta.tiling.tile_extent(chunk.col, chunk.row),
-                );
-                Ok(())
-            })
-            .collect::<Result<(), _>>()?;
 
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(
@@ -167,10 +142,7 @@ impl SilicaIRLayer<'_> {
             size: meta.size,
             uuid,
             version: nka.fetch::<u64>(coder, "version")?,
-            image: SilicaImageData {
-                texture_index,
-                chunks,
-            },
+            image: SilicaImageData { chunks },
         })
     }
 }
@@ -216,6 +188,7 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
+    #[allow(dead_code)]
     pub(super) fn count_layer(&self) -> u32 {
         self.children.iter().map(|ir| ir.count_layer()).sum::<u32>()
     }
@@ -236,6 +209,7 @@ impl<'a> SilicaIRGroup<'a> {
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
+    #[allow(dead_code)]
     pub(super) fn count_layer(&self) -> u32 {
         match self {
             SilicaIRHierarchy::Layer(_) => 1,

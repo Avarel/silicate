@@ -1,9 +1,11 @@
+use std::num::NonZeroU32;
+
 use crate::ns_archive::Size;
 use silicate_compositor::blend::BlendingMode;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasData {
-    pub columns: u32,
+    pub cols: u32,
     pub rows: u32,
     pub layers: u32,
 }
@@ -13,7 +15,7 @@ impl AtlasData {
         const TEX_MAX_DIM: u32 = 8192;
         if chunk_count * tile_size <= TEX_MAX_DIM {
             AtlasData {
-                columns: chunk_count,
+                cols: chunk_count,
                 rows: 1,
                 layers: 1,
             }
@@ -23,7 +25,7 @@ impl AtlasData {
 
             if rows * tile_size <= TEX_MAX_DIM {
                 AtlasData {
-                    columns,
+                    cols: columns,
                     rows,
                     layers: 1,
                 }
@@ -31,7 +33,7 @@ impl AtlasData {
                 let rows = TEX_MAX_DIM / tile_size;
                 let layers = chunk_count.div_ceil(columns * rows);
                 AtlasData {
-                    columns,
+                    cols: columns,
                     rows,
                     layers,
                 }
@@ -39,18 +41,18 @@ impl AtlasData {
         }
     }
 
-    pub fn index(&self, chunk_index: u32) -> (u32, u32, u32) {
+    pub fn index(&self, atlas_index: u32) -> (u32, u32, u32) {
         return (
-            chunk_index % self.columns,
-            chunk_index / self.columns % self.rows,
-            chunk_index / (self.columns * self.rows),
+            atlas_index % self.cols,
+            atlas_index / self.cols % self.rows,
+            atlas_index / (self.cols * self.rows),
         );
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct TilingData {
-    pub columns: u32,
+    pub cols: u32,
     pub rows: u32,
     pub diff: Size<u32>,
     pub size: u32,
@@ -60,7 +62,7 @@ pub struct TilingData {
 impl TilingData {
     pub fn tile_extent(&self, col: u32, row: u32) -> silicate_compositor::tex::Extent3d {
         silicate_compositor::tex::Extent3d {
-            width: if col != self.columns - 1 {
+            width: if col != self.cols - 1 {
                 self.size
             } else {
                 self.size - self.diff.width
@@ -118,13 +120,12 @@ impl SilicaGroup {
 pub struct SilicaChunk {
     pub col: u32,
     pub row: u32,
-    pub atlas_index: u32,
+    pub atlas_index: NonZeroU32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaImageData {
     pub chunks: Vec<SilicaChunk>,
-    pub texture_index: u32, // soon to be deprecated
 }
 
 #[derive(Debug, Clone, PartialEq)]

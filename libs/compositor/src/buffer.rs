@@ -103,9 +103,9 @@ impl<T> DataBuffer<Vec<T>>
 where
     T: bytemuck::NoUninit,
 {
-    pub fn init_vec(device: &wgpu::Device, data: Vec<T>, usage: wgpu::BufferUsages) -> Self {
+    pub fn init_vec(device: &wgpu::Device, name: &str, data: Vec<T>, usage: wgpu::BufferUsages) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("data_buffer"),
+            label: Some(name),
             contents: bytemuck::cast_slice(data.as_slice()),
             usage,
         });
@@ -117,12 +117,12 @@ where
     }
 
     /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.
-    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch) {
+    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch, name: &str) {
         if self.buffer.size() < self.data_len() {
             self.buffer = dispatch
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("data_buffer"),
+                    label: Some(name),
                     contents: bytemuck::cast_slice(self.data.as_slice()),
                     usage: self.buffer.usage(),
                 });
@@ -144,9 +144,9 @@ impl<T> DataBuffer<T>
 where
     T: bytemuck::NoUninit,
 {
-    pub fn init(device: &wgpu::Device, data: T, usage: wgpu::BufferUsages) -> Self {
+    pub fn init(device: &wgpu::Device, name: &str, data: T, usage: wgpu::BufferUsages) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("data_buffer"),
+            label: Some(name),
             contents: bytemuck::bytes_of(&data),
             usage,
         });

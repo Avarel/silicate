@@ -1,11 +1,16 @@
 pub mod blend;
 pub mod buffer;
-pub mod canvas;
 pub mod dev;
 pub mod pipeline;
 pub mod tex;
 
+pub mod atlas;
+pub mod canvas;
+
+use std::num::NonZeroU32;
+
 use self::tex::GpuTexture;
+use atlas::AtlasData;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, DataBuffer};
 use canvas::{CanvasTiling, TileInstance, VertexInput};
@@ -13,13 +18,20 @@ use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::CommandEncoder;
 
+#[derive(Debug)]
+pub struct ChunkTile {
+    pub col: u32,
+    pub row: u32,
+    /// Texture index into an atlas.
+    pub atlas_index: NonZeroU32,
+    /// Clipping texture index into an atlas`.
+    pub mask_atlas_index: Option<NonZeroU32>,
+}
+
 /// Compositing layer information.
 #[derive(Debug)]
 pub struct CompositeLayer {
-    /// Texture index into a `&[GpuBuffer]`.
-    pub texture: u32,
-    /// Clipping texture index into a `&[GpuBuffer]`.
-    pub clipped: Option<u32>,
+    pub chunks: Vec<ChunkTile>,
     /// Opacity (0.0..=1.0) of the layer.
     pub opacity: f32,
     /// Blending mode of the layer.
@@ -28,8 +40,10 @@ pub struct CompositeLayer {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
-struct LayerData {
-    texture_index: u32,
+struct ChunkData {
+    col: u32,
+    row: u32,
+    atlas_index: u32,
     mask_index: u32,
     blend: u32,
     opacity: f32,
@@ -39,8 +53,9 @@ struct CompositorBuffers {
     dispatch: GpuDispatch,
     vertices: DataBuffer<[VertexInput; 4]>,
     indices: DataBuffer<[u16; 4]>,
+    atlas: DataBuffer<AtlasData>,
     canvas: DataBuffer<CanvasTiling>,
-    layers: DataBuffer<Vec<LayerData>>,
+    chunks: DataBuffer<Vec<ChunkData>>,
     tiles: DataBuffer<Vec<TileInstance>>,
 }
 
@@ -78,21 +93,36 @@ impl CompositorBuffers {
         // Create the vertex buffer.
         let vertices = DataBuffer::init(
             device,
+            "vertex_buffer",
             Self::SQUARE_VERTICES,
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
         // Index draw buffer
-        let indices = DataBuffer::init(device, Self::INDICES, wgpu::BufferUsages::INDEX);
-
-        let layers = DataBuffer::init_vec(
+        let indices = DataBuffer::init(
             device,
+            "index_buffer",
+            Self::INDICES,
+            wgpu::BufferUsages::INDEX,
+        );
+
+        let chunks = DataBuffer::init_vec(
+            device,
+            "chunk_buffer",
             Vec::new(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
+        let atlas = DataBuffer::init(
+            device,
+            "atlas_buffer",
+            AtlasData::new(0, 0),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
         let tiles = DataBuffer::init_vec(
             device,
+            "tile_buffer",
             (0..canvas.rows())
                 .flat_map(|row| (0..canvas.cols()).map(move |col| TileInstance::new(col, row)))
                 .collect::<Vec<_>>(),
@@ -101,6 +131,7 @@ impl CompositorBuffers {
 
         let canvas = DataBuffer::init(
             device,
+            "canvas_buffer",
             canvas,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
@@ -109,7 +140,8 @@ impl CompositorBuffers {
             dispatch,
             vertices,
             indices,
-            layers,
+            atlas,
+            chunks,
             canvas,
             tiles,
         }
@@ -151,21 +183,25 @@ impl CompositorBuffers {
     //     self.load_vertex_buffer();
     // }
 
-    fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
-        let layers = self.layers.data_mut();
-        layers.clear();
+    fn load_chunk_buffer(&mut self, composite_layers: &[CompositeLayer]) {
+        let chunks = self.chunks.data_mut();
+        chunks.clear();
 
-        const MASK_NONE: u32 = u32::MAX;
+        const MASK_NONE: u32 = 0;
         for layer in composite_layers.iter() {
-            layers.push(LayerData {
-                texture_index: layer.texture,
-                mask_index: layer.clipped.unwrap_or(MASK_NONE),
-                blend: layer.blend.to_u32(),
-                opacity: layer.opacity,
-            });
+            for chunk in layer.chunks.iter() {
+                chunks.push(ChunkData {
+                    col: chunk.col,
+                    row: chunk.row,
+                    atlas_index: chunk.atlas_index.get(),
+                    mask_index: chunk.mask_atlas_index.map(|v| v.get()).unwrap_or(MASK_NONE),
+                    blend: layer.blend.to_u32(),
+                    opacity: layer.opacity,
+                });
+            }
         }
 
-        self.layers.load_vec_buffer(&self.dispatch);
+        self.chunks.load_vec_buffer(&self.dispatch, "chunk_buffer");
     }
 }
 
@@ -209,7 +245,8 @@ impl Target {
         pipeline: &Pipeline,
         bg: Option<[f32; 4]>,
         layers: &[CompositeLayer],
-        textures: &GpuTexture,
+        atlas: &AtlasData,
+        atlas_texture: &GpuTexture,
     ) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
@@ -219,7 +256,7 @@ impl Target {
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-            self.render_command(pipeline, &mut encoder, bg, layers, textures);
+            self.render_command(pipeline, &mut encoder, bg, layers, &atlas, atlas_texture);
 
             encoder.finish()
         };
@@ -232,9 +269,12 @@ impl Target {
         encoder: &mut CommandEncoder,
         bg: Option<[f32; 4]>,
         composite_layers: &[CompositeLayer],
-        textures: &GpuTexture,
+        atlas: &AtlasData,
+        atlas_texture: &GpuTexture,
     ) {
-        self.buffers.load_layer_buffer(composite_layers);
+        *self.buffers.atlas.data_mut() = *atlas;
+        self.buffers.atlas.load_buffer(self.dispatch.queue());
+        self.buffers.load_chunk_buffer(composite_layers);
 
         let canvas_bind_group =
             self.dispatch
@@ -255,8 +295,14 @@ impl Target {
                     layout: &pipeline.blending_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.buffers.atlas.buffer().as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&textures.create_view()),
+                            resource: wgpu::BindingResource::TextureView(
+                                &atlas_texture.create_view(),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
@@ -265,9 +311,9 @@ impl Target {
                                 // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
 
                                 wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: self.buffers.layers.buffer(),
+                                    buffer: self.buffers.chunks.buffer(),
                                     offset: 0,
-                                    size: std::num::NonZeroU64::new(self.buffers.layers.data_len()),
+                                    size: std::num::NonZeroU64::new(self.buffers.chunks.data_len()),
                                 })
                             },
                         },
@@ -322,6 +368,10 @@ impl Target {
             self.buffers.indices.buffer().slice(..),
             wgpu::IndexFormat::Uint16,
         );
-        pass.draw_indexed(0..CompositorBuffers::INDICES.len() as u32, 0, 0..self.buffers.tiles.data().len() as u32);
+        pass.draw_indexed(
+            0..CompositorBuffers::INDICES.len() as u32,
+            0,
+            0..self.buffers.tiles.data().len() as u32,
+        );
     }
 }

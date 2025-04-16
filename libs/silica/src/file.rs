@@ -89,8 +89,7 @@ impl ProcreateFile {
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
         let tile_size = nka.fetch::<u32>(root, "tileSize")?;
-        let columns = size.width.div_ceil(tile_size);
-        let rows = size.height.div_ceil(tile_size);
+        let (cols, rows) = (size.width.div_ceil(tile_size), size.height.div_ceil(tile_size));
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 
@@ -98,21 +97,13 @@ impl ProcreateFile {
             .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
-        let gpu_textures = GpuTexture::empty_layers(
-            dispatch,
-            size.width,
-            size.height,
-            ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1,
-            GpuTexture::LAYER_USAGE,
-        );
-
         let chunk_count = file_names.len() as u32;
 
         let tiling = TilingData {
-            columns,
+            cols,
             rows,
             diff: Size {
-                width: columns * tile_size - size.width,
+                width: cols * tile_size - size.width,
                 height: rows * tile_size - size.height,
             },
             size: tile_size,
@@ -124,9 +115,9 @@ impl ProcreateFile {
 
         let texture_chunks = GpuTexture::empty_layers(
             &dispatch,
-            tiling.size * tiling.atlas.columns,
+            tiling.size * tiling.atlas.cols,
             tiling.size * tiling.atlas.rows,
-            tiling.atlas.layers,
+            tiling.atlas.layers.max(2), // Make it an array
             GpuTexture::ATLAS_USAGE,
         );
 
@@ -136,10 +127,8 @@ impl ProcreateFile {
             size,
             file_names: &file_names,
             dispatch,
+            chunk_id_counter: AtomicU32::new(1),
             texture_chunks: &texture_chunks,
-            texture_layers: &gpu_textures,
-            layer_id_counter: AtomicU32::new(0),
-            chunk_id_counter: AtomicU32::new(0),
         };
 
         Ok((
@@ -181,7 +170,7 @@ impl ProcreateFile {
                         .collect::<Result<_, _>>()?,
                 },
             },
-            gpu_textures,
+            texture_chunks,
             tiling,
         ))
     }

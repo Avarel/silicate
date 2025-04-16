@@ -41,15 +41,12 @@ fn vs_main(
     let canvas_dim = vec2f(f32(canvas.width), f32(canvas.height));
 
     let scale = canvas_grid * f32(canvas.tile_size) / canvas_dim;
-
     let pos = (model.position + tile_coords) / canvas_grid;
-    let uv = (model.coords + tile_coords) / canvas_grid;
-
     let normalized_pos = pos * scale * 2.0 - 1.0;
 
     var out: VertexOutput;
     out.position = vec4(normalized_pos, 0.0, 1.0);
-    out.coords = uv * scale;
+    out.coords = model.coords;
     out.col = tile.col;
     out.row = tile.row;
     return out;
@@ -256,8 +253,15 @@ fn darker_color(b: vec3f, s: vec3f) -> vec3f {
 // Fragment shader /////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-struct LayerData {
-    texture_index: u32,
+struct AtlasData {
+    cols: u32,
+    rows: u32
+}
+
+struct ChunkData {
+    col: u32,
+    row: u32,
+    atlas_index: u32,
     mask_index: u32,
     blend: u32,
     opacity: f32,
@@ -265,10 +269,12 @@ struct LayerData {
 
 @group(1) @binding(0)
 var splr: sampler;
+@group(2) @binding(0)
+var<uniform> atlas: AtlasData;
 @group(2) @binding(1)
 var textures: texture_2d_array<f32>;
 @group(2) @binding(2)
-var<storage, read> layers: array<LayerData>;
+var<storage, read> chunks: array<ChunkData>;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -278,23 +284,45 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ), vec4(0.0), vec4(1.0));
 }
 
-const MASK_NONE: u32 = 0xFFFFFFFFu;
+const MASK_NONE: u32 = 0u;
+
+
+fn atlas_index(atlas_index: u32) -> vec3u {
+    return vec3u(
+        atlas_index % atlas.cols,
+        atlas_index / atlas.cols % atlas.rows,
+        atlas_index / (atlas.cols * atlas.rows)
+    );
+}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    // Premultiplied colors
     var bga = vec4(0.0);
 
-    for (var i: u32 = 0; i < arrayLength(&layers); i++) {
-        var maska = select(textureSample(textures, splr, in.coords, layers[i].mask_index).a, 1.0, layers[i].mask_index == MASK_NONE);
-        var fga = textureSample(textures, splr, in.coords, layers[i].texture_index) * maska;
+    for (var i: u32 = 0; i < arrayLength(&chunks); i++) {
+        let chunk = chunks[i];
+
+        if (chunk.col != in.col || chunk.row != in.row) {
+            continue;
+        }
+
+        let atlas_grid = vec2f(f32(atlas.cols), f32(atlas.rows));
+
+        let chunk_atlas_coords = atlas_index(chunk.atlas_index);
+        let chunk_atlas_uv = (vec2f(chunk_atlas_coords.xy) + in.coords) / atlas_grid;
+
+        let mask_atlas_coords = atlas_index(chunk.mask_index);
+        let mask_atlas_uv = (vec2f(mask_atlas_coords.xy) + in.coords) / atlas_grid;
+
+        var maska = select(textureSample(textures, splr, mask_atlas_uv, mask_atlas_coords.z).a, 1.0, chunk.mask_index == MASK_NONE);
+        var fga = textureSample(textures, splr, chunk_atlas_uv, chunk_atlas_coords.z) * maska;
 
         var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * layers[i].opacity);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * chunk.opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
-        switch (layers[i].blend) {
+        switch (chunk.blend) {
             case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
             case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
             case 3u: { final_pixel = add(bg.rgb, fg.rgb); }
