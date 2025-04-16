@@ -81,19 +81,22 @@ impl ControlsGui<'_> {
             .get(&self.active_canvas)
         {
             Grid::new("Canvas Grid").show(ui, |ui| {
-                ui.label("Flip");
-                ui.horizontal(|ui| {
-                    if ui.button("Horizontal").clicked() {
-                        instance.target.lock().data.flip_vertices(false, true);
-                        instance.store_change_or(true);
-                        self.app.rebind_texture(self.active_canvas);
-                    }
-                    if ui.button("Vertical").clicked() {
-                        instance.target.lock().data.flip_vertices(true, false);
-                        instance.store_change_or(true);
-                        self.app.rebind_texture(self.active_canvas);
-                    }
-                });
+                #[allow(path_statements)]
+                instance;
+                // TODO: reenable features
+                // ui.label("Flip");
+                // ui.horizontal(|ui| {
+                //     if ui.button("Horizontal").clicked() {
+                //         instance.target.lock().data.flip_vertices(false, true);
+                //         instance.store_change_or(true);
+                //         self.app.rebind_texture(self.active_canvas);
+                //     }
+                //     if ui.button("Vertical").clicked() {
+                //         instance.target.lock().data.flip_vertices(true, false);
+                //         instance.store_change_or(true);
+                //         self.app.rebind_texture(self.active_canvas);
+                //     }
+                // });
                 ui.end_row();
                 // ui.label("Rotate");
                 // ui.horizontal(|ui| {

@@ -6,7 +6,7 @@
 struct CanvasTiling {
     height: u32,
     width: u32,
-    columns: u32,
+    cols: u32,
     rows: u32,
     tile_size: u32,
 };
@@ -15,26 +15,47 @@ struct CanvasTiling {
 var<uniform> canvas: CanvasTiling;
 
 struct VertexInput {
-    @location(0) position: vec3f,
+    @location(0) position: vec2f,
     @location(1) coords: vec2f,
 };
+
+struct TileInstance {
+    @location(2) col: u32,
+    @location(3) row: u32
+}
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) coords: vec2f,
+    @location(1) col: u32,
+    @location(2) row: u32
 };
 
 @vertex
 fn vs_main(
-    model: VertexInput
+    model: VertexInput,
+    tile: TileInstance
 ) -> VertexOutput {
+    let tile_coords = vec2f(f32(tile.col), f32(tile.row));
+    let canvas_grid = vec2f(f32(canvas.cols), f32(canvas.rows));
+    let canvas_dim = vec2f(f32(canvas.width), f32(canvas.height));
+
+    let scale = canvas_grid * f32(canvas.tile_size) / canvas_dim;
+
+    let pos = (model.position + tile_coords) / canvas_grid;
+    let uv = (model.coords + tile_coords) / canvas_grid;
+
+    let normalized_pos = pos * scale * 2.0 - 1.0;
+
     var out: VertexOutput;
-    out.coords = model.coords;
-    out.position = vec4(model.position, 1.0);
+    out.position = vec4(normalized_pos, 0.0, 1.0);
+    out.coords = uv * scale;
+    out.col = tile.col;
+    out.row = tile.row;
     return out;
 }
 
-// Blending code ///////////////////////////////////////////////////////////////
+// Blening cod ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 // HSL Blending Modes //////////////////////////////////////////////////////////

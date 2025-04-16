@@ -84,6 +84,10 @@ pub struct DataBuffer<T> {
 }
 
 impl<T> DataBuffer<T> {
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
     /// Get CPU data.
     pub fn data_mut(&mut self) -> &mut T {
         &mut self.data

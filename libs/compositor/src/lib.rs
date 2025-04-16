@@ -8,7 +8,7 @@ pub mod tex;
 use self::tex::GpuTexture;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, DataBuffer};
-use canvas::CanvasTiling;
+use canvas::{CanvasTiling, TileInstance, VertexInput};
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::CommandEncoder;
@@ -26,38 +26,6 @@ pub struct CompositeLayer {
     pub blend: BlendingMode,
 }
 
-/// Vertex input to the shader.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
-struct VertexInput {
-    /// Position of the vertex.
-    position: [f32; 3],
-    /// Holds the UV information of the foreground.
-    /// The layers to be composited on the output texture uses this.
-    fg_coords: [f32; 2],
-}
-
-impl VertexInput {
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<VertexInput>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: std::mem::offset_of!(VertexInput, position) as wgpu::BufferAddress,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::offset_of!(VertexInput, fg_coords) as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct LayerData {
@@ -67,36 +35,37 @@ struct LayerData {
     opacity: f32,
 }
 
-pub struct CompositorData {
+struct CompositorBuffers {
     dispatch: GpuDispatch,
     vertices: DataBuffer<[VertexInput; 4]>,
     indices: DataBuffer<[u16; 4]>,
     canvas: DataBuffer<CanvasTiling>,
     layers: DataBuffer<Vec<LayerData>>,
+    tiles: DataBuffer<Vec<TileInstance>>,
 }
 
-impl CompositorData {
+impl CompositorBuffers {
     /// Initial vertices
     const SQUARE_VERTICES: [VertexInput; 4] = [
         VertexInput {
             // top left
-            position: [-1.0, 1.0, 0.0],
-            fg_coords: [0.0, 1.0],
+            position: [0.0, 1.0],
+            coords: [0.0, 1.0],
         },
         VertexInput {
             // bottom left
-            position: [-1.0, -1.0, 0.0],
-            fg_coords: [0.0, 0.0],
+            position: [0.0, 0.0],
+            coords: [0.0, 0.0],
         },
         VertexInput {
             // top right
-            position: [1.0, 1.0, 0.0],
-            fg_coords: [1.0, 1.0],
+            position: [1.0, 1.0],
+            coords: [1.0, 1.0],
         },
         VertexInput {
             // bottom right
-            position: [1.0, -1.0, 0.0],
-            fg_coords: [1.0, 0.0],
+            position: [1.0, 0.0],
+            coords: [1.0, 0.0],
         },
     ];
 
@@ -122,6 +91,14 @@ impl CompositorData {
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
+        let tiles = DataBuffer::init_vec(
+            device,
+            (0..canvas.rows())
+                .flat_map(|row| (0..canvas.cols()).map(move |col| TileInstance::new(col, row)))
+                .collect::<Vec<_>>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
         let canvas = DataBuffer::init(
             device,
             canvas,
@@ -134,27 +111,28 @@ impl CompositorData {
             indices,
             layers,
             canvas,
+            tiles,
         }
     }
 
-    /// Flip the vertex data's foreground UV of the compositor target.
-    pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
-        for v in self.vertices.data_mut() {
-            v.fg_coords = [
-                if horizontal {
-                    1.0 - v.fg_coords[0]
-                } else {
-                    v.fg_coords[0]
-                },
-                if vertical {
-                    1.0 - v.fg_coords[1]
-                } else {
-                    v.fg_coords[1]
-                },
-            ];
-        }
-        self.vertices.load_buffer(self.dispatch.queue());
-    }
+    // /// Flip the vertex data's foreground UV of the compositor target.
+    // pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
+    //     for v in self.vertices.data_mut() {
+    //         v.fg_coords = [
+    //             if horizontal {
+    //                 1.0 - v.fg_coords[0]
+    //             } else {
+    //                 v.fg_coords[0]
+    //             },
+    //             if vertical {
+    //                 1.0 - v.fg_coords[1]
+    //             } else {
+    //                 v.fg_coords[1]
+    //             },
+    //         ];
+    //     }
+    //     self.vertices.load_buffer(self.dispatch.queue());
+    // }
 
     // /// Rotate the vertex data's foreground UV of the compositor target.
     // pub fn rotate_vertices(&mut self, ccw: bool) {
@@ -194,7 +172,7 @@ impl CompositorData {
 /// Output target of a compositor pipeline.
 pub struct Target {
     dispatch: GpuDispatch,
-    pub data: CompositorData,
+    buffers: CompositorBuffers,
     /// Output texture dimensions.
     dim: BufferDimensions,
     /// Compositor output buffers and texture.
@@ -206,9 +184,13 @@ impl Target {
     pub fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
         let dim = BufferDimensions::new(canvas.width, canvas.height);
         Self {
-            output: GpuTexture::empty_with_extent(&dispatch, dim.extent(), GpuTexture::OUTPUT_USAGE),
+            output: GpuTexture::empty_with_extent(
+                &dispatch,
+                dim.extent(),
+                GpuTexture::OUTPUT_USAGE,
+            ),
             dispatch: dispatch.clone(),
-            data: CompositorData::new(dispatch, canvas),
+            buffers: CompositorBuffers::new(dispatch, canvas),
             dim,
         }
     }
@@ -252,7 +234,7 @@ impl Target {
         composite_layers: &[CompositeLayer],
         textures: &GpuTexture,
     ) {
-        self.data.load_layer_buffer(composite_layers);
+        self.buffers.load_layer_buffer(composite_layers);
 
         let canvas_bind_group =
             self.dispatch
@@ -261,7 +243,7 @@ impl Target {
                     layout: &pipeline.canvas_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.data.canvas.buffer().as_entire_binding(),
+                        resource: self.buffers.canvas.buffer().as_entire_binding(),
                     }],
                     label: Some("canvas_bind_group"),
                 });
@@ -283,9 +265,9 @@ impl Target {
                                 // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
 
                                 wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: self.data.layers.buffer(),
+                                    buffer: self.buffers.layers.buffer(),
                                     offset: 0,
-                                    size: std::num::NonZeroU64::new(self.data.layers.data_len()),
+                                    size: std::num::NonZeroU64::new(self.buffers.layers.data_len()),
                                 })
                             },
                         },
@@ -334,11 +316,12 @@ impl Target {
         pass.set_bind_group(0, &canvas_bind_group, &[]);
         pass.set_bind_group(1, &pipeline.constant_bind_group, &[]);
         pass.set_bind_group(2, &blending_bind_group, &[]);
-        pass.set_vertex_buffer(0, self.data.vertices.buffer().slice(..));
+        pass.set_vertex_buffer(0, self.buffers.vertices.buffer().slice(..));
+        pass.set_vertex_buffer(1, self.buffers.tiles.buffer_slice());
         pass.set_index_buffer(
-            self.data.indices.buffer().slice(..),
+            self.buffers.indices.buffer().slice(..),
             wgpu::IndexFormat::Uint16,
         );
-        pass.draw_indexed(0..CompositorData::INDICES.len() as u32, 0, 0..1);
+        pass.draw_indexed(0..CompositorBuffers::INDICES.len() as u32, 0, 0..self.buffers.tiles.data().len() as u32);
     }
 }

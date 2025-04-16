@@ -70,7 +70,7 @@ impl TilingData {
             } else {
                 self.size - self.diff.height
             },
-            depth_or_array_layers: 1
+            depth_or_array_layers: 1,
         }
     }
 

@@ -94,17 +94,19 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
                 let app = &instance.app;
                 match app.load_file(path) {
                     Err(err) => {
-                        app.toasts.lock().error(format!(
-                            "File from drag/drop failed to load. Reason: {err}"
-                        ));
+                        app.toasts
+                            .lock()
+                            .error(format!("File from drag/drop failed to load. Reason: {err}"));
                     }
                     Ok(key) => {
                         app.toasts.lock().success("Loaded file from command line.");
-                        app.new_instances.blocking_send((
-                            egui_dock::SurfaceIndex::main(),
-                            egui_dock::NodeIndex::root(),
-                            key,
-                        )).unwrap();
+                        app.new_instances
+                            .blocking_send((
+                                egui_dock::SurfaceIndex::main(),
+                                egui_dock::NodeIndex::root(),
+                                key,
+                            ))
+                            .unwrap();
                     }
                 }
             }
