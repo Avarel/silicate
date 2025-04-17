@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::dev::GpuDispatch;
+use crate::{atlas::AtlasData, canvas::{CanvasTiling, ChunkData, ChunkSegment, LayerData, TileInstance, VertexInput}, dev::GpuDispatch, ChunkTile, CompositeLayer};
 
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,5 +156,213 @@ where
     /// Load the GPU vertex buffer with updated data.
     pub fn load_buffer(&mut self, queue: &wgpu::Queue) {
         queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&self.data));
+    }
+}
+
+pub(crate) struct CompositorBuffers {
+    dispatch: GpuDispatch,
+    pub(crate) vertices: DataBuffer<[VertexInput; 4]>,
+    pub(crate) indices: DataBuffer<[u16; 4]>,
+    pub(crate) atlas: DataBuffer<AtlasData>,
+    pub(crate) canvas: DataBuffer<CanvasTiling>,
+    pub(crate) segments: DataBuffer<Vec<ChunkSegment>>,
+    pub(crate) chunks: DataBuffer<Vec<ChunkData>>,
+    pub(crate) layers: DataBuffer<Vec<LayerData>>,
+    pub(crate) tiles: DataBuffer<Vec<TileInstance>>,
+}
+
+impl CompositorBuffers {
+    /// Initial vertices
+    const SQUARE_VERTICES: [VertexInput; 4] = [
+        VertexInput {
+            // top left
+            position: [0.0, 1.0],
+            coords: [0.0, 1.0],
+        },
+        VertexInput {
+            // bottom left
+            position: [0.0, 0.0],
+            coords: [0.0, 0.0],
+        },
+        VertexInput {
+            // top right
+            position: [1.0, 1.0],
+            coords: [1.0, 1.0],
+        },
+        VertexInput {
+            // bottom right
+            position: [1.0, 0.0],
+            coords: [1.0, 0.0],
+        },
+    ];
+
+    /// Initial indices of the 2 triangle strips
+    pub(super) const INDICES: [u16; 4] = [0, 2, 1, 3];
+
+    pub(super) fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
+        let device = dispatch.device();
+
+        // Create the vertex buffer.
+        let vertices = DataBuffer::init(
+            device,
+            "vertex_buffer",
+            Self::SQUARE_VERTICES,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
+        // Index draw buffer
+        let indices = DataBuffer::init(
+            device,
+            "index_buffer",
+            Self::INDICES,
+            wgpu::BufferUsages::INDEX,
+        );
+
+        let layers = DataBuffer::init_vec(
+            device,
+            "layer_buffer",
+            Vec::new(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let chunks = DataBuffer::init_vec(
+            device,
+            "chunk_buffer",
+            Vec::new(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let segments = DataBuffer::init_vec(
+            device,
+            "segment_buffer",
+            Vec::new(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let atlas = DataBuffer::init(
+            device,
+            "atlas_buffer",
+            AtlasData::new(0, 0),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let tiles = DataBuffer::init_vec(
+            device,
+            "tile_buffer",
+            (0..canvas.rows())
+                .flat_map(|row| (0..canvas.cols()).map(move |col| TileInstance::new(col, row)))
+                .collect::<Vec<_>>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let canvas = DataBuffer::init(
+            device,
+            "canvas_buffer",
+            canvas,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
+        Self {
+            dispatch,
+            vertices,
+            indices,
+            atlas,
+            layers,
+            segments,
+            chunks,
+            canvas,
+            tiles,
+        }
+    }
+
+    // /// Flip the vertex data's foreground UV of the compositor target.
+    // pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
+    //     for v in self.vertices.data_mut() {
+    //         v.fg_coords = [
+    //             if horizontal {
+    //                 1.0 - v.fg_coords[0]
+    //             } else {
+    //                 v.fg_coords[0]
+    //             },
+    //             if vertical {
+    //                 1.0 - v.fg_coords[1]
+    //             } else {
+    //                 v.fg_coords[1]
+    //             },
+    //         ];
+    //     }
+    //     self.vertices.load_buffer(self.dispatch.queue());
+    // }
+
+    // /// Rotate the vertex data's foreground UV of the compositor target.
+    // pub fn rotate_vertices(&mut self, ccw: bool) {
+    //     let temp = self.vertices[0].fg_coords;
+    //     if ccw {
+    //         self.vertices[0].fg_coords = self.vertices[1].fg_coords;
+    //         self.vertices[1].fg_coords = self.vertices[3].fg_coords;
+    //         self.vertices[3].fg_coords = self.vertices[2].fg_coords;
+    //         self.vertices[2].fg_coords = temp;
+    //     } else {
+    //         self.vertices[0].fg_coords = self.vertices[2].fg_coords;
+    //         self.vertices[2].fg_coords = self.vertices[3].fg_coords;
+    //         self.vertices[3].fg_coords = self.vertices[1].fg_coords;
+    //         self.vertices[1].fg_coords = temp;
+    //     }
+    //     self.load_vertex_buffer();
+    // }
+
+    pub(super) fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
+        let layers = self.layers.data_mut();
+        layers.clear();
+
+        for layer in composite_layers.iter() {
+            layers.push(LayerData {
+                blend: layer.blend.to_u32(),
+                opacity: layer.opacity,
+                clipped: if layer.clipped { 1 } else { 0 },
+                hidden: if layer.hidden { 1 } else { 0 },
+            });
+        }
+
+        self.layers.load_vec_buffer(&self.dispatch, "layer_buffer");
+    }
+
+    pub(super) fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
+        debug_assert!(chunks_data.is_sorted_by_key(|v| (v.col, v.row)));
+
+        let num_cols = self.canvas.data().cols();
+        let num_rows = self.canvas.data().rows();
+
+        let chunks = self.chunks.data_mut();
+        chunks.clear();
+
+        let segments = self.segments.data_mut();
+        segments.resize(
+            (num_cols * num_rows) as usize,
+            ChunkSegment { start: 0, end: 0 },
+        );
+
+        // Create a mutable list of segment references by index for fast access
+        for chunk in chunks_data {
+            let index = (chunk.row * num_cols + chunk.col) as usize;
+            let start = chunks.len();
+            chunks.push(ChunkData {
+                atlas_index: chunk.atlas_index.get(),
+                mask_index: chunk.mask_atlas_index.map(|v| v.get()).unwrap_or(0),
+                layer_index: chunk.layer_index,
+            });
+
+            let segment = &mut segments[index];
+
+            if segment.start == 0 && segment.end == 0 {
+                // First time seeing this (col, row)
+                segment.start = start as u32;
+            }
+            segment.end = chunks.len() as u32; // always update end to current
+        }
+
+        self.chunks.load_vec_buffer(&self.dispatch, "chunk_buffer");
+        self.segments
+            .load_vec_buffer(&self.dispatch, "segment_buffer");
     }
 }

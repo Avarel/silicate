@@ -92,3 +92,28 @@ impl TileInstance {
         }
     }
 }
+
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
+pub(crate) struct LayerData {
+    pub opacity: f32,
+    pub blend: u32,
+    pub clipped: u32,
+    pub hidden: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
+pub(crate) struct ChunkSegment {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
+pub(crate) struct ChunkData {
+    pub atlas_index: u32,
+    pub mask_index: u32,
+    pub layer_index: u32,
+}

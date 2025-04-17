@@ -238,7 +238,6 @@ impl CompositorApp {
                             hidden: layer.hidden,
                         });
                     }
-                    _ => continue,
                 }
             }
         }
@@ -285,7 +284,6 @@ impl CompositorApp {
                         *mask_layer = Some(layer);
                         *layer_counter += 1;
                     }
-                    _ => continue,
                 }
             }
         }
@@ -295,7 +293,7 @@ impl CompositorApp {
 
     pub async fn rendering_thread(self: Arc<Self>) {
         let mut composite_layers = Vec::new();
-        let mut composite_chunks = Vec::new();
+        let mut composite_chunks: Vec<ChunkTile> = Vec::new();
         let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
         limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -327,6 +325,7 @@ impl CompositorApp {
                         .unwrap_or(true)
                     {
                         Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
+                        composite_chunks.sort_by_key(|v| (v.col, v.row));
                         true
                     } else {
                         false

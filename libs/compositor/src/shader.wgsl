@@ -27,8 +27,7 @@ struct TileInstance {
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) coords: vec2f,
-    @location(1) col: u32,
-    @location(2) row: u32
+    @location(1) chunk_index: u32,
 };
 
 @vertex
@@ -47,8 +46,7 @@ fn vs_main(
     var out: VertexOutput;
     out.position = vec4(normalized_pos, 0.0, 1.0);
     out.coords = model.coords;
-    out.col = tile.col;
-    out.row = tile.row;
+    out.chunk_index = tile.row * canvas.cols + tile.col;
     return out;
 }
 
@@ -266,12 +264,15 @@ struct LayerData {
 };
 
 struct ChunkData {
-    col: u32,
-    row: u32,
     atlas_index: u32,
     mask_index: u32,
     layer_index: u32,
 };
+
+struct SegmentData {
+    start: u32,
+    end: u32,
+}
 
 @group(1) @binding(0)
 var splr: sampler;
@@ -283,6 +284,8 @@ var textures: texture_2d_array<f32>;
 var<storage, read> chunks: array<ChunkData>;
 @group(2) @binding(3)
 var<storage, read> layers: array<LayerData>;
+@group(2) @binding(4)
+var<storage, read> segments: array<SegmentData>;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -307,12 +310,10 @@ fn atlas_index(atlas_index: u32) -> vec3u {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = vec4(0.0);
 
-    for (var i: u32 = 0; i < arrayLength(&chunks); i++) {
-        let chunk = chunks[i];
+    let segment = segments[in.chunk_index];
 
-        if (chunk.col != in.col || chunk.row != in.row) {
-            continue;
-        }
+    for (var i: u32 = segment.start; i < segment.end; i++) {
+        let chunk = chunks[i];
 
         let layer = layers[chunk.layer_index];
 
