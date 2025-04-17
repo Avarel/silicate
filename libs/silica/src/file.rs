@@ -89,7 +89,10 @@ impl ProcreateFile {
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
         let tile_size = nka.fetch::<u32>(root, "tileSize")?;
-        let (cols, rows) = (size.width.div_ceil(tile_size), size.height.div_ceil(tile_size));
+        let (cols, rows) = (
+            size.width.div_ceil(tile_size),
+            size.height.div_ceil(tile_size),
+        );
 
         let file_names = archive.file_names().collect::<Vec<_>>();
 

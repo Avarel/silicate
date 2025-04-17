@@ -40,12 +40,10 @@ pub enum UserEvent {
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
-    key: InstanceKey,
     pub file: RwLock<ProcreateFile>,
-    pub atlas_texture: GpuTexture,
     pub target: Mutex<Target>,
     pub changed: AtomicBool,
-    tiling: silica::layers::TilingData,
+    pub needs_to_load_chunks: AtomicBool,
 }
 
 impl Instance {
@@ -80,7 +78,12 @@ impl App {
             (tiling.cols, tiling.rows),
             tiling.size,
         );
-        let target = Target::new(self.dispatch.clone(), canvas);
+        let target = Target::new(
+            self.dispatch.clone(),
+            canvas,
+            AtlasData::new(tiling.atlas.cols, tiling.atlas.rows),
+            atlas_texture,
+        );
         // target
         //     .data
         //     .flip_vertices(file.flipped.horizontally, file.flipped.vertically);
@@ -98,12 +101,10 @@ impl App {
         self.compositor.instances.write().insert(
             key,
             Instance {
-                key,
                 file: RwLock::new(file),
                 target: Mutex::new(target),
-                atlas_texture,
-                tiling,
                 changed: AtomicBool::new(true),
+                needs_to_load_chunks: AtomicBool::new(true),
             },
         );
         self.rebind_texture(key);
@@ -224,25 +225,29 @@ impl CompositorApp {
     ) {
         composite_layers.clear();
 
-        fn inner<'a>(layers: &'a SilicaGroup, composite_layers: &mut Vec<CompositeLayer>) {
+        fn inner<'a>(
+            layers: &'a SilicaGroup,
+            composite_layers: &mut Vec<CompositeLayer>,
+            override_hidden: bool,
+        ) {
             for layer in layers.children.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(group, composite_layers);
+                        inner(group, composite_layers, group.hidden | override_hidden);
                     }
                     SilicaHierarchy::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
                             opacity: layer.opacity,
                             blend: layer.blend,
                             clipped: layer.clipped,
-                            hidden: layer.hidden,
+                            hidden: layer.hidden | override_hidden,
                         });
                     }
                 }
             }
         }
 
-        inner(layers, composite_layers);
+        inner(layers, composite_layers, false);
     }
 
     fn linearize_silica_chunks<'a>(composite_layers: &mut Vec<ChunkTile>, layers: &'a SilicaGroup) {
@@ -297,8 +302,6 @@ impl CompositorApp {
         let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
         limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let mut last_loaded_instance_chunks_index = None;
-
         loop {
             // Ensures that we are not generating frames faster than 60FPS
             // to avoid putting unnecessary computational pressure on the GPU.
@@ -307,60 +310,42 @@ impl CompositorApp {
             for instance in self.instances.read().values() {
                 // If the file is contended then it might be edited by the GUI.
                 // Might as well not render a soon to be outdated result.
-                if let Some(file) = instance.file.try_read() {
-                    // Only force a recompute if we need to.
-                    if !instance.change_untick() {
-                        continue;
-                    }
-
-                    let new_layer_config = file.layers.clone();
-                    let background = (!file.background_hidden).then_some(file.background_color);
-                    // Drop the guard here, we no longer need it.
-                    drop(file);
-
-                    let start_time = std::time::Instant::now();
-
-                    let reload_chunks = if last_loaded_instance_chunks_index
-                        .map(|v| v != instance.key)
-                        .unwrap_or(true)
-                    {
-                        Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
-                        composite_chunks.sort_by_key(|v| (v.col, v.row));
-                        true
-                    } else {
-                        false
-                    };
-                    last_loaded_instance_chunks_index = Some(instance.key);
-
-                    let chunk_linear_time = start_time.elapsed();
-
-                    let start_time = std::time::Instant::now();
-
-                    Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
-
-                    let layer_linear_time = start_time.elapsed();
-
-                    eprintln!("Chunk linearization: {:?}", chunk_linear_time);
-                    eprintln!("Layer linearization: {:?}", layer_linear_time);
-
-                    let mut target = instance.target.lock();
-                    if reload_chunks {
-                        eprintln!("Reloading chunks");
-                        target.load_chunk_buffer(composite_chunks.as_slice());
-                    }
-                    target.render(
-                        &self.pipeline,
-                        background,
-                        &composite_layers,
-                        &AtlasData::new(instance.tiling.atlas.cols, instance.tiling.atlas.rows),
-                        &instance.atlas_texture,
-                    );
-                    // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-                    // std::thread::sleep(std::time::Duration::from_secs(1));
-                    // Debugging notes: if the GPU is highly contended, the main
-                    // GUI rendering can still be somewhat sluggish.
-                    drop(target);
+                let Some(file) = instance.file.try_read() else {
+                    continue;
+                };
+                // Only force a recompute if we need to.
+                if !instance.change_untick() {
+                    continue;
                 }
+
+                let new_layer_config = file.layers.clone();
+                let background = (!file.background_hidden).then_some(file.background_color);
+                // Drop the guard here, we no longer need it.
+                drop(file);
+
+                let reload_chunks = instance
+                    .needs_to_load_chunks
+                    .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
+
+                if reload_chunks {
+                    Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
+                    composite_chunks.sort_by_key(|v| (v.col, v.row));
+                }
+
+                Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
+
+                let mut target = instance.target.lock();
+                target.load_layer_buffer(composite_layers.as_slice());
+                if reload_chunks {
+                    eprintln!("Reloading chunks");
+                    target.load_chunk_buffer(composite_chunks.as_slice());
+                }
+                target.render(&self.pipeline, background);
+                // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+                // std::thread::sleep(std::time::Duration::from_secs(1));
+                // Debugging notes: if the GPU is highly contended, the main
+                // GUI rendering can still be somewhat sluggish.
+                drop(target);
             }
         }
     }

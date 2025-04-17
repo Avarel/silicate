@@ -1,4 +1,4 @@
-use crate::{dev::GpuDispatch, TileInstance, VertexInput};
+use crate::{TileInstance, VertexInput, dev::GpuDispatch};
 
 pub struct Pipeline {
     pub constant_bind_group: wgpu::BindGroup,

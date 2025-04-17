@@ -25,12 +25,12 @@ use std::{sync::atomic::AtomicUsize, time::Duration};
 use winit::{event::WindowEvent, event_loop::ControlFlow};
 
 pub struct AppWin {
-    pub(crate) surface: wgpu::Surface<'static>,
-    pub(crate) window: Arc<egui_winit::winit::window::Window>,
-    pub(crate) integration: egui_winit::State,
-    pub(crate) screen_descriptor: egui_wgpu::ScreenDescriptor,
-    pub(crate) renderer: egui_wgpu::Renderer,
-    pub(crate) surface_config: wgpu::SurfaceConfiguration,
+    surface: wgpu::Surface<'static>,
+    window: Arc<egui_winit::winit::window::Window>,
+    integration: egui_winit::State,
+    screen_descriptor: egui_wgpu::ScreenDescriptor,
+    renderer: egui_wgpu::Renderer,
+    surface_config: wgpu::SurfaceConfiguration,
 }
 
 pub struct AppInstance {

@@ -48,11 +48,17 @@ pub struct Target {
     dim: BufferDimensions,
     /// Compositor output buffers and texture.
     output: GpuTexture,
+    atlas_texture: GpuTexture,
 }
 
 impl Target {
     /// Create a new compositor target.
-    pub fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
+    pub fn new(
+        dispatch: GpuDispatch,
+        canvas: CanvasTiling,
+        atlas_data: AtlasData,
+        atlas_texture: GpuTexture,
+    ) -> Self {
         let dim = BufferDimensions::new(canvas.width, canvas.height);
         Self {
             output: GpuTexture::empty_with_extent(
@@ -61,8 +67,9 @@ impl Target {
                 GpuTexture::OUTPUT_USAGE,
             ),
             dispatch: dispatch.clone(),
-            buffers: CompositorBuffers::new(dispatch, canvas),
+            buffers: CompositorBuffers::new(dispatch, canvas, atlas_data),
             dim,
+            atlas_texture,
         }
     }
 
@@ -74,15 +81,16 @@ impl Target {
         &self.output
     }
 
+    pub fn load_layer_buffer(&mut self, layers: &[CompositeLayer]) {
+        self.buffers.load_layer_buffer(layers);
+    }
+
+    pub fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
+        self.buffers.load_chunk_buffer(chunks_data);
+    }
+
     /// Render composite layers using the compositor pipeline.
-    pub fn render(
-        &mut self,
-        pipeline: &Pipeline,
-        bg: Option<[f32; 4]>,
-        layers: &[CompositeLayer],
-        atlas: &AtlasData,
-        atlas_texture: &GpuTexture,
-    ) {
+    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>) {
         assert!(!self.dim.is_empty(), "set_dimensions required");
 
         let command_buffers = {
@@ -91,30 +99,19 @@ impl Target {
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-            self.render_command(pipeline, &mut encoder, bg, layers, &atlas, atlas_texture);
+            self.render_command(pipeline, &mut encoder, bg);
 
             encoder.finish()
         };
         self.dispatch.queue().submit(Some(command_buffers));
     }
 
-    pub fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
-        self.buffers.load_chunk_buffer(chunks_data);
-    }
-
     fn render_command(
-        &mut self,
+        &self,
         pipeline: &Pipeline,
         encoder: &mut CommandEncoder,
         bg: Option<[f32; 4]>,
-        composite_layers: &[CompositeLayer],
-        atlas: &AtlasData,
-        atlas_texture: &GpuTexture,
     ) {
-        *self.buffers.atlas.data_mut() = *atlas;
-        self.buffers.atlas.load_buffer(self.dispatch.queue());
-        self.buffers.load_layer_buffer(composite_layers);
-
         let canvas_bind_group =
             self.dispatch
                 .device()
@@ -140,7 +137,7 @@ impl Target {
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
-                                &atlas_texture.create_view(),
+                                &self.atlas_texture.create_view(),
                             ),
                         },
                         wgpu::BindGroupEntry {

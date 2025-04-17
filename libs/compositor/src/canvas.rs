@@ -60,7 +60,6 @@ impl VertexInput {
     }
 }
 
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TileInstance {
@@ -92,7 +91,6 @@ impl TileInstance {
         }
     }
 }
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]

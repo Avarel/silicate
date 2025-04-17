@@ -9,7 +9,7 @@ pub use wgpu::Extent3d;
 pub use wgpu::Origin3d;
 
 /// GPU texture abstraction.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuTexture {
     pub size: wgpu::Extent3d,
     pub texture: wgpu::Texture,

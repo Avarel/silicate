@@ -1,6 +1,11 @@
 use wgpu::util::DeviceExt;
 
-use crate::{atlas::AtlasData, canvas::{CanvasTiling, ChunkData, ChunkSegment, LayerData, TileInstance, VertexInput}, dev::GpuDispatch, ChunkTile, CompositeLayer};
+use crate::{
+    ChunkTile, CompositeLayer,
+    atlas::AtlasData,
+    canvas::{CanvasTiling, ChunkData, ChunkSegment, LayerData, TileInstance, VertexInput},
+    dev::GpuDispatch,
+};
 
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +108,12 @@ impl<T> DataBuffer<Vec<T>>
 where
     T: bytemuck::NoUninit,
 {
-    pub fn init_vec(device: &wgpu::Device, name: &str, data: Vec<T>, usage: wgpu::BufferUsages) -> Self {
+    pub fn init_vec(
+        device: &wgpu::Device,
+        name: &str,
+        data: Vec<T>,
+        usage: wgpu::BufferUsages,
+    ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(name),
             contents: bytemuck::cast_slice(data.as_slice()),
@@ -199,7 +209,11 @@ impl CompositorBuffers {
     /// Initial indices of the 2 triangle strips
     pub(super) const INDICES: [u16; 4] = [0, 2, 1, 3];
 
-    pub(super) fn new(dispatch: GpuDispatch, canvas: CanvasTiling) -> Self {
+    pub(super) fn new(
+        dispatch: GpuDispatch,
+        canvas_data: CanvasTiling,
+        atlas_data: AtlasData,
+    ) -> Self {
         let device = dispatch.device();
 
         // Create the vertex buffer.
@@ -242,15 +256,15 @@ impl CompositorBuffers {
         let atlas = DataBuffer::init(
             device,
             "atlas_buffer",
-            AtlasData::new(0, 0),
+            atlas_data,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
         let tiles = DataBuffer::init_vec(
             device,
             "tile_buffer",
-            (0..canvas.rows())
-                .flat_map(|row| (0..canvas.cols()).map(move |col| TileInstance::new(col, row)))
+            (0..canvas_data.rows())
+                .flat_map(|row| (0..canvas_data.cols()).map(move |col| TileInstance::new(col, row)))
                 .collect::<Vec<_>>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
@@ -258,7 +272,7 @@ impl CompositorBuffers {
         let canvas = DataBuffer::init(
             device,
             "canvas_buffer",
-            canvas,
+            canvas_data,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -274,42 +288,6 @@ impl CompositorBuffers {
             tiles,
         }
     }
-
-    // /// Flip the vertex data's foreground UV of the compositor target.
-    // pub fn flip_vertices(&mut self, horizontal: bool, vertical: bool) {
-    //     for v in self.vertices.data_mut() {
-    //         v.fg_coords = [
-    //             if horizontal {
-    //                 1.0 - v.fg_coords[0]
-    //             } else {
-    //                 v.fg_coords[0]
-    //             },
-    //             if vertical {
-    //                 1.0 - v.fg_coords[1]
-    //             } else {
-    //                 v.fg_coords[1]
-    //             },
-    //         ];
-    //     }
-    //     self.vertices.load_buffer(self.dispatch.queue());
-    // }
-
-    // /// Rotate the vertex data's foreground UV of the compositor target.
-    // pub fn rotate_vertices(&mut self, ccw: bool) {
-    //     let temp = self.vertices[0].fg_coords;
-    //     if ccw {
-    //         self.vertices[0].fg_coords = self.vertices[1].fg_coords;
-    //         self.vertices[1].fg_coords = self.vertices[3].fg_coords;
-    //         self.vertices[3].fg_coords = self.vertices[2].fg_coords;
-    //         self.vertices[2].fg_coords = temp;
-    //     } else {
-    //         self.vertices[0].fg_coords = self.vertices[2].fg_coords;
-    //         self.vertices[2].fg_coords = self.vertices[3].fg_coords;
-    //         self.vertices[3].fg_coords = self.vertices[1].fg_coords;
-    //         self.vertices[1].fg_coords = temp;
-    //     }
-    //     self.load_vertex_buffer();
-    // }
 
     pub(super) fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
         let layers = self.layers.data_mut();
