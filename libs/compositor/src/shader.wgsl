@@ -258,13 +258,19 @@ struct AtlasData {
     rows: u32
 }
 
+struct LayerData {
+    opacity: f32,
+    blend: u32,
+    clipped: u32,
+    hidden: u32,
+};
+
 struct ChunkData {
     col: u32,
     row: u32,
     atlas_index: u32,
     mask_index: u32,
-    blend: u32,
-    opacity: f32,
+    layer_index: u32,
 };
 
 @group(1) @binding(0)
@@ -275,6 +281,8 @@ var<uniform> atlas: AtlasData;
 var textures: texture_2d_array<f32>;
 @group(2) @binding(2)
 var<storage, read> chunks: array<ChunkData>;
+@group(2) @binding(3)
+var<storage, read> layers: array<LayerData>;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -306,6 +314,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             continue;
         }
 
+        let layer = layers[chunk.layer_index];
+
+        if (layer.hidden != 0) {
+            continue;
+        }
+
         let atlas_grid = vec2f(f32(atlas.cols), f32(atlas.rows));
 
         let chunk_atlas_coords = atlas_index(chunk.atlas_index);
@@ -314,15 +328,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let mask_atlas_coords = atlas_index(chunk.mask_index);
         let mask_atlas_uv = (vec2f(mask_atlas_coords.xy) + in.coords) / atlas_grid;
 
-        var maska = select(textureSample(textures, splr, mask_atlas_uv, mask_atlas_coords.z).a, 1.0, chunk.mask_index == MASK_NONE);
+        var maska = select(textureSample(textures, splr, mask_atlas_uv, mask_atlas_coords.z).a, 1.0, layer.clipped == 0);
         var fga = textureSample(textures, splr, chunk_atlas_uv, chunk_atlas_coords.z) * maska;
 
         var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * chunk.opacity);
+        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * layer.opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
-        switch (chunk.blend) {
+        switch (layer.blend) {
             case 1u: { final_pixel = multiply(bg.rgb, fg.rgb); }
             case 2u: { final_pixel = screen(bg.rgb, fg.rgb); }
             case 3u: { final_pixel = add(bg.rgb, fg.rgb); }

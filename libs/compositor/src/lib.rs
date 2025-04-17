@@ -26,16 +26,27 @@ pub struct ChunkTile {
     pub atlas_index: NonZeroU32,
     /// Clipping texture index into an atlas`.
     pub mask_atlas_index: Option<NonZeroU32>,
+    pub layer_index: u32,
 }
 
 /// Compositing layer information.
 #[derive(Debug)]
 pub struct CompositeLayer {
-    pub chunks: Vec<ChunkTile>,
+    pub clipped: bool,
+    pub hidden: bool,
     /// Opacity (0.0..=1.0) of the layer.
     pub opacity: f32,
     /// Blending mode of the layer.
     pub blend: BlendingMode,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
+struct LayerData {
+    opacity: f32,
+    blend: u32,
+    clipped: u32,
+    hidden: u32
 }
 
 #[repr(C)]
@@ -45,8 +56,7 @@ struct ChunkData {
     row: u32,
     atlas_index: u32,
     mask_index: u32,
-    blend: u32,
-    opacity: f32,
+    layer_index: u32,
 }
 
 struct CompositorBuffers {
@@ -56,6 +66,7 @@ struct CompositorBuffers {
     atlas: DataBuffer<AtlasData>,
     canvas: DataBuffer<CanvasTiling>,
     chunks: DataBuffer<Vec<ChunkData>>,
+    layers: DataBuffer<Vec<LayerData>>,
     tiles: DataBuffer<Vec<TileInstance>>,
 }
 
@@ -106,6 +117,13 @@ impl CompositorBuffers {
             wgpu::BufferUsages::INDEX,
         );
 
+        let layers = DataBuffer::init_vec(
+            device,
+            "layer_buffer",
+            Vec::new(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
         let chunks = DataBuffer::init_vec(
             device,
             "chunk_buffer",
@@ -141,6 +159,7 @@ impl CompositorBuffers {
             vertices,
             indices,
             atlas,
+            layers,
             chunks,
             canvas,
             tiles,
@@ -183,22 +202,34 @@ impl CompositorBuffers {
     //     self.load_vertex_buffer();
     // }
 
-    fn load_chunk_buffer(&mut self, composite_layers: &[CompositeLayer]) {
+    fn load_layer_buffer(&mut self, composite_layers: &[CompositeLayer]) {
+        let layers = self.layers.data_mut();
+        layers.clear();
+
+        for layer in composite_layers.iter() {
+            layers.push(LayerData {
+                blend: layer.blend.to_u32(),
+                opacity: layer.opacity,
+                clipped: if layer.clipped { 1 } else { 0 },
+                hidden: if layer.hidden { 1 } else { 0 }
+            });
+        }
+
+        self.layers.load_vec_buffer(&self.dispatch, "layer_buffer");
+    }
+
+    fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
         let chunks = self.chunks.data_mut();
         chunks.clear();
 
-        const MASK_NONE: u32 = 0;
-        for layer in composite_layers.iter() {
-            for chunk in layer.chunks.iter() {
-                chunks.push(ChunkData {
-                    col: chunk.col,
-                    row: chunk.row,
-                    atlas_index: chunk.atlas_index.get(),
-                    mask_index: chunk.mask_atlas_index.map(|v| v.get()).unwrap_or(MASK_NONE),
-                    blend: layer.blend.to_u32(),
-                    opacity: layer.opacity,
-                });
-            }
+        for chunk in chunks_data {
+            chunks.push(ChunkData {
+                col: chunk.col,
+                row: chunk.row,
+                atlas_index: chunk.atlas_index.get(),
+                mask_index: chunk.mask_atlas_index.map(|v| v.get()).unwrap_or(0),
+                layer_index: chunk.layer_index,
+            });
         }
 
         self.chunks.load_vec_buffer(&self.dispatch, "chunk_buffer");
@@ -263,6 +294,10 @@ impl Target {
         self.dispatch.queue().submit(Some(command_buffers));
     }
 
+    pub fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
+        self.buffers.load_chunk_buffer(chunks_data);
+    }
+
     fn render_command(
         &mut self,
         pipeline: &Pipeline,
@@ -274,7 +309,7 @@ impl Target {
     ) {
         *self.buffers.atlas.data_mut() = *atlas;
         self.buffers.atlas.load_buffer(self.dispatch.queue());
-        self.buffers.load_chunk_buffer(composite_layers);
+        self.buffers.load_layer_buffer(composite_layers);
 
         let canvas_bind_group =
             self.dispatch
@@ -314,6 +349,19 @@ impl Target {
                                     buffer: self.buffers.chunks.buffer(),
                                     offset: 0,
                                     size: std::num::NonZeroU64::new(self.buffers.chunks.data_len()),
+                                })
+                            },
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: {
+                                // TODO: upgrade when egui_wgpu hits wgpu 25
+                                // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
+
+                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: self.buffers.layers.buffer(),
+                                    offset: 0,
+                                    size: std::num::NonZeroU64::new(self.buffers.layers.data_len()),
                                 })
                             },
                         },

@@ -40,6 +40,7 @@ pub enum UserEvent {
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
+    key: InstanceKey,
     pub file: RwLock<ProcreateFile>,
     pub atlas_texture: GpuTexture,
     pub target: Mutex<Target>,
@@ -97,6 +98,7 @@ impl App {
         self.compositor.instances.write().insert(
             key,
             Instance {
+                key,
                 file: RwLock::new(file),
                 target: Mutex::new(target),
                 atlas_texture,
@@ -216,36 +218,56 @@ impl App {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    fn linearize_silica_layers<'a>(composite_layers: &mut Vec<CompositeLayer>, layers: &'a SilicaGroup) {
+    fn linearize_silica_layers<'a>(
+        composite_layers: &mut Vec<CompositeLayer>,
+        layers: &'a SilicaGroup,
+    ) {
         composite_layers.clear();
+
+        fn inner<'a>(layers: &'a SilicaGroup, composite_layers: &mut Vec<CompositeLayer>) {
+            for layer in layers.children.iter().rev() {
+                match layer {
+                    SilicaHierarchy::Group(group) => {
+                        inner(group, composite_layers);
+                    }
+                    SilicaHierarchy::Layer(layer) => {
+                        composite_layers.push(CompositeLayer {
+                            opacity: layer.opacity,
+                            blend: layer.blend,
+                            clipped: layer.clipped,
+                            hidden: layer.hidden,
+                        });
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        inner(layers, composite_layers);
+    }
+
+    fn linearize_silica_chunks<'a>(composite_layers: &mut Vec<ChunkTile>, layers: &'a SilicaGroup) {
+        composite_layers.clear();
+
+        let mut layer_counter = 0;
 
         fn inner<'a>(
             layers: &'a SilicaGroup,
-            composite_layers: &mut Vec<CompositeLayer>,
+            chunks: &mut Vec<ChunkTile>,
             mask_layer: &mut Option<&'a SilicaLayer>,
+            layer_counter: &mut u32,
         ) {
             for layer in layers.children.iter().rev() {
                 match layer {
-                    SilicaHierarchy::Group(group) if !group.hidden => {
-                        inner(group, composite_layers, mask_layer);
+                    SilicaHierarchy::Group(group) => {
+                        inner(group, chunks, mask_layer, layer_counter);
                     }
-                    SilicaHierarchy::Layer(layer) if !layer.hidden => {
-                        if let Some(mask_layer) = mask_layer {
-                            if layer.clipped && mask_layer.hidden {
-                                continue;
-                            }
-                        }
-
-                        if !layer.clipped {
-                            *mask_layer = Some(layer);
-                        }
-
-                        let mut chunks = Vec::with_capacity(layer.image.chunks.len());
+                    SilicaHierarchy::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
                             let mut mask_atlas_index: Option<NonZeroU32> = None;
 
-                            if layer.clipped {
-                                for mask_chunk in mask_layer.unwrap().image.chunks.iter() {
+                            if let Some(mask_layer) = mask_layer.as_ref() {
+                                for mask_chunk in mask_layer.image.chunks.iter() {
                                     if mask_chunk.col == chunk.col && mask_chunk.row == chunk.row {
                                         mask_atlas_index = Some(mask_chunk.atlas_index);
                                     }
@@ -257,27 +279,28 @@ impl CompositorApp {
                                 row: chunk.row,
                                 atlas_index: chunk.atlas_index,
                                 mask_atlas_index,
+                                layer_index: *layer_counter,
                             });
                         }
-
-                        composite_layers.push(CompositeLayer {
-                            chunks,
-                            opacity: layer.opacity,
-                            blend: layer.blend,
-                        });
+                        *mask_layer = Some(layer);
+                        *layer_counter += 1;
                     }
                     _ => continue,
                 }
             }
         }
 
-        inner(layers, composite_layers, &mut None);
+        inner(layers, composite_layers, &mut None, &mut layer_counter);
     }
 
     pub async fn rendering_thread(self: Arc<Self>) {
         let mut composite_layers = Vec::new();
+        let mut composite_chunks = Vec::new();
         let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
         limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        let mut last_loaded_instance_chunks_index = None;
+
         loop {
             // Ensures that we are not generating frames faster than 60FPS
             // to avoid putting unnecessary computational pressure on the GPU.
@@ -297,10 +320,36 @@ impl CompositorApp {
                     // Drop the guard here, we no longer need it.
                     drop(file);
 
+                    let start_time = std::time::Instant::now();
+
+                    let reload_chunks = if last_loaded_instance_chunks_index
+                        .map(|v| v != instance.key)
+                        .unwrap_or(true)
+                    {
+                        Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
+                        true
+                    } else {
+                        false
+                    };
+                    last_loaded_instance_chunks_index = Some(instance.key);
+
+                    let chunk_linear_time = start_time.elapsed();
+
+                    let start_time = std::time::Instant::now();
+
                     Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
 
-                    let mut lock = instance.target.lock();
-                    lock.render(
+                    let layer_linear_time = start_time.elapsed();
+
+                    eprintln!("Chunk linearization: {:?}", chunk_linear_time);
+                    eprintln!("Layer linearization: {:?}", layer_linear_time);
+
+                    let mut target = instance.target.lock();
+                    if reload_chunks {
+                        eprintln!("Reloading chunks");
+                        target.load_chunk_buffer(composite_chunks.as_slice());
+                    }
+                    target.render(
                         &self.pipeline,
                         background,
                         &composite_layers,
@@ -311,7 +360,7 @@ impl CompositorApp {
                     // std::thread::sleep(std::time::Duration::from_secs(1));
                     // Debugging notes: if the GPU is highly contended, the main
                     // GUI rendering can still be somewhat sluggish.
-                    drop(lock);
+                    drop(target);
                 }
             }
         }
