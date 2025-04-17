@@ -44,15 +44,22 @@ pub struct Instance {
     pub target: Mutex<Target>,
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
+    pub rotation: f32,
+    pub flipped: silica::layers::Flipped,
 }
 
 impl Instance {
-    pub fn store_change_or(&self, b: bool) {
+    pub fn tick_change(&self, b: bool) {
         self.changed.fetch_or(b, Release);
     }
 
     pub fn change_untick(&self) -> bool {
         self.changed.swap(false, Acquire)
+    }
+
+    pub fn is_upright(&self) -> bool {
+        !(45.0..135.0).contains(&self.rotation.to_degrees())
+            && !(225.0..315.0).contains(&self.rotation.to_degrees())
     }
 }
 
@@ -78,20 +85,25 @@ impl App {
             (tiling.cols, tiling.rows),
             tiling.size,
         );
-        let target = Target::new(
+        let mut target = Target::new(
             self.dispatch.clone(),
             canvas,
             AtlasData::new(tiling.atlas.cols, tiling.atlas.rows),
             atlas_texture,
         );
-        // target
-        //     .data
-        //     .flip_vertices(file.flipped.horizontally, file.flipped.vertically);
+        dbg!(file.flipped);
+        dbg!(file.orientation);
 
-        // for _ in 0..file.orientation {
-        //     target.data.rotate_vertices(true);
-        //     target.set_dimensions(target.dim.height, target.dim.width);
-        // }
+        let rotation = match file.orientation {
+            1 => 0.0,
+            2 => 180.0,
+            3 => 270.0,
+            4 => 90.0,
+            _ => 0f32,
+        }
+        .to_radians();
+
+        target.set_flipped(file.flipped.horizontally, file.flipped.vertically);
 
         let id = self
             .compositor
@@ -101,10 +113,12 @@ impl App {
         self.compositor.instances.write().insert(
             key,
             Instance {
+                flipped: file.flipped,
                 file: RwLock::new(file),
                 target: Mutex::new(target),
                 changed: AtomicBool::new(true),
                 needs_to_load_chunks: AtomicBool::new(true),
+                rotation,
             },
         );
         self.rebind_texture(key);
@@ -112,63 +126,62 @@ impl App {
     }
 
     pub async fn load_dialog(&self, surface_index: SurfaceIndex, node_index: NodeIndex) {
-        if let Some(handle) = {
-            let mut dialog = rfd::AsyncFileDialog::new();
-            dialog = dialog.add_filter("All Files", &["*"]);
-            dialog = dialog.add_filter("Procreate Files", &["procreate"]);
-            dialog
-        }
-        .pick_file()
-        .await
-        {
-            match self.load_file(handle.path().to_path_buf()) {
-                Err(err) => {
-                    self.toasts.lock().error(format!(
-                        "File {} failed to load. Reason: {err}",
-                        handle.file_name()
-                    ));
-                }
-                Ok(key) => {
-                    self.toasts
-                        .lock()
-                        .success(format!("File {} successfully opened.", handle.file_name()));
-                    self.new_instances
-                        .send((surface_index, node_index, key))
-                        .await
-                        .unwrap();
-                }
-            }
-        } else {
+        let dialog = rfd::AsyncFileDialog::new()
+            .add_filter("All Files", &["*"])
+            .add_filter("Procreate Files", &["procreate"])
+            .pick_file();
+
+        let Some(handle) = dialog.await else {
             self.toasts.lock().info("Load cancelled.");
+            return;
+        };
+
+        match self.load_file(handle.path().to_path_buf()) {
+            Err(err) => {
+                self.toasts.lock().error(format!(
+                    "File {} failed to load. Reason: {err}",
+                    handle.file_name()
+                ));
+            }
+            Ok(key) => {
+                self.toasts
+                    .lock()
+                    .success(format!("File {} successfully opened.", handle.file_name()));
+                self.new_instances
+                    .send((surface_index, node_index, key))
+                    .await
+                    .unwrap();
+            }
         }
     }
 
     pub async fn save_dialog(&self, copied_texture: GpuTexture) {
-        if let Some(handle) = rfd::AsyncFileDialog::new()
+        let dialog = rfd::AsyncFileDialog::new()
             .add_filter("png", image::ImageFormat::Png.extensions_str())
             .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())
             .add_filter("tga", image::ImageFormat::Tga.extensions_str())
             .add_filter("tiff", image::ImageFormat::Tiff.extensions_str())
             .add_filter("webp", image::ImageFormat::WebP.extensions_str())
             .add_filter("bmp", image::ImageFormat::Bmp.extensions_str())
-            .save_file()
-            .await
-        {
-            let dim = BufferDimensions::from_extent(copied_texture.size);
-            let path = handle.path().to_path_buf();
-            if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
-                self.toasts.lock().error(format!(
-                    "File {} failed to export. Reason: {err}.",
-                    handle.file_name()
-                ));
-            } else {
-                self.toasts.lock().success(format!(
-                    "File {} successfully exported.",
-                    handle.file_name()
-                ));
-            }
-        } else {
+            .save_file();
+
+        let Some(handle) = dialog.await else {
             self.toasts.lock().info("Export cancelled.");
+            return;
+        };
+
+        let dim = BufferDimensions::from_extent(copied_texture.size);
+        let path = handle.path().to_path_buf();
+        if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
+            self.toasts.lock().error(format!(
+                "File {} failed to export. Reason: {err}.",
+                handle.file_name()
+            ));
+        } else {
+            self.toasts.lock().success(format!(
+                "File {} successfully exported.",
+                handle.file_name()
+            ));
         }
     }
 

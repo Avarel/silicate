@@ -102,7 +102,6 @@ impl AppInstance {
                 smooth: false,
                 grid: true,
                 extended_crosshair: false,
-                rotation: 0.0,
                 bottom_bar: false,
             },
             new_instances: rx,
@@ -351,40 +350,44 @@ impl AppInstance {
                 };
 
                 let instances = self.app.compositor.instances.read();
-                if let Some(instance) = instances.get(&idx) {
-                    if let Some(target) = instance.target.try_lock() {
-                        let output = target.output();
-                        let texture_view = output.create_srgb_view();
+                let Some(instance) = instances.get(&idx) else {
+                    // bounce the event
+                    self.app.event_loop.send_event(e).unwrap();
+                    return;
+                };
 
-                        if let Some(tex) = self.editor.canvases.get_mut(&idx) {
-                            self.rendering
-                                .renderer
-                                .update_egui_texture_from_wgpu_texture(
-                                    &self.app.dispatch.device(),
-                                    &texture_view,
-                                    texture_filter,
-                                    tex.id,
-                                );
-                            tex.size = target.dim().to_vec2().into();
-                        } else {
-                            let tex = self.rendering.renderer.register_native_texture(
-                                &self.app.dispatch.device(),
-                                &texture_view,
-                                texture_filter,
-                            );
-                            self.editor.canvases.insert(
-                                idx,
-                                SizedTexture {
-                                    id: tex,
-                                    size: target.dim().to_vec2().into(),
-                                },
-                            );
-                        }
-                        return;
-                    }
+                let Some(target) = instance.target.try_lock() else {
+                    return;
+                };
+                let output = target.output();
+                let texture_view = output.create_srgb_view();
+                let target_dim = target.dim();
+                drop(target);
+
+                if let Some(tex) = self.editor.canvases.get_mut(&idx) {
+                    self.rendering
+                        .renderer
+                        .update_egui_texture_from_wgpu_texture(
+                            &self.app.dispatch.device(),
+                            &texture_view,
+                            texture_filter,
+                            tex.id,
+                        );
+                    tex.size = target_dim.to_vec2().into();
+                } else {
+                    let tex = self.rendering.renderer.register_native_texture(
+                        &self.app.dispatch.device(),
+                        &texture_view,
+                        texture_filter,
+                    );
+                    self.editor.canvases.insert(
+                        idx,
+                        SizedTexture {
+                            id: tex,
+                            size: target_dim.to_vec2().into(),
+                        },
+                    );
                 }
-                // bounce the event
-                self.app.event_loop.send_event(e).unwrap();
             }
         }
     }

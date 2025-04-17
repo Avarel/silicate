@@ -65,9 +65,19 @@ impl ControlsGui<'_> {
             ui.end_row();
             ui.label("Rotation");
             {
-                let mut degree = self.view_options.rotation.to_degrees();
-                ui.add(Slider::new(&mut degree, 0.0..=360.0).suffix(" deg"));
-                self.view_options.rotation = degree.to_radians();
+                if let Some(instance) = self
+                    .app
+                    .compositor
+                    .instances
+                    .write()
+                    .get_mut(&self.active_canvas)
+                {
+                    let mut degree = instance.rotation.to_degrees();
+                    ui.add(Slider::new(&mut degree, 0.0..=360.0).suffix(" deg"));
+                    instance.rotation = degree.to_radians();
+                } else {
+                    ui.label("No file loaded...");
+                }
             }
         });
     }
@@ -77,65 +87,58 @@ impl ControlsGui<'_> {
             .app
             .compositor
             .instances
-            .read()
-            .get(&self.active_canvas)
+            .write()
+            .get_mut(&self.active_canvas)
         {
             Grid::new("Canvas Grid").show(ui, |ui| {
-                #[allow(path_statements)]
-                instance;
-                // TODO: reenable features
-                // ui.label("Flip");
-                // ui.horizontal(|ui| {
-                //     if ui.button("Horizontal").clicked() {
-                //         instance.target.lock().data.flip_vertices(false, true);
-                //         instance.store_change_or(true);
-                //         self.app.rebind_texture(self.active_canvas);
-                //     }
-                //     if ui.button("Vertical").clicked() {
-                //         instance.target.lock().data.flip_vertices(true, false);
-                //         instance.store_change_or(true);
-                //         self.app.rebind_texture(self.active_canvas);
-                //     }
-                // });
-                ui.end_row();
-                // ui.label("Rotate");
-                // ui.horizontal(|ui| {
-                //     if ui.button("CCW").clicked() {
-                //         let mut target = instance.target.lock();
-                //         target.data.rotate_vertices(true);
-                //         if target.transpose_dimensions() {
-                //             self.app.rebind_texture(self.active_canvas);
-                //         }
-                //         instance.store_change_or(true);
-                //     }
-                //     if ui.button("CW").clicked() {
-                //         let mut target = instance.target.lock();
-                //         target.data.rotate_vertices(false);
-                //         if target.transpose_dimensions() {
-                //             self.app.rebind_texture(self.active_canvas);
-                //         }
-                //         instance.store_change_or(true);
-                //     }
-                // });
-            });
-            let instances = self.app.compositor.instances.read();
-            if let Some(instance) = instances.get(&self.active_canvas) {
-                ui.separator();
-                Grid::new("File Grid").num_columns(2).show(ui, |ui| {
-                    ui.label("Actions");
-                    ui.vertical(|ui| {
-                        if ui.button("Export View").clicked() {
-                            let target = instance.target.lock();
-                            let texture = target.output();
-                            let copied_texture = texture.clone(&self.app.dispatch);
-                            self.app.rt.spawn({
-                                let app = self.app.clone();
-                                async move { app.save_dialog(copied_texture).await }
-                            });
+                ui.label("Flip");
+                ui.horizontal(|ui| {
+                    let mut flip_reload = false;
+
+                    if ui.button("Horizontal").clicked() {
+                        if instance.is_upright() {
+                            instance.flipped.horizontally = !instance.flipped.horizontally;
+                        } else {
+                            instance.flipped.vertically = !instance.flipped.vertically;
                         }
-                    });
+                        instance.tick_change(true);
+                        flip_reload = true;
+                    }
+                    if ui.button("Vertical").clicked() {
+                        if instance.is_upright() {
+                            instance.flipped.vertically = !instance.flipped.vertically;
+                        } else {
+                            instance.flipped.horizontally = !instance.flipped.horizontally;
+                        }
+                        instance.tick_change(true);
+                        flip_reload = true;
+                    }
+
+                    if flip_reload {
+                        instance.target.lock().set_flipped(
+                            instance.flipped.horizontally,
+                            instance.flipped.vertically,
+                        );
+                    }
                 });
-            }
+                ui.end_row();
+            });
+
+            ui.separator();
+            Grid::new("File Grid").num_columns(2).show(ui, |ui| {
+                ui.label("Actions");
+                ui.vertical(|ui| {
+                    if ui.button("Export View").clicked() {
+                        let target = instance.target.lock();
+                        let texture = target.output();
+                        let copied_texture = texture.clone(&self.app.dispatch);
+                        self.app.rt.spawn({
+                            let app = self.app.clone();
+                            async move { app.save_dialog(copied_texture).await }
+                        });
+                    }
+                });
+            });
         } else {
             ui.label("No canvas loaded.");
         }
@@ -217,7 +220,7 @@ impl ControlsGui<'_> {
             let mut file = instance.file.write();
             let mut changed = false;
 
-            let mut i = 0;
+            let mut i = 1000;
             Self::layout_layers_sub(ui, &mut file.layers, &mut i, &mut changed);
 
             ui.separator();
@@ -235,7 +238,7 @@ impl ControlsGui<'_> {
                 changed |= ui.color_edit_button_rgb(bg).changed();
             });
 
-            instance.store_change_or(changed);
+            instance.tick_change(changed);
         } else {
             ui.label("No file hierachy.");
         }
@@ -246,7 +249,6 @@ pub struct ViewOptions {
     pub extended_crosshair: bool,
     pub smooth: bool,
     pub grid: bool,
-    pub rotation: f32,
     pub bottom_bar: bool,
 }
 
@@ -262,8 +264,11 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         let tex = self.canvases.get(tab);
+
+        let rotation = self.instances.get(tab).map(|v| v.rotation).unwrap_or(0.0);
+
         canvas::CanvasView::new(*tab, tex.copied().map(Image::from_texture))
-            .with_rotation(self.view_options.rotation)
+            .with_rotation(rotation)
             .show_extended_crosshair(self.view_options.extended_crosshair)
             .show_grid(self.view_options.grid)
             .show_bottom_bar(self.view_options.bottom_bar)

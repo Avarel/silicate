@@ -89,6 +89,11 @@ impl Target {
         self.buffers.load_chunk_buffer(chunks_data);
     }
 
+    pub fn set_flipped(&mut self, horizontally: bool, vertically: bool) {
+        self.buffers.canvas.data_mut().set_flipped(horizontally, vertically);
+        self.buffers.canvas.load_buffer(self.dispatch.queue());
+    }
+
     /// Render composite layers using the compositor pipeline.
     pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>) {
         assert!(!self.dim.is_empty(), "set_dimensions required");

@@ -86,7 +86,7 @@ impl TilingData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Flipped {
     pub horizontally: bool,
     pub vertically: bool,

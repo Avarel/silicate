@@ -65,54 +65,55 @@ impl AppMultiplexer {
 
 impl ApplicationHandler<UserEvent> for AppMultiplexer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.running.is_none() {
-            let taskbar_icon = egui_winit::winit::window::Icon::from_rgba(
-                include_bytes!("../assets/icon.rgba").to_vec(),
-                240,
-                240,
-            )
-            .ok();
+        if self.running.is_some() {
+            return;
+        }
 
-            let window_attributes = Window::default_attributes()
-                .with_decorations(true)
-                .with_resizable(true)
-                .with_transparent(false)
-                .with_title("Silicate")
-                .with_inner_size(INITIAL_SIZE)
-                .with_window_icon(taskbar_icon);
+        let taskbar_icon = egui_winit::winit::window::Icon::from_rgba(
+            include_bytes!("../assets/icon.rgba").to_vec(),
+            240,
+            240,
+        )
+        .ok();
 
-            let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-            let (dev, surface) = self
-                .rt
-                .block_on(Self::handle_with_window(window.clone()))
-                .unwrap();
+        let window_attributes = Window::default_attributes()
+            .with_decorations(true)
+            .with_resizable(true)
+            .with_transparent(false)
+            .with_title("Silicate")
+            .with_inner_size(INITIAL_SIZE)
+            .with_window_icon(taskbar_icon);
 
-            let instance =
-                AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let (dev, surface) = self
+            .rt
+            .block_on(Self::handle_with_window(window.clone()))
+            .unwrap();
 
-            for path in self.initial_file.drain(..) {
-                let app = &instance.app;
-                match app.load_file(path) {
-                    Err(err) => {
-                        app.toasts
-                            .lock()
-                            .error(format!("File from drag/drop failed to load. Reason: {err}"));
-                    }
-                    Ok(key) => {
-                        app.toasts.lock().success("Loaded file from command line.");
-                        app.new_instances
-                            .blocking_send((
-                                egui_dock::SurfaceIndex::main(),
-                                egui_dock::NodeIndex::root(),
-                                key,
-                            ))
-                            .unwrap();
-                    }
+        let instance = AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
+
+        for path in self.initial_file.drain(..) {
+            let app = &instance.app;
+            match app.load_file(path) {
+                Err(err) => {
+                    app.toasts
+                        .lock()
+                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
+                }
+                Ok(key) => {
+                    app.toasts.lock().success("Loaded file from command line.");
+                    app.new_instances
+                        .blocking_send((
+                            egui_dock::SurfaceIndex::main(),
+                            egui_dock::NodeIndex::root(),
+                            key,
+                        ))
+                        .unwrap();
                 }
             }
-
-            self.running = Some(instance);
         }
+
+        self.running = Some(instance);
     }
 
     fn window_event(
@@ -121,15 +122,17 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
         _: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        if let Some(app) = self.running.as_mut() {
-            app.handle_event(event, event_loop);
-        }
+        let Some(app) = self.running.as_mut() else {
+            return;
+        };
+        app.handle_event(event, event_loop);
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
-        if let Some(app) = self.running.as_mut() {
-            app.handle_user_event(event);
-        }
+        let Some(app) = self.running.as_mut() else {
+            return;
+        };
+        app.handle_user_event(event);
     }
 }
 

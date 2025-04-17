@@ -9,6 +9,7 @@ struct CanvasTiling {
     cols: u32,
     rows: u32,
     tile_size: u32,
+    flipped: u32,
 };
 
 @group(0) @binding(0)
@@ -39,9 +40,12 @@ fn vs_main(
     let canvas_grid = vec2f(f32(canvas.cols), f32(canvas.rows));
     let canvas_dim = vec2f(f32(canvas.width), f32(canvas.height));
 
+    let flipped_horizontally = (canvas.flipped >> 1 & 1) != 0;
+    let flipped_vertically = (canvas.flipped & 1) != 0;
+
     let scale = canvas_grid * f32(canvas.tile_size) / canvas_dim;
     let pos = (model.position + tile_coords) / canvas_grid;
-    let normalized_pos = pos * scale * 2.0 - 1.0;
+    let normalized_pos = select(pos * scale, 1.0 - pos * scale, vec2(flipped_horizontally, flipped_vertically)) * 2.0 - 1.0;
 
     var out: VertexOutput;
     out.position = vec4(normalized_pos, 0.0, 1.0);

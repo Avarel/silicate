@@ -6,6 +6,7 @@ pub struct CanvasTiling {
     cols: u32,
     rows: u32,
     tile_size: u32,
+    flipped: u32,
 }
 
 impl CanvasTiling {
@@ -16,6 +17,7 @@ impl CanvasTiling {
             cols,
             rows,
             tile_size,
+            flipped: 0
         }
     }
 
@@ -25,6 +27,10 @@ impl CanvasTiling {
 
     pub fn rows(&self) -> u32 {
         self.rows
+    }
+
+    pub fn set_flipped(&mut self, horizontally: bool, vertically: bool) {
+        self.flipped = u32::from(horizontally) << 1 | u32::from(vertically);
     }
 }
 
