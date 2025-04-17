@@ -9,7 +9,7 @@ use crate::ns_archive::{
 };
 use crate::{
     error::SilicaError,
-    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, TilingData},
+    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, CanvasTiling},
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
@@ -22,7 +22,7 @@ use silicate_compositor::tex::GpuTexture;
 pub(super) struct IRData<'a> {
     pub(super) dispatch: &'a GpuDispatch,
 
-    pub(super) tiling: TilingData,
+    pub(super) tiling: CanvasTiling,
     pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
     pub(super) size: Size<u32>,
     pub(super) file_names: &'a [&'a str],

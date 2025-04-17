@@ -1,4 +1,4 @@
-use crate::{TileInstance, VertexInput, dev::GpuDispatch};
+use crate::{ChunkInstance, VertexInput, dev::GpuDispatch};
 
 pub struct Pipeline {
     pub constant_bind_group: wgpu::BindGroup,
@@ -139,7 +139,7 @@ impl Pipeline {
                     module: &shader,
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     entry_point: Some("vs_main"),
-                    buffers: &[VertexInput::desc(), TileInstance::desc()],
+                    buffers: &[VertexInput::desc(), ChunkInstance::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,

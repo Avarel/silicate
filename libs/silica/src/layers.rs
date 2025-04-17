@@ -4,17 +4,17 @@ use crate::ns_archive::Size;
 use silicate_compositor::blend::BlendingMode;
 
 #[derive(Debug, Clone, Copy)]
-pub struct AtlasData {
+pub struct AtlasTextureTiling {
     pub cols: u32,
     pub rows: u32,
     pub layers: u32,
 }
 
-impl AtlasData {
+impl AtlasTextureTiling {
     pub fn compute_atlas_size(chunk_count: u32, tile_size: u32) -> Self {
         const TEX_MAX_DIM: u32 = 8192;
         if chunk_count * tile_size <= TEX_MAX_DIM {
-            AtlasData {
+            AtlasTextureTiling {
                 cols: chunk_count,
                 rows: 1,
                 layers: 1,
@@ -24,7 +24,7 @@ impl AtlasData {
             let rows = chunk_count.div_ceil(columns);
 
             if rows * tile_size <= TEX_MAX_DIM {
-                AtlasData {
+                AtlasTextureTiling {
                     cols: columns,
                     rows,
                     layers: 1,
@@ -32,7 +32,7 @@ impl AtlasData {
             } else {
                 let rows = TEX_MAX_DIM / tile_size;
                 let layers = chunk_count.div_ceil(columns * rows);
-                AtlasData {
+                AtlasTextureTiling {
                     cols: columns,
                     rows,
                     layers,
@@ -51,15 +51,15 @@ impl AtlasData {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TilingData {
+pub struct CanvasTiling {
     pub cols: u32,
     pub rows: u32,
     pub diff: Size<u32>,
     pub size: u32,
-    pub atlas: AtlasData,
+    pub atlas: AtlasTextureTiling,
 }
 
-impl TilingData {
+impl CanvasTiling {
     pub fn tile_extent(&self, col: u32, row: u32) -> silicate_compositor::tex::Extent3d {
         silicate_compositor::tex::Extent3d {
             width: if col != self.cols - 1 {

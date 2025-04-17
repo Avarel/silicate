@@ -9,7 +9,7 @@ use silica::{
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    atlas::AtlasData, buffer::BufferDimensions, canvas::CanvasTiling, dev::GpuDispatch,
+    buffer::BufferDimensions, canvas::{CompositorAtlasTiling, CompositorCanvasTiling}, dev::GpuDispatch,
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Target,
 };
 use std::path::PathBuf;
@@ -80,7 +80,7 @@ impl App {
         let (file, atlas_texture, tiling) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
 
-        let canvas = CanvasTiling::new(
+        let canvas = CompositorCanvasTiling::new(
             (file.size.width, file.size.height),
             (tiling.cols, tiling.rows),
             tiling.size,
@@ -88,7 +88,7 @@ impl App {
         let mut target = Target::new(
             self.dispatch.clone(),
             canvas,
-            AtlasData::new(tiling.atlas.cols, tiling.atlas.rows),
+            CompositorAtlasTiling::new(tiling.atlas.cols, tiling.atlas.rows),
             atlas_texture,
         );
         dbg!(file.flipped);

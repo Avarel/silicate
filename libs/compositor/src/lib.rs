@@ -4,16 +4,14 @@ pub mod dev;
 pub mod pipeline;
 pub mod tex;
 
-pub mod atlas;
 pub mod canvas;
 
 use std::num::NonZeroU32;
 
 use self::tex::GpuTexture;
-use atlas::AtlasData;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, CompositorBuffers};
-use canvas::{CanvasTiling, TileInstance, VertexInput};
+use canvas::{CompositorAtlasTiling, CompositorCanvasTiling, ChunkInstance, VertexInput};
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::CommandEncoder;
@@ -55,8 +53,8 @@ impl Target {
     /// Create a new compositor target.
     pub fn new(
         dispatch: GpuDispatch,
-        canvas: CanvasTiling,
-        atlas_data: AtlasData,
+        canvas: CompositorCanvasTiling,
+        atlas_data: CompositorAtlasTiling,
         atlas_texture: GpuTexture,
     ) -> Self {
         let dim = BufferDimensions::new(canvas.width, canvas.height);

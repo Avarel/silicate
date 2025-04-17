@@ -1,4 +1,4 @@
-use crate::layers::{AtlasData, Flipped, SilicaGroup, SilicaLayer, TilingData};
+use crate::layers::{AtlasTextureTiling, Flipped, SilicaGroup, SilicaLayer, CanvasTiling};
 use crate::{
     error::SilicaError,
     ir::{IRData, SilicaIRHierarchy, SilicaIRLayer},
@@ -61,7 +61,7 @@ impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(
         p: P,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture, TilingData), SilicaError> {
+    ) -> Result<(Self, GpuTexture, CanvasTiling), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -84,7 +84,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture, TilingData), SilicaError> {
+    ) -> Result<(Self, GpuTexture, CanvasTiling), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
@@ -102,7 +102,7 @@ impl ProcreateFile {
 
         let chunk_count = file_names.len() as u32;
 
-        let tiling = TilingData {
+        let tiling = CanvasTiling {
             cols,
             rows,
             diff: Size {
@@ -110,7 +110,7 @@ impl ProcreateFile {
                 height: rows * tile_size - size.height,
             },
             size: tile_size,
-            atlas: AtlasData::compute_atlas_size(chunk_count, tile_size),
+            atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
         dbg!(chunk_count);

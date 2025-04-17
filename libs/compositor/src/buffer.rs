@@ -1,10 +1,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::{
-    ChunkTile, CompositeLayer,
-    atlas::AtlasData,
-    canvas::{CanvasTiling, ChunkData, ChunkSegment, LayerData, TileInstance, VertexInput},
-    dev::GpuDispatch,
+    canvas::{CompositorAtlasTiling, CompositorCanvasTiling, ChunkData, ChunkSegment, LayerData, ChunkInstance, VertexInput}, dev::GpuDispatch, ChunkTile, CompositeLayer
 };
 
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
@@ -173,12 +170,12 @@ pub(crate) struct CompositorBuffers {
     dispatch: GpuDispatch,
     pub(crate) vertices: DataBuffer<[VertexInput; 4]>,
     pub(crate) indices: DataBuffer<[u16; 4]>,
-    pub(crate) atlas: DataBuffer<AtlasData>,
-    pub(crate) canvas: DataBuffer<CanvasTiling>,
+    pub(crate) atlas: DataBuffer<CompositorAtlasTiling>,
+    pub(crate) canvas: DataBuffer<CompositorCanvasTiling>,
     pub(crate) segments: DataBuffer<Vec<ChunkSegment>>,
     pub(crate) chunks: DataBuffer<Vec<ChunkData>>,
     pub(crate) layers: DataBuffer<Vec<LayerData>>,
-    pub(crate) tiles: DataBuffer<Vec<TileInstance>>,
+    pub(crate) tiles: DataBuffer<Vec<ChunkInstance>>,
 }
 
 impl CompositorBuffers {
@@ -211,8 +208,8 @@ impl CompositorBuffers {
 
     pub(super) fn new(
         dispatch: GpuDispatch,
-        canvas_data: CanvasTiling,
-        atlas_data: AtlasData,
+        canvas_data: CompositorCanvasTiling,
+        atlas_data: CompositorAtlasTiling,
     ) -> Self {
         let device = dispatch.device();
 
@@ -264,7 +261,7 @@ impl CompositorBuffers {
             device,
             "tile_buffer",
             (0..canvas_data.rows())
-                .flat_map(|row| (0..canvas_data.cols()).map(move |col| TileInstance::new(col, row)))
+                .flat_map(|row| (0..canvas_data.cols()).map(move |col| ChunkInstance::new(col, row)))
                 .collect::<Vec<_>>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
