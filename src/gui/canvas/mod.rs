@@ -1,239 +1,8 @@
+mod bounds;
+mod transform;
+
+use bounds::{AutoBounds, CanvasViewBounds};
 use egui::*;
-
-/// 2D bounding box of f64 precision.
-/// The range of data values we show.
-#[derive(Clone, Copy, PartialEq, Debug)]
-struct CanvasViewBounds {
-    min: Pos2,
-    max: Pos2,
-}
-
-impl CanvasViewBounds {
-    pub const NOTHING: Self = Self {
-        min: Pos2::new(f32::INFINITY, f32::INFINITY),
-        max: Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
-    };
-
-    pub(crate) fn new_symmetrical(half_extent: f32) -> Self {
-        Self {
-            min: Pos2::from([-half_extent; 2]),
-            max: Pos2::from([half_extent; 2]),
-        }
-    }
-
-    pub fn is_finite(&self) -> bool {
-        self.min.is_finite() && self.max.is_finite()
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.is_finite() && self.width() > 0.0 && self.height() > 0.0
-    }
-
-    pub fn width(&self) -> f32 {
-        self.max.x - self.min.x
-    }
-
-    pub fn height(&self) -> f32 {
-        self.max.y - self.min.y
-    }
-
-    /// Expand to include the given (x,y) value
-    pub(crate) fn extend_with(&mut self, value: &Vec2) {
-        self.extend_with_x(value.x);
-        self.extend_with_y(value.y);
-    }
-
-    /// Expand to include the given x coordinate
-    pub(crate) fn extend_with_x(&mut self, x: f32) {
-        self.min.x = self.min.x.min(x);
-        self.max.x = self.max.x.max(x);
-    }
-
-    /// Expand to include the given y coordinate
-    pub(crate) fn extend_with_y(&mut self, y: f32) {
-        self.min.y = self.min.y.min(y);
-        self.max.y = self.max.y.max(y);
-    }
-
-    pub(crate) fn expand_x(&mut self, pad: f32) {
-        self.min.x -= pad;
-        self.max.x += pad;
-    }
-
-    pub(crate) fn expand_y(&mut self, pad: f32) {
-        self.min.y -= pad;
-        self.max.y += pad;
-    }
-
-    pub(crate) fn merge_x(&mut self, other: &CanvasViewBounds) {
-        self.min.x = self.min.x.min(other.min[0]);
-        self.max.x = self.max.x.max(other.max[0]);
-    }
-
-    pub(crate) fn merge_y(&mut self, other: &CanvasViewBounds) {
-        self.min.y = self.min.y.min(other.min[1]);
-        self.max.y = self.max.y.max(other.max[1]);
-    }
-
-    pub(crate) fn set_x(&mut self, other: &CanvasViewBounds) {
-        self.min.x = other.min.x;
-        self.max.x = other.max.x;
-    }
-
-    pub(crate) fn set_y(&mut self, other: &CanvasViewBounds) {
-        self.min.y = other.min.y;
-        self.max.y = other.max.y;
-    }
-
-    pub(crate) fn translate_x(&mut self, delta: f32) {
-        self.min.x += delta;
-        self.max.x += delta;
-    }
-
-    pub(crate) fn translate_y(&mut self, delta: f32) {
-        self.min.y += delta;
-        self.max.y += delta;
-    }
-
-    pub(crate) fn translate(&mut self, delta: Vec2) {
-        self.translate_x(delta.x);
-        self.translate_y(delta.y);
-    }
-
-    pub(crate) fn add_relative_margin_x(&mut self, margin_fraction: Vec2) {
-        let width = self.width().max(0.0);
-        self.expand_x(margin_fraction.x * width);
-    }
-
-    pub(crate) fn add_relative_margin_y(&mut self, margin_fraction: Vec2) {
-        let height = self.height().max(0.0);
-        self.expand_y(margin_fraction.y * height);
-    }
-}
-
-/// Contains the screen rectangle and the plot bounds and provides methods to transform them.
-#[derive(Clone, Copy)]
-struct ScreenTransform {
-    /// The screen rectangle.
-    frame: Rect,
-
-    /// The plot bounds.
-    bounds: CanvasViewBounds,
-}
-
-impl ScreenTransform {
-    pub fn new(frame: Rect, mut bounds: CanvasViewBounds) -> Self {
-        // Make sure they are not empty.
-        if !bounds.is_valid() {
-            bounds = CanvasViewBounds::new_symmetrical(1.0);
-        }
-
-        Self { frame, bounds }
-    }
-
-    pub fn frame(&self) -> &Rect {
-        &self.frame
-    }
-
-    pub fn bounds(&self) -> &CanvasViewBounds {
-        &self.bounds
-    }
-
-    pub fn set_bounds(&mut self, bounds: CanvasViewBounds) {
-        self.bounds = bounds;
-    }
-
-    pub fn translate_bounds(&mut self, mut delta_pos: Vec2) {
-        delta_pos.x *= self.dvalue_dpos()[0];
-        delta_pos.y *= self.dvalue_dpos()[1];
-        self.bounds.translate(delta_pos);
-    }
-
-    /// Zoom by a relative factor with the given screen position as center.
-    pub fn zoom(&mut self, zoom_factor: Vec2, center: Pos2) {
-        let center = self.value_from_position(center);
-
-        let mut new_bounds = self.bounds;
-        new_bounds.min[0] = center.x + (new_bounds.min[0] - center.x) / (zoom_factor.x);
-        new_bounds.max[0] = center.x + (new_bounds.max[0] - center.x) / (zoom_factor.x);
-        new_bounds.min[1] = center.y + (new_bounds.min[1] - center.y) / (zoom_factor.y);
-        new_bounds.max[1] = center.y + (new_bounds.max[1] - center.y) / (zoom_factor.y);
-
-        if new_bounds.is_valid() {
-            self.bounds = new_bounds;
-        }
-    }
-
-    pub fn position_from_point(&self, value: &Vec2) -> Pos2 {
-        let x = remap(
-            value.x,
-            self.bounds.min[0]..=self.bounds.max[0],
-            (self.frame.left())..=(self.frame.right()),
-        );
-        let y = remap(
-            value.y,
-            self.bounds.min[1]..=self.bounds.max[1],
-            (self.frame.bottom())..=(self.frame.top()), // negated y axis!
-        );
-        pos2(x, y)
-    }
-
-    pub fn value_from_position(&self, pos: Pos2) -> Pos2 {
-        let x = remap(
-            pos.x,
-            (self.frame.left())..=(self.frame.right()),
-            self.bounds.min[0]..=self.bounds.max[0],
-        );
-        let y = remap(
-            pos.y,
-            (self.frame.bottom())..=(self.frame.top()), // negated y axis!
-            self.bounds.min[1]..=self.bounds.max[1],
-        );
-        Pos2::new(x, y)
-    }
-
-    /// delta position / delta value
-    pub fn dpos_dvalue_x(&self) -> f32 {
-        self.frame.width() / self.bounds.width()
-    }
-
-    /// delta position / delta value
-    pub fn dpos_dvalue_y(&self) -> f32 {
-        -self.frame.height() / self.bounds.height() // negated y axis!
-    }
-
-    /// delta value / delta position
-    pub fn dvalue_dpos(&self) -> [f32; 2] {
-        [1.0 / self.dpos_dvalue_x(), 1.0 / self.dpos_dvalue_y()]
-    }
-
-    fn aspect(&self) -> f32 {
-        let rw = self.frame.width();
-        let rh = self.frame.height();
-        (self.bounds.width() / rw) / (self.bounds.height() / rh)
-    }
-
-    /// Sets the aspect ratio by expanding the x- or y-axis.
-    ///
-    /// This never contracts, so we don't miss out on any data.
-    pub fn set_aspect_by_expanding(&mut self, aspect: f32) {
-        let current_aspect = self.aspect();
-
-        let epsilon = 1e-5;
-        if (current_aspect - aspect).abs() < epsilon {
-            // Don't make any changes when the aspect is already almost correct.
-            return;
-        }
-
-        if current_aspect < aspect {
-            self.bounds
-                .expand_x((aspect / current_aspect - 1.0) * self.bounds.width() * 0.5);
-        } else {
-            self.bounds
-                .expand_y((current_aspect / aspect - 1.0) * self.bounds.height() * 0.5);
-        }
-    }
-}
 
 pub struct CanvasView<'a> {
     id_source: Id,
@@ -258,34 +27,12 @@ pub struct CanvasView<'a> {
     show_extended_crosshair: bool,
 }
 
-#[derive(Clone, Copy)]
-struct AutoBounds {
-    x: bool,
-    y: bool,
-}
-
-impl AutoBounds {
-    fn from_bool(val: bool) -> Self {
-        AutoBounds { x: val, y: val }
-    }
-
-    fn any(&self) -> bool {
-        self.x || self.y
-    }
-}
-
-impl From<bool> for AutoBounds {
-    fn from(val: bool) -> Self {
-        AutoBounds::from_bool(val)
-    }
-}
-
 /// Information about the plot that has to persist between frames.
 #[derive(Clone, Copy)]
 struct ViewMemory {
     auto_bounds: AutoBounds,
     min_auto_bounds: CanvasViewBounds,
-    last_screen_transform: ScreenTransform,
+    last_screen_transform: transform::ScreenTransform,
     /// Allows to remember the first click position when performing a boxed zoom
     last_click_pos_for_zoom: Option<Pos2>,
 }
@@ -371,7 +118,7 @@ impl<'a> CanvasView<'a> {
         let mut memory = ViewMemory::load(ui.ctx(), plot_id).unwrap_or_else(|| ViewMemory {
             auto_bounds: (!min_auto_bounds.is_valid()).into(),
             min_auto_bounds,
-            last_screen_transform: ScreenTransform::new(rect, min_auto_bounds),
+            last_screen_transform: transform::ScreenTransform::new(rect, min_auto_bounds),
             last_click_pos_for_zoom: None,
         });
 
@@ -456,7 +203,7 @@ impl<'a> CanvasView<'a> {
             }
         }
 
-        let mut transform = ScreenTransform::new(rect, bounds);
+        let mut transform = transform::ScreenTransform::new(rect, bounds);
 
         // Enforce aspect ratio
         transform.set_aspect_by_expanding(1.0);
@@ -480,8 +227,10 @@ impl<'a> CanvasView<'a> {
         prepared.ui(ui, &response);
 
         if response.double_clicked_by(PointerButton::Middle) {
-            *image_rotation = (*image_rotation / std::f32::consts::FRAC_PI_2).round()
-                * std::f32::consts::FRAC_PI_2;
+            fn round_to_nearest_quarter_turn(theta: f32) -> f32 {
+                (theta / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2
+            }
+            *image_rotation = round_to_nearest_quarter_turn(*image_rotation);
         }
 
         // Rotation
@@ -616,7 +365,7 @@ impl<'a> CanvasView<'a> {
 
 struct PreparedView<'a> {
     image: Option<Image<'static>>,
-    transform: ScreenTransform,
+    transform: transform::ScreenTransform,
     image_rotation: &'a mut f32,
     show_grid: bool,
     show_extended_crosshair: bool,
@@ -671,7 +420,7 @@ impl PreparedView<'_> {
             let painter = plot_ui.painter();
 
             let origin = rect.min + image_screen_center * image_size;
-            let rot = Rot2::from_angle(*self.image_rotation);
+            let rot = emath::Rot2::from_angle(*self.image_rotation);
 
             painter.add(Shape::mesh({
                 let mut mesh = Mesh::default();
@@ -724,7 +473,7 @@ impl PreparedView<'_> {
                         ui.visuals().weak_text_color(),
                     );
 
-                    mesh.rotate(Rot2::from_angle(*self.image_rotation), pointer);
+                    mesh.rotate(emath::Rot2::from_angle(*self.image_rotation), pointer);
                     mesh
                 }));
             }
