@@ -4,28 +4,25 @@ use egui::*;
 /// The range of data values we show.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct CanvasViewBounds {
-    min: [f32; 2],
-    max: [f32; 2],
+    min: Pos2,
+    max: Pos2,
 }
 
 impl CanvasViewBounds {
     pub const NOTHING: Self = Self {
-        min: [f32::INFINITY; 2],
-        max: [-f32::INFINITY; 2],
+        min: Pos2::new(f32::INFINITY, f32::INFINITY),
+        max: Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
     };
 
     pub(crate) fn new_symmetrical(half_extent: f32) -> Self {
         Self {
-            min: [-half_extent; 2],
-            max: [half_extent; 2],
+            min: Pos2::from([-half_extent; 2]),
+            max: Pos2::from([half_extent; 2]),
         }
     }
 
     pub fn is_finite(&self) -> bool {
-        self.min[0].is_finite()
-            && self.min[1].is_finite()
-            && self.max[0].is_finite()
-            && self.max[1].is_finite()
+        self.min.is_finite() && self.max.is_finite()
     }
 
     pub fn is_valid(&self) -> bool {
@@ -33,11 +30,11 @@ impl CanvasViewBounds {
     }
 
     pub fn width(&self) -> f32 {
-        self.max[0] - self.min[0]
+        self.max.x - self.min.x
     }
 
     pub fn height(&self) -> f32 {
-        self.max[1] - self.min[1]
+        self.max.y - self.min.y
     }
 
     /// Expand to include the given (x,y) value
@@ -48,54 +45,54 @@ impl CanvasViewBounds {
 
     /// Expand to include the given x coordinate
     pub(crate) fn extend_with_x(&mut self, x: f32) {
-        self.min[0] = self.min[0].min(x);
-        self.max[0] = self.max[0].max(x);
+        self.min.x = self.min.x.min(x);
+        self.max.x = self.max.x.max(x);
     }
 
     /// Expand to include the given y coordinate
     pub(crate) fn extend_with_y(&mut self, y: f32) {
-        self.min[1] = self.min[1].min(y);
-        self.max[1] = self.max[1].max(y);
+        self.min.y = self.min.y.min(y);
+        self.max.y = self.max.y.max(y);
     }
 
     pub(crate) fn expand_x(&mut self, pad: f32) {
-        self.min[0] -= pad;
-        self.max[0] += pad;
+        self.min.x -= pad;
+        self.max.x += pad;
     }
 
     pub(crate) fn expand_y(&mut self, pad: f32) {
-        self.min[1] -= pad;
-        self.max[1] += pad;
+        self.min.y -= pad;
+        self.max.y += pad;
     }
 
     pub(crate) fn merge_x(&mut self, other: &CanvasViewBounds) {
-        self.min[0] = self.min[0].min(other.min[0]);
-        self.max[0] = self.max[0].max(other.max[0]);
+        self.min.x = self.min.x.min(other.min[0]);
+        self.max.x = self.max.x.max(other.max[0]);
     }
 
     pub(crate) fn merge_y(&mut self, other: &CanvasViewBounds) {
-        self.min[1] = self.min[1].min(other.min[1]);
-        self.max[1] = self.max[1].max(other.max[1]);
+        self.min.y = self.min.y.min(other.min[1]);
+        self.max.y = self.max.y.max(other.max[1]);
     }
 
     pub(crate) fn set_x(&mut self, other: &CanvasViewBounds) {
-        self.min[0] = other.min[0];
-        self.max[0] = other.max[0];
+        self.min.x = other.min.x;
+        self.max.x = other.max.x;
     }
 
     pub(crate) fn set_y(&mut self, other: &CanvasViewBounds) {
-        self.min[1] = other.min[1];
-        self.max[1] = other.max[1];
+        self.min.y = other.min.y;
+        self.max.y = other.max.y;
     }
 
     pub(crate) fn translate_x(&mut self, delta: f32) {
-        self.min[0] += delta;
-        self.max[0] += delta;
+        self.min.x += delta;
+        self.max.x += delta;
     }
 
     pub(crate) fn translate_y(&mut self, delta: f32) {
-        self.min[1] += delta;
-        self.max[1] += delta;
+        self.min.y += delta;
+        self.max.y += delta;
     }
 
     pub(crate) fn translate(&mut self, delta: Vec2) {
@@ -343,11 +340,6 @@ impl<'a> CanvasView<'a> {
         self
     }
 
-    pub fn show_bottom_bar(mut self, enable: bool) -> Self {
-        self.show_bottom_bar = enable;
-        self
-    }
-
     /// Interact with and add items to the plot and finally draw it.
     pub fn show(self, ui: &mut Ui) -> InnerResponse<()> {
         let Self {
@@ -366,7 +358,6 @@ impl<'a> CanvasView<'a> {
             image_rotation,
             show_extended_crosshair,
             show_grid,
-            show_bottom_bar,
             ..
         } = self;
 
@@ -486,7 +477,6 @@ impl<'a> CanvasView<'a> {
             image_rotation,
             show_extended_crosshair,
             show_grid,
-            show_bottom_bar,
             transform,
         };
         prepared.ui(ui, &response);
@@ -575,14 +565,8 @@ impl<'a> CanvasView<'a> {
                     let box_start_pos = transform.value_from_position(box_start_pos);
                     let box_end_pos = transform.value_from_position(box_end_pos);
                     let new_bounds = CanvasViewBounds {
-                        min: [
-                            box_start_pos.x.min(box_end_pos.x),
-                            box_start_pos.y.min(box_end_pos.y),
-                        ],
-                        max: [
-                            box_start_pos.x.max(box_end_pos.x),
-                            box_start_pos.y.max(box_end_pos.y),
-                        ],
+                        min: box_start_pos.min(box_end_pos),
+                        max: box_start_pos.max(box_end_pos),
                     };
                     if new_bounds.is_valid() {
                         transform.set_bounds(new_bounds);
@@ -641,7 +625,6 @@ struct PreparedView<'a> {
     transform: ScreenTransform,
     image_rotation: &'a mut f32,
     show_grid: bool,
-    show_bottom_bar: bool,
     show_extended_crosshair: bool,
 }
 
@@ -699,17 +682,7 @@ impl PreparedView<'_> {
                     Color32::from_rgba_premultiplied(0, 0, 0, 100),
                 );
                 mesh.add_colored_rect(rect, Color32::from_rgba_premultiplied(10, 10, 10, 50));
-                if self.show_bottom_bar {
-                    mesh.add_colored_rect(
-                        {
-                            let mut bbar = rect;
-                            bbar.set_top(bbar.bottom() + 10.0);
-                            bbar.set_bottom(bbar.bottom() + 13.0);
-                            bbar
-                        },
-                        Color32::DARK_GRAY,
-                    );
-                }
+
                 mesh.rotate(
                     emath::Rot2::from_angle(*self.image_rotation),
                     rect.min + image_screen_center * image_size,

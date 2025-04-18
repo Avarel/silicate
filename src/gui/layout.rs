@@ -270,7 +270,6 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         canvas::CanvasView::new(*tab, tex.copied().map(Image::from_texture), &mut rotation)
             .show_extended_crosshair(self.view_options.extended_crosshair)
             .show_grid(self.view_options.grid)
-            .show_bottom_bar(self.view_options.bottom_bar)
             .show(ui);
 
         self.instances.get_mut(tab).map(|v| {
