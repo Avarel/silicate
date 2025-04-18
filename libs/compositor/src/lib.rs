@@ -192,7 +192,6 @@ impl Target {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[
-                // background color clear pass
                 Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
                     resolve_target: None,
@@ -209,15 +208,6 @@ impl Target {
                         store: wgpu::StoreOp::Store,
                     },
                 }),
-                // compositing pass
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                }),
             ],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -227,7 +217,7 @@ impl Target {
         // Finish and set the render pass's binding groups and data
         pass.set_pipeline(&pipeline.render_pipeline);
         pass.set_bind_group(0, &canvas_bind_group, &[]);
-        pass.set_bind_group(1, &pipeline.constant_bind_group, &[]);
+        pass.set_bind_group(1, &pipeline.sampler_bind_group, &[]);
         pass.set_bind_group(2, &blending_bind_group, &[]);
         pass.set_vertex_buffer(0, self.buffers.vertices.buffer().slice(..));
         pass.set_vertex_buffer(1, self.buffers.tiles.buffer_slice());

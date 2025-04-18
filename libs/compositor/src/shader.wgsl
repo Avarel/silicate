@@ -284,7 +284,7 @@ struct LayerData {
 };
 
 struct ChunkData {
-    atlas_index: u32,
+    atlas_coords: u32,
     clip_atlas_index: u32,
     layer_index: u32,
 };
@@ -299,7 +299,7 @@ var splr: sampler;
 @group(2) @binding(0)
 var<uniform> atlas: AtlasData;
 @group(2) @binding(1)
-var textures: texture_2d_array<f32>;
+var atlas_texture: texture_2d_array<f32>;
 @group(2) @binding(2)
 var<storage, read> chunks: array<ChunkData>;
 @group(2) @binding(3)
@@ -315,15 +315,19 @@ fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
     ));
 }
 
-const MASK_NONE: u32 = 0u;
-
-
-fn atlas_index(atlas_index: u32) -> vec3u {
+fn atlas_coords(atlas_coords: u32) -> vec3u {
     return vec3u(
-        atlas_index % atlas.cols,
-        atlas_index / atlas.cols % atlas.rows,
-        atlas_index / (atlas.cols * atlas.rows)
+        atlas_coords % atlas.cols,
+        atlas_coords / atlas.cols % atlas.rows,
+        atlas_coords / (atlas.cols * atlas.rows)
     );
+}
+
+fn sample_atlas_texture(atlas_index: u32, coords: vec2f) -> vec4f {
+    let a_grid = vec2f(f32(atlas.cols), f32(atlas.rows));
+    let a_coords = atlas_coords(atlas_index);
+    let uv = (vec2f(a_coords.xy) + coords) / a_grid;
+    return textureSample(atlas_texture, splr, uv, a_coords.z);
 }
 
 @fragment
@@ -341,15 +345,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             continue;
         }
 
-        let atlas_grid = vec2f(f32(atlas.cols), f32(atlas.rows));
-
-        let clip_atlas_coords = atlas_index(chunk.clip_atlas_index);
-        let clip_atlas_uv = (vec2f(clip_atlas_coords.xy) + in.coords) / atlas_grid;
-        var clipa = select(textureSample(textures, splr, clip_atlas_uv, clip_atlas_coords.z).a, 1.0, layer.clipped == 0);
-
-        let chunk_atlas_coords = atlas_index(chunk.atlas_index);
-        let chunk_atlas_uv = (vec2f(chunk_atlas_coords.xy) + in.coords) / atlas_grid;
-        var fg = textureSample(textures, splr, chunk_atlas_uv, chunk_atlas_coords.z) * clipa;
+        var clipa = select(sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, 1.0, layer.clipped == 0);
+        var fg = sample_atlas_texture(chunk.atlas_coords, in.coords) * clipa;
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);

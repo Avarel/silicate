@@ -1,7 +1,7 @@
 use crate::{ChunkInstance, VertexInput, dev::GpuDispatch};
 
 pub struct Pipeline {
-    pub constant_bind_group: wgpu::BindGroup,
+    pub sampler_bind_group: wgpu::BindGroup,
     pub blending_bind_group_layout: wgpu::BindGroupLayout,
     pub render_pipeline: wgpu::RenderPipeline,
     pub canvas_bind_group_layout: wgpu::BindGroupLayout,
@@ -29,7 +29,7 @@ impl Pipeline {
 
         // This bind group only binds the sampler, which is a constant
         // through out all rendering passes.
-        let (constant_bind_group_layout, constant_bind_group) = {
+        let (sampler_bind_group_layout, sampler_bind_group) = {
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
             let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("texture_bind_group_layout"),
@@ -125,7 +125,7 @@ impl Pipeline {
                     label: Some("render_pipeline_layout"),
                     bind_group_layouts: &[
                         &canvas_bind_group_layout,
-                        &constant_bind_group_layout,
+                        &sampler_bind_group_layout,
                         &blending_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
@@ -145,20 +145,11 @@ impl Pipeline {
                     module: &shader,
                     entry_point: Some("fs_main"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &[
-                        // Used to clear a background color
-                        Some(wgpu::ColorTargetState {
-                            format: crate::tex::TEX_FORMAT,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        }),
-                        // Used to blend the shader
-                        Some(wgpu::ColorTargetState {
-                            format: crate::tex::TEX_FORMAT,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        }),
-                    ],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: crate::tex::TEX_FORMAT,
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -177,7 +168,7 @@ impl Pipeline {
 
         Self {
             canvas_bind_group_layout,
-            constant_bind_group,
+            sampler_bind_group,
             blending_bind_group_layout,
             render_pipeline,
         }
