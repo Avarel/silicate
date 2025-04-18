@@ -1,4 +1,5 @@
 mod gui;
+mod app;
 
 use clap::Parser;
 use egui_wgpu::wgpu;
@@ -8,10 +9,8 @@ use egui_winit::winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
-use gui::{
-    app::{self, UserEvent},
-    AppInstance,
-};
+use gui::AppInstance;
+use app::UserEvent;
 use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;

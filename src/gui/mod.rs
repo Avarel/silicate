@@ -1,13 +1,9 @@
-pub mod app;
 mod canvas;
 mod layout;
 
-use self::{
-    app::InstanceKey,
-    layout::{ViewOptions, ViewerGui},
-};
+use self::layout::{ViewOptions, ViewerGui};
 use crate::gui::layout::ViewerTab;
-use app::{App, CompositorApp, UserEvent};
+use crate::app::{App, CompositorApp, InstanceKey, UserEvent};
 use egui::{load::SizedTexture, FullOutput, ViewportId};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 use egui_winit::winit::{
@@ -330,10 +326,10 @@ impl AppInstance {
 
     pub fn handle_user_event(&mut self, event: UserEvent) {
         match event {
-            app::UserEvent::RemoveInstance(idx) => {
+            UserEvent::RemoveInstance(idx) => {
                 self.editor.remove_index(idx);
             }
-            e @ app::UserEvent::RebindTexture(idx) => {
+            e @ UserEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
                 // Do not block on any locks/rwlocks since we do not want to block
                 // the GUI thread when the renderer is potentially taking a long

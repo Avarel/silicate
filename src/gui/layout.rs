@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
-use super::app::{App, Instance, InstanceKey, UserEvent};
 use super::canvas;
+use crate::app::{App, Instance, InstanceKey, UserEvent};
 
 struct ControlsGui<'a> {
     app: &'a Arc<App>,
