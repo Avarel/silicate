@@ -1,4 +1,4 @@
-use crate::layers::{AtlasTextureTiling, Flipped, SilicaGroup, SilicaLayer, CanvasTiling};
+use crate::layers::{AtlasTextureTiling, CanvasTiling, Flipped, SilicaGroup, SilicaLayer};
 use crate::{
     error::SilicaError,
     ir::{IRData, SilicaIRHierarchy, SilicaIRLayer},
@@ -54,6 +54,13 @@ pub struct ProcreateFile {
     #[allow(dead_code)]
     pub composite: Option<SilicaLayer>,
     pub size: Size<u32>,
+
+    pub layer_count: u32,
+}
+
+pub struct ProcreateFileMetadata {
+    pub atlas_texture: GpuTexture,
+    pub canvas_tiling: CanvasTiling,
 }
 
 impl ProcreateFile {
@@ -61,7 +68,7 @@ impl ProcreateFile {
     pub fn open<P: AsRef<Path>>(
         p: P,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture, CanvasTiling), SilicaError> {
+    ) -> Result<(Self, ProcreateFileMetadata), SilicaError> {
         let path = p.as_ref();
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -84,7 +91,7 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, GpuTexture, CanvasTiling), SilicaError> {
+    ) -> Result<(Self, ProcreateFileMetadata), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
@@ -102,7 +109,7 @@ impl ProcreateFile {
 
         let chunk_count = file_names.len() as u32;
 
-        let tiling = CanvasTiling {
+        let canvas_tiling = CanvasTiling {
             cols,
             rows,
             diff: Size {
@@ -113,25 +120,24 @@ impl ProcreateFile {
             atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
-        dbg!(chunk_count);
-        dbg!(&tiling);
+        let layer_count = ir_hierachy.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1;
 
-        let texture_chunks = GpuTexture::empty_layers(
+        let atlas_texture = GpuTexture::empty_layers(
             &dispatch,
-            tiling.size * tiling.atlas.cols,
-            tiling.size * tiling.atlas.rows,
-            tiling.atlas.layers, // Make it an array
+            canvas_tiling.size * canvas_tiling.atlas.cols,
+            canvas_tiling.size * canvas_tiling.atlas.rows,
+            canvas_tiling.atlas.layers, // Make it an array
             GpuTexture::ATLAS_USAGE,
         );
 
         let ir_data = IRData {
-            tiling,
+            tiling: canvas_tiling,
             archive: &archive,
             size,
             file_names: &file_names,
             dispatch,
             chunk_id_counter: AtomicU32::new(1),
-            texture_chunks: &texture_chunks,
+            atlas_texture: &atlas_texture,
         };
 
         Ok((
@@ -172,9 +178,12 @@ impl ProcreateFile {
                         .map(|ir| ir.load(&ir_data))
                         .collect::<Result<_, _>>()?,
                 },
+                layer_count
             },
-            texture_chunks,
-            tiling,
+            ProcreateFileMetadata {
+                atlas_texture,
+                canvas_tiling,
+            },
         ))
     }
 }

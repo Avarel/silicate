@@ -19,7 +19,7 @@ struct ControlsGui<'a> {
 impl ControlsGui<'_> {
     fn layout_info(&self, ui: &mut Ui) {
         Grid::new("File Grid").show(ui, |ui| {
-            if let Some(Instance { file, .. }) = self
+            if let Some(instance @ Instance { file, .. }) = self
                 .app
                 .compositor
                 .instances
@@ -36,8 +36,18 @@ impl ControlsGui<'_> {
                 ui.label("Stroke Count");
                 ui.label(file.stroke_count.to_string());
                 ui.end_row();
+                ui.label("Layer Count");
+                ui.label(file.layer_count.to_string());
+                ui.end_row();
                 ui.label("Canvas Size");
-                ui.label(format!("{} by {}", file.size.width, file.size.height));
+
+                let mut dim1 = file.size.width;
+                let mut dim2 = file.size.height;
+
+                if !instance.is_upright() {
+                    std::mem::swap(&mut dim1, &mut dim2);
+                }
+                ui.label(format!("{} by {}", dim1, dim2));
             } else {
                 ui.label("No file loaded...");
             }

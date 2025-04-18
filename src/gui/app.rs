@@ -5,12 +5,16 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
 use silica::{
     error::SilicaError,
-    file::ProcreateFile,
+    file::{ProcreateFile, ProcreateFileMetadata},
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
-    buffer::BufferDimensions, canvas::{CompositorAtlasTiling, CompositorCanvasTiling}, dev::GpuDispatch,
-    pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Target,
+    buffer::BufferDimensions,
+    canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
+    dev::GpuDispatch,
+    pipeline::Pipeline,
+    tex::GpuTexture,
+    ChunkTile, CompositeLayer, Target,
 };
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -77,18 +81,23 @@ pub struct CompositorApp {
 
 impl App {
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        let (file, atlas_texture, tiling) =
+        let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
+
+        let ProcreateFileMetadata {
+            atlas_texture,
+            canvas_tiling,
+        } = metadata;
 
         let canvas = CompositorCanvasTiling::new(
             (file.size.width, file.size.height),
-            (tiling.cols, tiling.rows),
-            tiling.size,
+            (canvas_tiling.cols, canvas_tiling.rows),
+            canvas_tiling.size,
         );
         let mut target = Target::new(
             self.dispatch.clone(),
             canvas,
-            CompositorAtlasTiling::new(tiling.atlas.cols, tiling.atlas.rows),
+            CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
             atlas_texture,
         );
         dbg!(file.flipped);

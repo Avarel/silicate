@@ -28,7 +28,7 @@ pub(super) struct IRData<'a> {
     pub(super) file_names: &'a [&'a str],
 
     pub(super) chunk_id_counter: AtomicU32,
-    pub(super) texture_chunks: &'a GpuTexture,
+    pub(super) atlas_texture: &'a GpuTexture,
 }
 
 pub(super) enum SilicaIRHierarchy<'a> {
@@ -117,7 +117,7 @@ impl SilicaIRLayer<'_> {
 
                 let origin = meta.tiling.atlas_origin(atlas_index.get());
 
-                meta.texture_chunks
+                meta.atlas_texture
                     .replace_from_bytes(meta.dispatch, &data, origin, tile_extent);
                 Ok(SilicaChunk {
                     col,
@@ -188,7 +188,6 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
-    #[allow(dead_code)]
     pub(super) fn count_layer(&self) -> u32 {
         self.children.iter().map(|ir| ir.count_layer()).sum::<u32>()
     }
@@ -209,7 +208,6 @@ impl<'a> SilicaIRGroup<'a> {
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
-    #[allow(dead_code)]
     pub(super) fn count_layer(&self) -> u32 {
         match self {
             SilicaIRHierarchy::Layer(_) => 1,
