@@ -1,5 +1,5 @@
 use egui::*;
-use egui::{collapsing_header::CollapsingState, load::SizedTexture};
+use egui::load::SizedTexture;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::blend::BlendingMode;
@@ -153,30 +153,37 @@ impl ControlsGui<'_> {
     }
 
     fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
-        ui.horizontal_wrapped(|ui| {
-            *changed |= ui.checkbox(&mut l.clipped, "Clipped").changed();
-        });
-        Grid::new(l.id).show(ui, |ui| {
-            ui.label("Blend");
-            ComboBox::from_id_salt(0)
-                .selected_text(l.blend.as_str())
-                .show_ui(ui, |ui| {
-                    for b in BlendingMode::all() {
-                        *changed |= ui.selectable_value(&mut l.blend, *b, b.as_str()).changed();
-                    }
-                });
-            ui.end_row();
-
-            let mut percent = l.opacity * 100.0;
+        let mut percent = l.opacity * 100.0;
+        ui.horizontal(|ui| {
             ui.label("Opacity");
-            *changed |= ui
-                .add(
-                    Slider::new(&mut percent, 0.0..=100.0)
-                        .fixed_decimals(0)
-                        .suffix("%"),
-                )
-                .changed();
-            l.opacity = percent / 100.0;
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                // TODO 0 = None
+                //      100 = Max
+                ui.label(format!("{:.0}%", percent));
+            });
+        });
+        // TODO: make this more efficient
+        ui.style_mut().spacing.slider_width = ui.available_width();
+        ui.style_mut().spacing.slider_rail_height = 3.0;
+        ui.style_mut().visuals.slider_trailing_fill = true;
+        ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(0, 100, 200);
+        *changed |= ui
+            .add(Slider::new(&mut percent, 0.0..=100.0).show_value(false))
+            .changed();
+        l.opacity = (percent / 100.0).clamp(0.0, 1.0);
+
+        ui.style_mut().spacing.combo_width = ui.available_width();
+        ComboBox::from_id_salt(0)
+            .selected_text(l.blend.as_str())
+            .show_ui(ui, |ui| {
+                for b in BlendingMode::all() {
+                    *changed |= ui.selectable_value(&mut l.blend, *b, b.as_str()).changed();
+                }
+            });
+
+        Grid::new(l.id).show(ui, |ui| {
+            ui.label("Clipped");
+            *changed |= Checkbox::without_text(&mut l.clipped).ui(ui).changed();
         });
     }
 
