@@ -5,7 +5,7 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
 use silica::{
     error::SilicaError,
-    file::{Orientation, ProcreateFile, ProcreateFileMetadata},
+    file::{ProcreateFile, ProcreateFileMetadata},
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
@@ -49,7 +49,7 @@ pub struct Instance {
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
     pub rotation: f32,
-    pub flipped: silica::layers::Flipped,
+    pub flipped: silica::data::Flipped,
 }
 
 impl Instance {
@@ -82,7 +82,7 @@ pub struct CompositorApp {
 impl App {
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, metadata) =
-            tokio::task::block_in_place(|| ProcreateFile::open(path, &self.dispatch)).unwrap();
+            tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.dispatch)).unwrap();
 
         let ProcreateFileMetadata {
             atlas_texture,
@@ -104,10 +104,10 @@ impl App {
         dbg!(file.orientation);
 
         let rotation = match file.orientation {
-            Orientation::NoRotation => 0.0,
-            Orientation::Clockwise180 => 180.0,
-            Orientation::Clockwise270 => 270.0,
-            Orientation::Clockwise90 => 90.0,
+            silica::data::Orientation::NoRotation => 0.0,
+            silica::data::Orientation::Clockwise180 => 180.0,
+            silica::data::Orientation::Clockwise270 => 270.0,
+            silica::data::Orientation::Clockwise90 => 90.0,
             _ => 0f32,
         }
         .to_radians();

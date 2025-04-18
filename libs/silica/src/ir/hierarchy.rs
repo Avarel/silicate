@@ -1,44 +1,34 @@
 use std::io::Read;
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
-use std::sync::atomic::AtomicU32;
-
-use crate::layers::{SilicaChunk, SilicaImageData};
+use crate::layers::{SilicaChunk, SilicaHierarchy, SilicaImageData};
+use crate::ns_archive::{NsClass, NsDecode};
 use crate::ns_archive::{
-    NsClass, NsDecode, NsKeyedArchive, Size, NsObjects, error::NsArchiveError,
+    NsKeyedArchive, NsObjects, error::NsArchiveError,
 };
 use crate::{
     error::SilicaError,
-    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer, CanvasTiling},
+    layers::{SilicaLayer, SilicaGroup},
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
+use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::buffer::BufferDimensions;
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 
-pub(super) struct IRData<'a> {
-    pub(super) dispatch: &'a GpuDispatch,
+use super::IRData;
 
-    pub(super) tiling: CanvasTiling,
-    pub(super) archive: &'a crate::file::ZipArchiveMmap<'a>,
-    pub(super) size: Size<u32>,
-    pub(super) file_names: &'a [&'a str],
-
-    pub(super) chunk_id_counter: AtomicU32,
-    pub(super) atlas_texture: &'a GpuTexture,
-}
-
-pub(super) enum SilicaIRHierarchy<'a> {
+pub(crate) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
     Group(SilicaIRGroup<'a>),
 }
 
-pub(super) struct SilicaIRLayer<'a> {
-    nka: &'a NsKeyedArchive,
-    coder: &'a Dictionary,
+pub(crate) struct SilicaIRLayer<'a> {
+    pub(crate) nka: &'a NsKeyedArchive,
+    pub(crate) coder: &'a Dictionary,
 }
 
 impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
@@ -55,7 +45,7 @@ impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
 }
 
 impl SilicaIRLayer<'_> {
-    fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
+    pub(crate) fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
             .ok_or_else(|| SilicaError::CorruptedFormat)?;
@@ -69,16 +59,21 @@ impl SilicaIRLayer<'_> {
         Ok((col, row))
     }
 
-    pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
+    pub(super) fn load(
+        self,
+        dispatch: &GpuDispatch,
+        atlas_texture: &GpuTexture,
+        meta: &IRData<'_>,
+    ) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
         let world = self.coder;
         let uuid = nka.fetch::<String>(world, "UUID")?;
 
-        static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
+        pub(crate) static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let chunks = meta
             .file_names
-            .into_par_iter()
+            .par_iter()
             .filter(|path| path.starts_with(&uuid))
             .map(|path| -> Result<SilicaChunk, SilicaError> {
                 let mut archive = meta.archive.clone();
@@ -117,8 +112,7 @@ impl SilicaIRLayer<'_> {
 
                 let origin = meta.tiling.atlas_origin(atlas_index.get());
 
-                meta.atlas_texture
-                    .replace_from_bytes(meta.dispatch, &data, origin, tile_extent);
+                atlas_texture.replace_from_bytes(dispatch, &data, origin, tile_extent);
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -147,10 +141,10 @@ impl SilicaIRLayer<'_> {
     }
 }
 
-pub(super) struct SilicaIRGroup<'a> {
-    nka: &'a NsKeyedArchive,
-    coder: &'a Dictionary,
-    children: Vec<SilicaIRHierarchy<'a>>,
+pub(crate) struct SilicaIRGroup<'a> {
+    pub(crate) nka: &'a NsKeyedArchive,
+    pub(crate) coder: &'a Dictionary,
+    pub(crate) children: Vec<SilicaIRHierarchy<'a>>,
 }
 
 impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
@@ -188,11 +182,16 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
-    pub(super) fn count_layer(&self) -> u32 {
+    pub(crate) fn count_layer(&self) -> u32 {
         self.children.iter().map(|ir| ir.count_layer()).sum::<u32>()
     }
 
-    fn load(self, meta: &'a IRData<'a>) -> Result<SilicaGroup, SilicaError> {
+    pub(crate) fn load(
+        self,
+        dispatch: &GpuDispatch,
+        atlas_texture: &'a GpuTexture,
+        meta: &'a IRData<'a>,
+    ) -> Result<SilicaGroup, SilicaError> {
         let nka = self.nka;
         let coder = self.coder;
         Ok(SilicaGroup {
@@ -201,24 +200,33 @@ impl<'a> SilicaIRGroup<'a> {
             children: self
                 .children
                 .into_par_iter()
-                .map(|ir| ir.load(meta))
+                .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
-    pub(super) fn count_layer(&self) -> u32 {
+    pub(crate) fn count_layer(&self) -> u32 {
         match self {
             SilicaIRHierarchy::Layer(_) => 1,
             SilicaIRHierarchy::Group(group) => group.count_layer(),
         }
     }
 
-    pub(crate) fn load(self, meta: &'a IRData<'a>) -> Result<SilicaHierarchy, SilicaError> {
+    pub(crate) fn load(
+        self,
+        dispatch: &GpuDispatch,
+        atlas_texture: &'a GpuTexture,
+        meta: &'a IRData<'a>,
+    ) -> Result<SilicaHierarchy, SilicaError> {
         Ok(match self {
-            SilicaIRHierarchy::Layer(layer) => SilicaHierarchy::Layer(layer.load(meta)?),
-            SilicaIRHierarchy::Group(group) => SilicaHierarchy::Group(group.load(meta)?),
+            SilicaIRHierarchy::Layer(layer) => {
+                SilicaHierarchy::Layer(layer.load(dispatch, atlas_texture, meta)?)
+            }
+            SilicaIRHierarchy::Group(group) => {
+                SilicaHierarchy::Group(group.load(dispatch, atlas_texture, meta)?)
+            }
         })
     }
 }

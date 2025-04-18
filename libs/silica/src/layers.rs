@@ -86,12 +86,6 @@ impl CanvasTiling {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Flipped {
-    pub horizontally: bool,
-    pub vertically: bool,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum SilicaHierarchy {
     Layer(SilicaLayer),

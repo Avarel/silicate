@@ -1,3 +1,4 @@
+pub mod data;
 pub mod error;
 pub mod file;
 mod ir;
