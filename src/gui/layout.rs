@@ -151,12 +151,12 @@ impl ControlsGui<'_> {
         }
     }
 
-    fn layout_layer_control(ui: &mut Ui, i: usize, l: &mut SilicaLayer, changed: &mut bool) {
+    fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
         ui.horizontal_wrapped(|ui| {
             *changed |= ui.checkbox(&mut l.hidden, "Hidden").changed();
             *changed |= ui.checkbox(&mut l.clipped, "Clipped").changed();
         });
-        Grid::new(i).show(ui, |ui| {
+        Grid::new(l.id).show(ui, |ui| {
             ui.label("Blend");
             ComboBox::from_id_salt(0)
                 .selected_text(l.blend.as_str())
@@ -180,40 +180,36 @@ impl ControlsGui<'_> {
         });
     }
 
-    fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, i: &mut usize, changed: &mut bool) {
-        for layer in &mut layers.children {
-            *i += 1;
-            match layer {
-                SilicaHierarchy::Layer(l) => {
-                    ui.push_id(*i, |ui| {
-                        *i += 1;
-
-                        ui.collapsing(
-                            l.name
-                                .to_owned()
-                                .unwrap_or_else(|| format!("Unnamed Layer [{i}]")),
-                            |ui| {
-                                Self::layout_layer_control(ui, *i, l, changed);
-                            },
-                        );
-                    });
-                }
-                SilicaHierarchy::Group(h) => {
-                    ui.push_id(*i, |ui| {
-                        *i += 1;
-                        ui.collapsing(
-                            h.name
-                                .to_owned()
-                                .unwrap_or_else(|| format!("Unnamed Group [{i}]")),
-                            |ui| {
-                                *changed |= ui.checkbox(&mut h.hidden, "Hidden").changed();
-                                Self::layout_layers_sub(ui, h, i, changed);
-                            },
-                        )
-                    });
-                }
+    fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, changed: &mut bool) {
+        layers.children.iter_mut().for_each(|layer| match layer {
+            SilicaHierarchy::Layer(layer) => {
+                ui.push_id(layer.id, |ui| {
+                    ui.collapsing(
+                        layer
+                            .name
+                            .to_owned()
+                            .unwrap_or_else(|| format!("Unnamed Layer")),
+                        |ui| {
+                            Self::layout_layer_control(ui, layer, changed);
+                        },
+                    );
+                });
             }
-        }
+            SilicaHierarchy::Group(layer) => {
+                ui.push_id(layer.id, |ui| {
+                    ui.collapsing(
+                        layer
+                            .name
+                            .to_owned()
+                            .unwrap_or_else(|| format!("Unnamed Group")),
+                        |ui| {
+                            *changed |= ui.checkbox(&mut layer.hidden, "Hidden").changed();
+                            Self::layout_layers_sub(ui, layer, changed);
+                        },
+                    )
+                });
+            }
+        });
     }
 
     fn layout_layers(&self, ui: &mut Ui) {
@@ -227,8 +223,7 @@ impl ControlsGui<'_> {
             let mut file = instance.file.write();
             let mut changed = false;
 
-            let mut i = 1000;
-            Self::layout_layers_sub(ui, &mut file.layers, &mut i, &mut changed);
+            Self::layout_layers_sub(ui, &mut file.layers, &mut changed);
 
             ui.separator();
 

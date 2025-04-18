@@ -21,6 +21,7 @@ struct IRData<'a> {
 
     size: Size<u32>,
     tiling: CanvasTiling,
+    layer_id_counter: AtomicU32,
     chunk_id_counter: AtomicU32,
 }
 
@@ -105,6 +106,7 @@ impl<'a> ProcreateUnloadedFile<'a> {
                 file_names,
                 size,
                 tiling: canvas_tiling,
+                layer_id_counter: AtomicU32::new(1),
                 chunk_id_counter: AtomicU32::new(1),
             },
             author_name: nka.fetch::<Option<String>>(root, "authorName")?,
@@ -164,6 +166,7 @@ impl<'a> ProcreateUnloadedFile<'a> {
                             .map(|ir| ir.load(dispatch, &atlas_texture, &self.info))
                             .collect::<Result<_, _>>()?
                     },
+                    id: 0,
                 },
                 author_name: self.author_name,
                 background_hidden: self.background_hidden,

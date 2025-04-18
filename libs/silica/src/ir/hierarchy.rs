@@ -137,6 +137,7 @@ impl SilicaIRLayer<'_> {
             uuid,
             version: nka.fetch::<u64>(world, "version")?,
             image: SilicaImageData { chunks },
+            id: meta.layer_id_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         })
     }
 }
@@ -202,6 +203,7 @@ impl<'a> SilicaIRGroup<'a> {
                 .into_par_iter()
                 .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
+            id: meta.layer_id_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         })
     }
 }
