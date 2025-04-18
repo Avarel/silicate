@@ -38,7 +38,7 @@ egui-winit = "0.31.0"
 egui_dock = "0.16"
 egui-notify = "0.19"
 # Async runtime
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.15", default-features = false, features = ["tokio", "xdg-portal"] }
 tokio = { version = "1.21", features = [
     "sync",
     "rt",
