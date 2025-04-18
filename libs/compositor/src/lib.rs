@@ -140,7 +140,7 @@ impl Target {
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.atlas_texture.create_view(),
+                                &self.atlas_texture.create_array_view(),
                             ),
                         },
                         wgpu::BindGroupEntry {
@@ -188,7 +188,7 @@ impl Target {
                     label: Some("mixing_bind_group"),
                 });
 
-        let output_view = self.output.create_view();
+        let output_view = self.output.create_default_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[

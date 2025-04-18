@@ -256,7 +256,6 @@ pub struct CanvasView<'a> {
 
     show_grid: bool,
     show_extended_crosshair: bool,
-    show_bottom_bar: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -321,7 +320,6 @@ impl<'a> CanvasView<'a> {
 
             show_grid: false,
             show_extended_crosshair: false,
-            show_bottom_bar: true,
 
             data_aspect: None,
             show_background: true,

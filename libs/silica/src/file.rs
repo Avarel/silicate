@@ -120,7 +120,7 @@ impl ProcreateFile {
             &dispatch,
             tiling.size * tiling.atlas.cols,
             tiling.size * tiling.atlas.rows,
-            tiling.atlas.layers.max(2), // Make it an array
+            tiling.atlas.layers, // Make it an array
             GpuTexture::ATLAS_USAGE,
         );
 

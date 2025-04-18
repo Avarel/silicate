@@ -350,13 +350,10 @@ impl AppInstance {
                 };
 
                 let instances = self.app.compositor.instances.read();
-                let Some(instance) = instances.get(&idx) else {
-                    // bounce the event
-                    self.app.event_loop.send_event(e).unwrap();
-                    return;
-                };
-
-                let Some(target) = instance.target.try_lock() else {
+                let Some(target) = instances
+                    .get(&idx)
+                    .and_then(|instance| instance.target.try_lock())
+                else {
                     // bounce the event
                     self.app.event_loop.send_event(e).unwrap();
                     return;

@@ -71,9 +71,17 @@ impl GpuTexture {
     }
 
     /// Make a texture view of this GPU texture.
-    pub fn create_view(&self) -> wgpu::TextureView {
+    pub fn create_default_view(&self) -> wgpu::TextureView {
         self.texture
             .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn create_array_view(&self) -> wgpu::TextureView {
+        self.texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..wgpu::TextureViewDescriptor::default()
+            })
     }
 
     pub fn create_srgb_view(&self) -> wgpu::TextureView {
@@ -104,7 +112,7 @@ impl GpuTexture {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.create_view(),
+                    view: &self.create_default_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(color),
