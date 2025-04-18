@@ -255,7 +255,7 @@ pub struct ViewOptions {
 struct CanvasGui<'a> {
     app: &'a Arc<App>,
     canvases: &'a mut HashMap<InstanceKey, SizedTexture>,
-    instances: &'a HashMap<InstanceKey, Instance>,
+    instances: &'a mut HashMap<InstanceKey, Instance>,
     view_options: &'a ViewOptions,
 }
 
@@ -265,14 +265,17 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         let tex = self.canvases.get(tab);
 
-        let rotation = self.instances.get(tab).map(|v| v.rotation).unwrap_or(0.0);
+        let mut rotation = self.instances.get(tab).map(|v| v.rotation).unwrap_or(0.0);
 
-        canvas::CanvasView::new(*tab, tex.copied().map(Image::from_texture))
-            .with_rotation(rotation)
+        canvas::CanvasView::new(*tab, tex.copied().map(Image::from_texture), &mut rotation)
             .show_extended_crosshair(self.view_options.extended_crosshair)
             .show_grid(self.view_options.grid)
             .show_bottom_bar(self.view_options.bottom_bar)
             .show(ui);
+
+        self.instances.get_mut(tab).map(|v| {
+            v.rotation = rotation.rem_euclid(std::f32::consts::TAU);
+        });
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
@@ -319,7 +322,7 @@ impl ViewerGui {
     fn layout_view(&mut self, ui: &mut Ui) {
         ui.set_min_size(ui.available_size());
 
-        let mut instances = self.app.compositor.instances.read();
+        let mut instances = self.app.compositor.instances.write();
 
         if instances.is_empty() {
             ui.allocate_space(vec2(

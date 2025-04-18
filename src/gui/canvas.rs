@@ -115,7 +115,7 @@ impl CanvasViewBounds {
 }
 
 /// Contains the screen rectangle and the plot bounds and provides methods to transform them.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct ScreenTransform {
     /// The screen rectangle.
     frame: Rect,
@@ -238,12 +238,14 @@ impl ScreenTransform {
     }
 }
 
-pub struct CanvasView {
+pub struct CanvasView<'a> {
     id_source: Id,
 
     allow_zoom: bool,
     allow_drag: bool,
     allow_scroll: bool,
+    allow_rotate: bool,
+
     min_auto_bounds: CanvasViewBounds,
     margin_fraction: Vec2,
     allow_boxed_zoom: bool,
@@ -253,14 +255,14 @@ pub struct CanvasView {
     show_background: bool,
 
     image: Option<Image<'static>>,
-    image_rotation: f32,
+    image_rotation: &'a mut f32,
 
     show_grid: bool,
     show_extended_crosshair: bool,
     show_bottom_bar: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct AutoBounds {
     x: bool,
     y: bool,
@@ -283,7 +285,7 @@ impl From<bool> for AutoBounds {
 }
 
 /// Information about the plot that has to persist between frames.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct ViewMemory {
     auto_bounds: AutoBounds,
     min_auto_bounds: CanvasViewBounds,
@@ -302,14 +304,19 @@ impl ViewMemory {
     }
 }
 
-impl CanvasView {
+impl<'a> CanvasView<'a> {
     /// Give a unique id for each plot within the same [`Ui`].
-    pub fn new(id_source: impl std::hash::Hash, image: Option<Image<'static>>) -> Self {
+    pub fn new(
+        id_source: impl std::hash::Hash,
+        image: Option<Image<'static>>,
+        image_rotation: &'a mut f32,
+    ) -> Self {
         Self {
             id_source: Id::new(id_source),
             allow_zoom: true,
             allow_drag: true,
             allow_scroll: true,
+            allow_rotate: true,
             margin_fraction: Vec2::splat(0.05),
             allow_boxed_zoom: true,
             boxed_zoom_pointer_button: PointerButton::Secondary,
@@ -322,7 +329,7 @@ impl CanvasView {
             data_aspect: None,
             show_background: true,
             image,
-            image_rotation: 0.0,
+            image_rotation,
         }
     }
 
@@ -341,11 +348,6 @@ impl CanvasView {
         self
     }
 
-    pub fn with_rotation(mut self, rotation: f32) -> Self {
-        self.image_rotation = rotation;
-        self
-    }
-
     /// Interact with and add items to the plot and finally draw it.
     pub fn show(self, ui: &mut Ui) -> InnerResponse<()> {
         let Self {
@@ -353,6 +355,7 @@ impl CanvasView {
             allow_zoom,
             allow_scroll,
             allow_drag,
+            allow_rotate,
             allow_boxed_zoom,
             boxed_zoom_pointer_button: boxed_zoom_pointer,
             min_auto_bounds,
@@ -475,13 +478,42 @@ impl CanvasView {
             auto_bounds = false.into();
         }
 
+        if response.dragged_by(PointerButton::Middle) {
+            response = response.on_hover_cursor(CursorIcon::AllScroll);
+            let delta = response.drag_delta();
+            if let Some(mut p2) = response.hover_pos() {
+                let frame = vec2(transform.frame.width(), transform.frame.height());
+
+                if let Some(image) = image.as_ref() {
+                    let image_size = image.size().unwrap();
+                    let rect = {
+                        let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
+                        let right_bottom = Vec2::new(image_size.x / 2.0, image_size.y / 2.0);
+                        let left_top_tf = transform.position_from_point(&left_top);
+                        let right_bottom_tf = transform.position_from_point(&right_bottom);
+                        Rect::from_two_pos(left_top_tf, right_bottom_tf)
+                    };
+                    let image_screen_center = ((rect.max - rect.min) / 2.0) / image_size;
+
+                    p2 -= (rect.min + image_screen_center * image_size).to_vec2();
+
+                    let p1 = (p2 - delta).to_vec2() / frame;
+                    let p2 = p2.to_vec2() / frame;
+
+                    let theta = f32::atan2(p2.y, p2.x) - f32::atan2(p1.y, p1.x);
+
+                    *image_rotation += theta;
+                }
+            }
+        }
+
         let prepared = PreparedView {
             image,
             image_rotation,
             show_extended_crosshair,
             show_grid,
             show_bottom_bar,
-            transform: transform.clone(),
+            transform,
         };
         prepared.ui(ui, &response);
 
@@ -568,6 +600,12 @@ impl CanvasView {
                     auto_bounds = false.into();
                 }
             }
+            if allow_rotate {
+                let multi_touch = ui.input(|i| i.multi_touch());
+                if let Some(multi_touch) = multi_touch {
+                    *image_rotation += multi_touch.rotation_delta;
+                }
+            }
         }
 
         let memory = ViewMemory {
@@ -587,16 +625,16 @@ impl CanvasView {
     }
 }
 
-struct PreparedView {
+struct PreparedView<'a> {
     image: Option<Image<'static>>,
     transform: ScreenTransform,
-    image_rotation: f32,
+    image_rotation: &'a mut f32,
     show_grid: bool,
     show_bottom_bar: bool,
     show_extended_crosshair: bool,
 }
 
-impl PreparedView {
+impl PreparedView<'_> {
     fn ui(self, ui: &mut Ui, response: &Response) {
         let transform = &self.transform;
 
@@ -611,9 +649,11 @@ impl PreparedView {
         );
 
         if self.show_grid {
+            let painter = plot_ui.painter();
+
             for x in (plot_ui.max_rect().min.x as u32..plot_ui.max_rect().max.x as u32).step_by(15)
             {
-                plot_ui.painter().vline(
+                painter.vline(
                     x as f32,
                     plot_ui.max_rect().y_range(),
                     Stroke::new(1.0, Color32::from_gray(30)),
@@ -621,7 +661,7 @@ impl PreparedView {
             }
             for y in (plot_ui.max_rect().min.y as u32..plot_ui.max_rect().max.y as u32).step_by(15)
             {
-                plot_ui.painter().hline(
+                painter.hline(
                     plot_ui.max_rect().x_range(),
                     y as f32,
                     Stroke::new(1.0, Color32::from_gray(30)),
@@ -660,40 +700,44 @@ impl PreparedView {
                     );
                 }
                 mesh.rotate(
-                    emath::Rot2::from_angle(self.image_rotation),
+                    emath::Rot2::from_angle(*self.image_rotation),
                     rect.min + image_screen_center * image_size,
                 );
                 mesh
             }));
 
             image
-                .rotate(self.image_rotation, Vec2::splat(0.5))
+                .rotate(*self.image_rotation, Vec2::splat(0.5))
                 .paint_at(&mut plot_ui, rect);
         }
 
         if self.show_extended_crosshair {
             let painter = plot_ui.painter();
             if let Some(pointer) = response.hover_pos() {
-                painter.vline(
-                    pointer.x,
-                    ui.max_rect().y_range(),
-                    Stroke::new(1.0, ui.visuals().weak_text_color()),
-                );
-                painter.hline(
-                    ui.max_rect().x_range(),
-                    pointer.y,
-                    Stroke::new(1.0, ui.visuals().weak_text_color()),
-                );
-                painter.vline(
-                    pointer.x,
-                    0.0..=10.0,
-                    Stroke::new(3.0, ui.visuals().strong_text_color()),
-                );
-                painter.hline(
-                    0.0..=10.0,
-                    pointer.y,
-                    Stroke::new(3.0, ui.visuals().strong_text_color()),
-                );
+                painter.add(Shape::mesh({
+                    let mut mesh = Mesh::default();
+
+                    let vline = Rect::from_two_pos(
+                        pos2(0.0, -plot_ui.max_rect().height()),
+                        pos2(1.0, plot_ui.max_rect().height()),
+                    );
+                    let hline = Rect::from_two_pos(
+                        pos2(-plot_ui.max_rect().width(), 0.0),
+                        pos2(plot_ui.max_rect().width(), 1.0),
+                    );
+
+                    mesh.add_colored_rect(
+                        vline.translate(pointer.to_vec2()),
+                        ui.visuals().weak_text_color(),
+                    );
+                    mesh.add_colored_rect(
+                        hline.translate(pointer.to_vec2()),
+                        ui.visuals().weak_text_color(),
+                    );
+
+                    mesh.rotate(emath::Rot2::from_angle(*self.image_rotation), pointer);
+                    mesh
+                }));
             }
         }
     }

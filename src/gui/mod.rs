@@ -357,8 +357,11 @@ impl AppInstance {
                 };
 
                 let Some(target) = instance.target.try_lock() else {
+                    // bounce the event
+                    self.app.event_loop.send_event(e).unwrap();
                     return;
                 };
+
                 let output = target.output();
                 let texture_view = output.create_srgb_view();
                 let target_dim = target.dim();
