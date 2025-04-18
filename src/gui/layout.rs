@@ -1,5 +1,5 @@
-use egui::load::SizedTexture;
 use egui::*;
+use egui::{collapsing_header::CollapsingState, load::SizedTexture};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::blend::BlendingMode;
@@ -7,8 +7,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
-use super::canvas;
 use crate::app::{App, Instance, InstanceKey, UserEvent};
+
+use super::canvas::CanvasView;
 
 struct ControlsGui<'a> {
     app: &'a Arc<App>,
@@ -153,7 +154,6 @@ impl ControlsGui<'_> {
 
     fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
         ui.horizontal_wrapped(|ui| {
-            *changed |= ui.checkbox(&mut l.hidden, "Hidden").changed();
             *changed |= ui.checkbox(&mut l.clipped, "Clipped").changed();
         });
         Grid::new(l.id).show(ui, |ui| {
@@ -183,30 +183,95 @@ impl ControlsGui<'_> {
     fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, changed: &mut bool) {
         layers.children.iter_mut().for_each(|layer| match layer {
             SilicaHierarchy::Layer(layer) => {
-                ui.push_id(layer.id, |ui| {
-                    ui.collapsing(
-                        layer
-                            .name
-                            .to_owned()
-                            .unwrap_or_else(|| format!("Unnamed Layer")),
-                        |ui| {
-                            Self::layout_layer_control(ui, layer, changed);
-                        },
-                    );
+                let layer_name = layer
+                    .name
+                    .to_owned()
+                    .unwrap_or_else(|| format!("Unnamed Layer"));
+
+                let id = ui.make_persistent_id(layer.id);
+                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
+                );
+
+                let header_res = ui.horizontal(|ui| {
+                    let mut frame = egui::Frame::default()
+                        .corner_radius(2.5)
+                        .inner_margin(5.0)
+                        .begin(ui);
+                    {
+                        let ui = &mut frame.content_ui;
+                        if ui.strong(layer_name).clicked() {
+                            state.toggle(ui);
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let mut shown = !layer.hidden;
+                            *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                            layer.hidden = !shown;
+                            state.show_toggle_button(
+                                ui,
+                                egui::collapsing_header::paint_default_icon,
+                            );
+                        });
+                    }
+                    let response = frame.allocate_space(ui);
+                    if response.hovered() {
+                        frame.frame.fill = Color32::from_rgb(50, 50, 50)
+                    } else {
+                        frame.frame.fill = Color32::from_rgb(25, 25, 25)
+                    }
+                    frame.end(ui);
+                });
+
+                state.show_body_indented(&header_res.response, ui, |ui| {
+                    Self::layout_layer_control(ui, layer, changed);
                 });
             }
             SilicaHierarchy::Group(layer) => {
-                ui.push_id(layer.id, |ui| {
-                    ui.collapsing(
-                        layer
-                            .name
-                            .to_owned()
-                            .unwrap_or_else(|| format!("Unnamed Group")),
-                        |ui| {
-                            *changed |= ui.checkbox(&mut layer.hidden, "Hidden").changed();
-                            Self::layout_layers_sub(ui, layer, changed);
-                        },
-                    )
+                let layer_name = layer
+                    .name
+                    .to_owned()
+                    .unwrap_or_else(|| format!("Unnamed Group"));
+
+                let id = ui.make_persistent_id(layer.id);
+                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
+                );
+
+                let header_res = ui.horizontal(|ui| {
+                    let mut frame = egui::Frame::default()
+                        .corner_radius(2.5)
+                        .inner_margin(5.0)
+                        .begin(ui);
+                    {
+                        let ui = &mut frame.content_ui;
+                        if ui.strong(layer_name).clicked() {
+                            state.toggle(ui);
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let mut shown = !layer.hidden;
+                            *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                            layer.hidden = !shown;
+                            state.show_toggle_button(
+                                ui,
+                                egui::collapsing_header::paint_default_icon,
+                            );
+                        });
+                    }
+                    let response = frame.allocate_space(ui);
+                    if response.hovered() {
+                        frame.frame.fill = Color32::from_rgb(50, 50, 50)
+                    } else {
+                        frame.frame.fill = Color32::from_rgb(25, 25, 25)
+                    }
+                    frame.end(ui);
+                });
+
+                state.show_body_indented(&header_res.response, ui, |ui| {
+                    Self::layout_layers_sub(ui, layer, changed)
                 });
             }
         });
@@ -268,7 +333,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
         let mut rotation = self.instances.get(tab).map(|v| v.rotation).unwrap_or(0.0);
 
-        canvas::CanvasView::new(*tab, tex.copied().map(Image::from_texture), &mut rotation)
+        CanvasView::new(*tab, tex.copied().map(Image::from_texture), &mut rotation)
             .show_extended_crosshair(self.view_options.extended_crosshair)
             .show_grid(self.view_options.grid)
             .show(ui);
