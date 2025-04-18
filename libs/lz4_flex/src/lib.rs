@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(warnings)]
 
 //! Pure Rust, high performance implementation of LZ4 compression.
 //!
