@@ -271,22 +271,22 @@ impl CompositorApp {
         fn inner<'a>(
             layers: &'a SilicaGroup,
             chunks: &mut Vec<ChunkTile>,
-            mask_layer: &mut Option<&'a SilicaLayer>,
+            clip_layer: &mut Option<&'a SilicaLayer>,
             layer_counter: &mut u32,
         ) {
             for layer in layers.children.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(group, chunks, mask_layer, layer_counter);
+                        inner(group, chunks, clip_layer, layer_counter);
                     }
                     SilicaHierarchy::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
-                            let mut mask_atlas_index: Option<NonZeroU32> = None;
+                            let mut clip_atlas_index: Option<NonZeroU32> = None;
 
-                            if let Some(mask_layer) = mask_layer.as_ref() {
-                                for mask_chunk in mask_layer.image.chunks.iter() {
-                                    if mask_chunk.col == chunk.col && mask_chunk.row == chunk.row {
-                                        mask_atlas_index = Some(mask_chunk.atlas_index);
+                            if let Some(clip_layer) = clip_layer.as_ref() {
+                                for clip_chunk in clip_layer.image.chunks.iter() {
+                                    if clip_chunk.col == chunk.col && clip_chunk.row == chunk.row {
+                                        clip_atlas_index = Some(clip_chunk.atlas_index);
                                     }
                                 }
                             }
@@ -295,11 +295,11 @@ impl CompositorApp {
                                 col: chunk.col,
                                 row: chunk.row,
                                 atlas_index: chunk.atlas_index,
-                                mask_atlas_index,
+                                clip_atlas_index,
                                 layer_index: *layer_counter,
                             });
                         }
-                        *mask_layer = Some(layer);
+                        *clip_layer = Some(layer);
                         *layer_counter += 1;
                     }
                 }

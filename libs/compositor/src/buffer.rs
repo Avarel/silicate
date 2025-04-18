@@ -323,7 +323,7 @@ impl CompositorBuffers {
             let start = chunks.len();
             chunks.push(ChunkData {
                 atlas_index: chunk.atlas_index.get(),
-                mask_index: chunk.mask_atlas_index.map(|v| v.get()).unwrap_or(0),
+                clip_atlas_index: chunk.clip_atlas_index.map(|v| v.get()).unwrap_or(0),
                 layer_index: chunk.layer_index,
             });
 

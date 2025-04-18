@@ -132,6 +132,6 @@ pub(crate) struct ChunkSegment {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 pub(crate) struct ChunkData {
     pub atlas_index: u32,
-    pub mask_index: u32,
+    pub clip_atlas_index: u32,
     pub layer_index: u32,
 }
