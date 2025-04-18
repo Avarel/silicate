@@ -1,5 +1,5 @@
-use egui::*;
 use egui::load::SizedTexture;
+use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::blend::BlendingMode;
@@ -188,99 +188,70 @@ impl ControlsGui<'_> {
     }
 
     fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, changed: &mut bool) {
-        layers.children.iter_mut().for_each(|layer| match layer {
-            SilicaHierarchy::Layer(layer) => {
-                let layer_name = layer
-                    .name
-                    .to_owned()
-                    .unwrap_or_else(|| format!("Unnamed Layer"));
+        layers.children.iter_mut().for_each(|layer| {
+            let (id, layer_name, hidden) = match layer {
+                SilicaHierarchy::Layer(layer) => {
+                    let layer_name = layer
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| format!("Unnamed Layer"));
 
-                let id = ui.make_persistent_id(layer.id);
-                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
-                    ui.ctx(),
-                    id,
-                    false,
-                );
+                    let id = ui.make_persistent_id(layer.id);
+                    (id, layer_name, &mut layer.hidden)
+                }
+                SilicaHierarchy::Group(layer) => {
+                    let layer_name = layer
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| format!("Unnamed Group"));
 
-                let header_res = ui.horizontal(|ui| {
-                    let mut frame = egui::Frame::default()
-                        .corner_radius(2.5)
-                        .inner_margin(5.0)
-                        .begin(ui);
-                    {
-                        let ui = &mut frame.content_ui;
-                        if ui.strong(layer_name).clicked() {
-                            state.toggle(ui);
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let mut shown = !layer.hidden;
-                            *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
-                            layer.hidden = !shown;
-                            state.show_toggle_button(
-                                ui,
-                                egui::collapsing_header::paint_default_icon,
-                            );
-                        });
+                    let id = ui.make_persistent_id(layer.id);
+                    (id, layer_name, &mut layer.hidden)
+                }
+            };
+
+            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                false,
+            );
+
+            let header_res = ui.horizontal(|ui| {
+                let mut frame = egui::Frame::default()
+                    .corner_radius(2.5)
+                    .inner_margin(5.0)
+                    .begin(ui);
+                {
+                    let ui = &mut frame.content_ui;
+                    if ui.strong(layer_name).clicked() {
+                        state.toggle(ui);
                     }
-                    let response = frame.allocate_space(ui);
-                    if response.hovered() {
-                        frame.frame.fill = Color32::from_rgb(50, 50, 50)
-                    } else {
-                        frame.frame.fill = Color32::from_rgb(25, 25, 25)
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let mut shown = !*hidden;
+                        *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                        *hidden = !shown;
+                        state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                    });
+                }
+                let response = frame.allocate_space(ui);
+                if response.hovered() {
+                    frame.frame.fill = Color32::from_rgb(50, 50, 50)
+                } else {
+                    frame.frame.fill = Color32::from_rgb(25, 25, 25)
+                }
+                frame.end(ui);
+            });
+
+            state.show_body_indented(&header_res.response, ui, |ui| {
+                match layer {
+                    SilicaHierarchy::Layer(layer) => {
+                        Self::layout_layer_control(ui, layer, changed);
                     }
-                    frame.end(ui);
-                });
-
-                state.show_body_indented(&header_res.response, ui, |ui| {
-                    Self::layout_layer_control(ui, layer, changed);
-                });
-            }
-            SilicaHierarchy::Group(layer) => {
-                let layer_name = layer
-                    .name
-                    .to_owned()
-                    .unwrap_or_else(|| format!("Unnamed Group"));
-
-                let id = ui.make_persistent_id(layer.id);
-                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
-                    ui.ctx(),
-                    id,
-                    false,
-                );
-
-                let header_res = ui.horizontal(|ui| {
-                    let mut frame = egui::Frame::default()
-                        .corner_radius(2.5)
-                        .inner_margin(5.0)
-                        .begin(ui);
-                    {
-                        let ui = &mut frame.content_ui;
-                        if ui.strong(layer_name).clicked() {
-                            state.toggle(ui);
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let mut shown = !layer.hidden;
-                            *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
-                            layer.hidden = !shown;
-                            state.show_toggle_button(
-                                ui,
-                                egui::collapsing_header::paint_default_icon,
-                            );
-                        });
+                    SilicaHierarchy::Group(layer) => {
+                        Self::layout_layers_sub(ui, layer, changed);
                     }
-                    let response = frame.allocate_space(ui);
-                    if response.hovered() {
-                        frame.frame.fill = Color32::from_rgb(50, 50, 50)
-                    } else {
-                        frame.frame.fill = Color32::from_rgb(25, 25, 25)
-                    }
-                    frame.end(ui);
-                });
-
-                state.show_body_indented(&header_res.response, ui, |ui| {
-                    Self::layout_layers_sub(ui, layer, changed)
-                });
-            }
+                };
+            });
         });
     }
 
