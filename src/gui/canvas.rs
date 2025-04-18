@@ -4,8 +4,8 @@ use egui::*;
 /// The range of data values we show.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct CanvasViewBounds {
-    pub(crate) min: [f32; 2],
-    pub(crate) max: [f32; 2],
+    min: [f32; 2],
+    max: [f32; 2],
 }
 
 impl CanvasViewBounds {
@@ -373,11 +373,12 @@ impl<'a> CanvasView<'a> {
         let size = ui.available_size();
 
         // Allocate the space.
-        let (rect, mut response) = ui.allocate_exact_size(size, Sense::drag());
+        let (rect, mut response) = ui.allocate_exact_size(size, Sense::click_and_drag());
 
         // Load or initialize the memory.
         let plot_id = ui.make_persistent_id(id_source);
         ui.ctx().check_for_id_clash(plot_id, rect, "Plot");
+
         let mut memory = ViewMemory::load(ui.ctx(), plot_id).unwrap_or_else(|| ViewMemory {
             auto_bounds: (!min_auto_bounds.is_valid()).into(),
             min_auto_bounds,
@@ -478,34 +479,7 @@ impl<'a> CanvasView<'a> {
             auto_bounds = false.into();
         }
 
-        if response.dragged_by(PointerButton::Middle) {
-            response = response.on_hover_cursor(CursorIcon::AllScroll);
-            let delta = response.drag_delta();
-            if let Some(mut p2) = response.hover_pos() {
-                let frame = vec2(transform.frame.width(), transform.frame.height());
-
-                if let Some(image) = image.as_ref() {
-                    let image_size = image.size().unwrap();
-                    let rect = {
-                        let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
-                        let right_bottom = Vec2::new(image_size.x / 2.0, image_size.y / 2.0);
-                        let left_top_tf = transform.position_from_point(&left_top);
-                        let right_bottom_tf = transform.position_from_point(&right_bottom);
-                        Rect::from_two_pos(left_top_tf, right_bottom_tf)
-                    };
-                    let image_screen_center = ((rect.max - rect.min) / 2.0) / image_size;
-
-                    p2 -= (rect.min + image_screen_center * image_size).to_vec2();
-
-                    let p1 = (p2 - delta).to_vec2() / frame;
-                    let p2 = p2.to_vec2() / frame;
-
-                    let theta = f32::atan2(p2.y, p2.x) - f32::atan2(p1.y, p1.x);
-
-                    *image_rotation += theta;
-                }
-            }
-        }
+        let image_size = image.as_ref().and_then(|image| image.size());
 
         let prepared = PreparedView {
             image,
@@ -517,8 +491,49 @@ impl<'a> CanvasView<'a> {
         };
         prepared.ui(ui, &response);
 
+        if response.double_clicked_by(PointerButton::Middle) {
+            *image_rotation = (*image_rotation / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2;
+        }
+
+        // Rotation
+        if response.dragged_by(PointerButton::Middle) {
+            response = response.on_hover_cursor(CursorIcon::Move);
+            let delta = response.drag_delta();
+            if let Some(hover_pos) = response.hover_pos() {
+                let frame = vec2(transform.frame.width(), transform.frame.height());
+
+                if let Some(image_size) = image_size {
+                    let rect = {
+                        let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
+                        let right_bottom = Vec2::new(image_size.x / 2.0, image_size.y / 2.0);
+                        let left_top_tf = transform.position_from_point(&left_top);
+                        let right_bottom_tf = transform.position_from_point(&right_bottom);
+                        Rect::from_two_pos(left_top_tf, right_bottom_tf)
+                    };
+                    let image_screen_center = ((rect.max - rect.min) / 2.0) / image_size;
+
+                    let image_pos_center = rect.min + image_screen_center * image_size;
+
+                    let hover_norm_pos = hover_pos - image_pos_center.to_vec2();
+                    let p1 = (hover_norm_pos - delta).to_vec2() / frame;
+                    let p2 = hover_norm_pos.to_vec2() / frame;
+
+                    let theta = f32::atan2(p2.y, p2.x) - f32::atan2(p1.y, p1.x);
+
+                    *image_rotation += theta;
+
+                    let painter = ui.painter();
+                    painter.add(Shape::dashed_line(
+                        &[image_pos_center, hover_pos],
+                        Stroke::new(2., Color32::GREEN),
+                        2.0,
+                        3.0,
+                    ));
+                }
+            }
+        }
+
         // Zooming
-        // let mut boxed_zoom_rect = None;
         if allow_boxed_zoom {
             // Save last click to allow boxed zooming
             if response.drag_started() && response.dragged_by(boxed_zoom_pointer) {
@@ -528,35 +543,33 @@ impl<'a> CanvasView<'a> {
             let box_start_pos = last_click_pos_for_zoom;
             let box_end_pos = response.hover_pos();
             if let (Some(box_start_pos), Some(box_end_pos)) = (box_start_pos, box_end_pos) {
-                let painter = ui.painter().with_clip_rect(transform.frame);
-                painter.vline(
-                    box_start_pos.x,
-                    ui.max_rect().y_range(),
-                    Stroke::new(1.0, ui.visuals().weak_text_color()),
-                );
-                painter.hline(
-                    ui.max_rect().x_range(),
-                    box_start_pos.y,
-                    Stroke::new(1.0, ui.visuals().weak_text_color()),
-                );
+                response = response.on_hover_cursor(CursorIcon::Crosshair);
 
-                // while dragging prepare a Shape and draw it later on top of the plot
-                if response.dragged_by(boxed_zoom_pointer) {
-                    response = response.on_hover_cursor(CursorIcon::ZoomIn);
-                    let rect = epaint::Rect::from_two_pos(box_start_pos, box_end_pos);
-                    painter.add(epaint::RectShape::stroke(
-                        rect,
-                        0.0,
-                        epaint::Stroke::new(4., Color32::DARK_BLUE),
-                        StrokeKind::Outside,
-                    ));
-                    painter.add(epaint::RectShape::stroke(
-                        rect,
-                        0.0,
-                        epaint::Stroke::new(2., Color32::WHITE),
-                        StrokeKind::Outside,
-                    ));
-                }
+                let painter = ui.painter().with_clip_rect(transform.frame);
+
+                let theta = *image_rotation;
+                let x_rotated_unit_vector = vec2(f32::cos(theta), f32::sin(theta));
+
+                let box_dim = box_end_pos - box_start_pos;
+                let box_dim_x_proj = box_dim.dot(x_rotated_unit_vector) * x_rotated_unit_vector;
+
+                let box_pt1 = box_start_pos + box_dim_x_proj;
+                let box_pt2 = box_end_pos - box_dim_x_proj;
+
+                let draw_poly = |points: &[Pos2], stroke: Stroke| {
+                    for window in points.windows(2) {
+                        let &[pos1, pos2] = window else {
+                            unsafe { std::hint::unreachable_unchecked() }
+                        };
+                        painter.line_segment([pos1, pos2], stroke);
+                    }
+                };
+
+                let box_positions = [box_start_pos, box_pt1, box_end_pos, box_pt2, box_start_pos];
+
+                draw_poly(&box_positions, epaint::Stroke::new(5., Color32::BLACK));
+                draw_poly(&box_positions, epaint::Stroke::new(2., Color32::WHITE));
+
                 // when the click is release perform the zoom
                 if response.drag_stopped() {
                     let box_start_pos = transform.value_from_position(box_start_pos);
@@ -615,8 +628,6 @@ impl<'a> CanvasView<'a> {
             last_click_pos_for_zoom,
         };
         memory.store(ui.ctx(), plot_id);
-
-        let response = response.on_hover_cursor(CursorIcon::Crosshair);
 
         InnerResponse {
             inner: (),
