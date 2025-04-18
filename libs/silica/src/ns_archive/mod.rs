@@ -4,8 +4,10 @@ use error::NsArchiveError;
 use plist::{Dictionary, Uid, Value};
 
 pub struct NsKeyedArchive {
-    // version: u64,
-    // archiver: String,
+    #[allow(dead_code)]
+    version: u64,
+    #[allow(dead_code)]
+    archiver: String,
     top: Dictionary,
     objects: Vec<Value>,
 }
@@ -17,16 +19,16 @@ impl<'a> NsKeyedArchive {
             .ok_or(NsArchiveError::TypeMismatch(String::new()))?;
 
         Ok(Self {
-            // version: value
-            //     .remove("$version")
-            //     .ok_or_else(|| NsArchiveError::MissingKey("$version".to_string()))?
-            //     .as_unsigned_integer()
-            //     .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))?,
-            // archiver: value
-            //     .remove("$archiver")
-            //     .ok_or_else(|| NsArchiveError::MissingKey("$archiver".to_string()))?
-            //     .into_string()
-            //     .ok_or_else(|| NsArchiveError::TypeMismatch(key.to_string()))?,
+            version: value
+                .remove("$version")
+                .ok_or_else(|| NsArchiveError::MissingKey("$version".to_string()))?
+                .as_unsigned_integer()
+                .ok_or_else(|| NsArchiveError::TypeMismatch("$version".to_string()))?,
+            archiver: value
+                .remove("$archiver")
+                .ok_or_else(|| NsArchiveError::MissingKey("$archiver".to_string()))?
+                .into_string()
+                .ok_or_else(|| NsArchiveError::TypeMismatch("$archiver".to_string()))?,
             top: value
                 .remove("$top")
                 .ok_or_else(|| NsArchiveError::MissingKey("$top".to_string()))?
@@ -61,10 +63,10 @@ impl<'a> NsKeyedArchive {
 
     pub fn fetch_value_nullable(
         &'a self,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &str,
     ) -> Result<Option<&'a Value>, NsArchiveError> {
-        return match coder.get(key) {
+        return match world.get(key) {
             Some(Value::Uid(uid)) => self.resolve_index_nullable(uid.get() as usize),
             value => Ok(value),
         };
@@ -72,10 +74,10 @@ impl<'a> NsKeyedArchive {
 
     pub fn fetch_value(
         &'a self,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &str,
     ) -> Result<&'a Value, NsArchiveError> {
-        return match coder.get(key) {
+        return match world.get(key) {
             Some(Value::Uid(uid)) => self.resolve_index(uid.get() as usize),
             Some(value) => Ok(value),
             None => Err(NsArchiveError::MissingKey(key.to_string())),
@@ -84,10 +86,10 @@ impl<'a> NsKeyedArchive {
 
     pub fn fetch<T: NsDecode<'a>>(
         &'a self,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &'a str,
     ) -> Result<T, NsArchiveError> {
-        T::fetch(self, coder, key)
+        T::fetch(self, world, key)
     }
 
     pub fn root(&self) -> Result<&'_ Dictionary, NsArchiveError> {
@@ -98,10 +100,10 @@ impl<'a> NsKeyedArchive {
 pub trait NsDecode<'a>: Sized {
     fn fetch(
         nka: &'a NsKeyedArchive,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &'a str,
     ) -> Result<Self, NsArchiveError> {
-        Self::decode(nka, key, nka.fetch_value(coder, key)?)
+        Self::decode(nka, key, nka.fetch_value(world, key)?)
     }
 
     fn decode(
@@ -225,10 +227,10 @@ where
 {
     fn fetch(
         nka: &'a NsKeyedArchive,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &'a str,
     ) -> Result<Self, NsArchiveError> {
-        Ok(Box::new(T::fetch(nka, coder, key)?))
+        Ok(Box::new(T::fetch(nka, world, key)?))
     }
 
     fn decode(a: &'a NsKeyedArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
@@ -242,10 +244,10 @@ where
 {
     fn fetch(
         nka: &'a NsKeyedArchive,
-        coder: &'a Dictionary,
+        world: &'a Dictionary,
         key: &'a str,
     ) -> Result<Self, NsArchiveError> {
-        nka.fetch_value_nullable(coder, key)?
+        nka.fetch_value_nullable(world, key)?
             .map(|z| T::decode(nka, key, z))
             .transpose()
     }
@@ -313,11 +315,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct WrappedArray<T> {
+pub struct NsObjects<T> {
     pub objects: Vec<T>,
 }
 
-impl<'a, T> NsDecode<'a> for WrappedArray<T>
+impl<'a, T> NsDecode<'a> for NsObjects<T>
 where
     T: NsDecode<'a>,
 {
@@ -326,26 +328,29 @@ where
         key: &'a str,
         val: &'a Value,
     ) -> Result<Self, NsArchiveError> {
+        struct NsObjectIds {
+            pub inner: Vec<Uid>,
+        }
+
+        impl NsDecode<'_> for NsObjectIds {
+            fn decode(
+                nka: &NsKeyedArchive,
+                key: &str,
+                val: &Value,
+            ) -> Result<Self, NsArchiveError> {
+                let world = <&'_ Dictionary>::decode(nka, key, val)?;
+                Ok(Self {
+                    inner: nka.fetch::<Vec<Uid>>(world, "NS.objects")?,
+                })
+            }
+        }
+
         Ok(Self {
-            objects: WrappedRawArray::decode(nka, key, val)?
+            objects: NsObjectIds::decode(nka, key, val)?
                 .inner
                 .iter()
                 .map(|uid| T::decode(nka, key, nka.resolve_index(uid.get() as usize)?))
                 .collect::<Result<Vec<_>, _>>()?,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct WrappedRawArray {
-    pub inner: Vec<Uid>,
-}
-
-impl NsDecode<'_> for WrappedRawArray {
-    fn decode(nka: &NsKeyedArchive, key: &str, val: &Value) -> Result<Self, NsArchiveError> {
-        let coder = <&'_ Dictionary>::decode(nka, key, val)?;
-        Ok(Self {
-            inner: nka.fetch::<Vec<Uid>>(coder, "NS.objects")?,
         })
     }
 }

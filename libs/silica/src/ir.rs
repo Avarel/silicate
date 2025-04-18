@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU32;
 
 use crate::layers::{SilicaChunk, SilicaImageData};
 use crate::ns_archive::{
-    NsClass, NsDecode, NsKeyedArchive, Size, WrappedArray, error::NsArchiveError,
+    NsClass, NsDecode, NsKeyedArchive, Size, NsObjects, error::NsArchiveError,
 };
 use crate::{
     error::SilicaError,
@@ -71,8 +71,8 @@ impl SilicaIRLayer<'_> {
 
     pub(super) fn load(self, meta: &IRData<'_>) -> Result<SilicaLayer, SilicaError> {
         let nka = self.nka;
-        let coder = self.coder;
-        let uuid = nka.fetch::<String>(coder, "UUID")?;
+        let world = self.coder;
+        let uuid = nka.fetch::<String>(world, "UUID")?;
 
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
@@ -129,19 +129,19 @@ impl SilicaIRLayer<'_> {
 
         Ok(SilicaLayer {
             blend: BlendingMode::from_u32(
-                nka.fetch::<Option<u32>>(coder, "extendedBlend")
+                nka.fetch::<Option<u32>>(world, "extendedBlend")
                     .transpose()
-                    .unwrap_or_else(|| nka.fetch::<u32>(coder, "blend"))?,
+                    .unwrap_or_else(|| nka.fetch::<u32>(world, "blend"))?,
             )
             .ok_or_else(|| SilicaError::InvalidValue)?,
-            clipped: nka.fetch::<bool>(coder, "clipped")?,
-            hidden: nka.fetch::<bool>(coder, "hidden")?,
+            clipped: nka.fetch::<bool>(world, "clipped")?,
+            hidden: nka.fetch::<bool>(world, "hidden")?,
             mask: None,
-            name: nka.fetch::<Option<String>>(coder, "name")?,
-            opacity: nka.fetch::<f32>(coder, "opacity")?,
+            name: nka.fetch::<Option<String>>(world, "name")?,
+            opacity: nka.fetch::<f32>(world, "opacity")?,
             size: meta.size,
             uuid,
-            version: nka.fetch::<u64>(coder, "version")?,
+            version: nka.fetch::<u64>(world, "version")?,
             image: SilicaImageData { chunks },
         })
     }
@@ -164,7 +164,7 @@ impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
             nka,
             coder,
             children: nka
-                .fetch::<WrappedArray<SilicaIRHierarchy<'a>>>(coder, "children")?
+                .fetch::<NsObjects<SilicaIRHierarchy<'a>>>(coder, "children")?
                 .objects,
         })
     }

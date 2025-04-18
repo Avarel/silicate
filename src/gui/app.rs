@@ -5,7 +5,7 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use parking_lot::{Mutex, RwLock};
 use silica::{
     error::SilicaError,
-    file::{ProcreateFile, ProcreateFileMetadata},
+    file::{Orientation, ProcreateFile, ProcreateFileMetadata},
     layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
@@ -104,10 +104,10 @@ impl App {
         dbg!(file.orientation);
 
         let rotation = match file.orientation {
-            1 => 0.0,
-            2 => 180.0,
-            3 => 270.0,
-            4 => 90.0,
+            Orientation::NoRotation => 0.0,
+            Orientation::Clockwise180 => 180.0,
+            Orientation::Clockwise270 => 270.0,
+            Orientation::Clockwise90 => 90.0,
             _ => 0f32,
         }
         .to_radians();

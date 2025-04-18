@@ -12,6 +12,8 @@ pub enum NsArchiveError {
     TypeMismatch(String),
     #[error("Missing key {0}")]
     MissingKey(String),
+    #[error("Bad value for key {0} = {1}")]
+    BadValue(String, String),
     #[error("Bad index")]
     BadIndex,
 }

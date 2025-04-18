@@ -2,7 +2,7 @@ use crate::layers::{AtlasTextureTiling, CanvasTiling, Flipped, SilicaGroup, Sili
 use crate::{
     error::SilicaError,
     ir::{IRData, SilicaIRHierarchy, SilicaIRLayer},
-    ns_archive::{NsKeyedArchive, Size, WrappedArray, error::NsArchiveError},
+    ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError},
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::dev::GpuDispatch;
@@ -16,6 +16,27 @@ use std::{
 use zip::read::ZipArchive;
 
 pub(crate) type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    NoRotation,
+    Clockwise180,
+    Clockwise270,
+    Clockwise90,
+    Unknown,
+}
+
+impl crate::ns_archive::NsDecode<'_> for Orientation {
+    fn decode(nka: &NsKeyedArchive, key: &str, val: &plist::Value) -> Result<Self, NsArchiveError> {
+        Ok(match u64::decode(nka, key, val)? {
+            1 => Self::NoRotation,
+            2 => Self::Clockwise180,
+            3 => Self::Clockwise270,
+            4 => Self::Clockwise90,
+            v => Err(NsArchiveError::BadValue(key.to_string(), v.to_string()))?,
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct ProcreateFile {
@@ -32,7 +53,7 @@ pub struct ProcreateFile {
     pub layers: SilicaGroup,
     //     mask:SilicaLayer?
     pub name: Option<String>,
-    pub orientation: u32,
+    pub orientation: Orientation,
     //     primaryItem:Any?
     // //  skipping a bunch of reference window related stuff here
     //     selectedLayer:Any?
@@ -104,7 +125,7 @@ impl ProcreateFile {
         let file_names = archive.file_names().collect::<Vec<_>>();
 
         let ir_hierachy = nka
-            .fetch::<WrappedArray<SilicaIRHierarchy>>(root, "unwrappedLayers")?
+            .fetch::<NsObjects<SilicaIRHierarchy>>(root, "unwrappedLayers")?
             .objects;
 
         let chunk_count = file_names.len() as u32;
@@ -159,7 +180,7 @@ impl ProcreateFile {
                 )
                 .unwrap(),
                 name: nka.fetch::<Option<String>>(root, "name")?,
-                orientation: nka.fetch::<u32>(root, "orientation")?,
+                orientation: nka.fetch::<Orientation>(root, "orientation")?,
                 flipped: Flipped {
                     horizontally: nka.fetch::<bool>(root, "flippedHorizontally")?,
                     vertically: nka.fetch::<bool>(root, "flippedVertically")?,
@@ -178,7 +199,7 @@ impl ProcreateFile {
                         .map(|ir| ir.load(&ir_data))
                         .collect::<Result<_, _>>()?,
                 },
-                layer_count
+                layer_count,
             },
             ProcreateFileMetadata {
                 atlas_texture,
