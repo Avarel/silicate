@@ -60,6 +60,22 @@ fn vs_main(
 // HSL Blending Modes //////////////////////////////////////////////////////////
 // [PDF Blend Modes: Addendum]
 // [KHR_blend_equation_advanced]
+fn rgb2hsv(c: vec3f) -> vec3f {
+    let K = vec4f(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    let p = mix(vec4f(c.bg, K.wz), vec4f(c.gb, K.xy), step(c.b, c.g));
+    let q = mix(vec4f(p.xyw, c.r), vec4f(c.r, p.yzx), step(p.x, c.r));
+
+    let d = q.x - min(q.w, q.y);
+    let e = 1.0e-10;
+    return vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+fn hsv2rgb(c: vec3f) -> vec3f {
+    let K = vec4f(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, saturate(p - K.xxx), c.y);
+}
+
 fn lum(c: vec3f) -> f32 {
     return dot(c, vec3(0.3, 0.59, 0.11));
 }
@@ -75,7 +91,7 @@ fn clip_color(c: vec3f) -> vec3f {
     if (x > 1.0) {
         z = l + (((z - l) * (1.0 - l)) / (x - l));
     }
-    return clamp(z, vec3(0.0), vec3(1.0));
+    return saturate(z);
 }
 
 fn set_lum(c: vec3f, l: f32) -> vec3f {
@@ -293,10 +309,10 @@ var<storage, read> segments: array<SegmentData>;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
-    return clamp(vec4(
+    return saturate(vec4(
         cg.rgb * cg.a * bg.a + comp(fg.rgb, bg.a) + comp(bg.rgb, cg.a),
         stdalpha(bg.a, cg.a)
-    ), vec4(0.0), vec4(1.0));
+    ));
 }
 
 const MASK_NONE: u32 = 0u;
@@ -336,8 +352,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var maska = select(textureSample(textures, splr, mask_atlas_uv, mask_atlas_coords.z).a, 1.0, layer.clipped == 0);
         var fga = textureSample(textures, splr, chunk_atlas_uv, chunk_atlas_coords.z) * maska;
 
-        var bg = vec4(clamp(bga.rgb / bga.a, vec3(0.0), vec3(1.0)), bga.a);
-        var fg = vec4(clamp(fga.rgb / fga.a, vec3(0.0), vec3(1.0)), fga.a * layer.opacity);
+        var bg = vec4(saturate(bga.rgb / bga.a), bga.a);
+        var fg = vec4(saturate(fga.rgb / fga.a), fga.a * layer.opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
@@ -370,7 +386,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             default: { final_pixel = normal(bg.rgb, fg.rgb); }
         }
         // Clamp to avoid unwanted behavior down the road
-        final_pixel = clamp(final_pixel, vec3(0.0), vec3(1.0));
+        final_pixel = saturate(final_pixel);
 
         // Compute final premultiplied colors
         bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
