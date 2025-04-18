@@ -35,7 +35,7 @@ pub struct AppWin {
 
 pub struct AppInstance {
     pub app: Arc<App>,
-    pub rendering: AppWin,
+    pub window: AppWin,
     pub(crate) editor: layout::ViewerGui,
 }
 
@@ -102,7 +102,6 @@ impl AppInstance {
                 smooth: false,
                 grid: true,
                 extended_crosshair: false,
-                bottom_bar: false,
             },
             new_instances: rx,
             active_canvas: InstanceKey(0),
@@ -125,7 +124,7 @@ impl AppInstance {
 
         let app_instance = AppInstance {
             app,
-            rendering: AppWin {
+            window: AppWin {
                 surface,
                 window,
                 integration,
@@ -151,7 +150,7 @@ impl AppInstance {
     ) {
         match event {
             WindowEvent::RedrawRequested => {
-                let output_frame = match self.rendering.surface.get_current_texture() {
+                let output_frame = match self.window.surface.get_current_texture() {
                     Ok(frame) => frame,
                     Err(wgpu::SurfaceError::Outdated) => {
                         // This error occurs when the app is minimized on Windows.
@@ -169,30 +168,26 @@ impl AppInstance {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                let input = self
-                    .rendering
-                    .integration
-                    .take_egui_input(&self.rendering.window);
+                let input = self.window.integration.take_egui_input(&self.window.window);
 
-                self.rendering.integration.egui_ctx().begin_pass(input);
-                self.editor
-                    .layout_gui(&self.rendering.integration.egui_ctx());
+                self.window.integration.egui_ctx().begin_pass(input);
+                self.editor.layout_gui(&self.window.integration.egui_ctx());
                 self.app
                     .toasts
                     .lock()
-                    .show(&self.rendering.integration.egui_ctx());
+                    .show(&self.window.integration.egui_ctx());
                 let FullOutput {
                     platform_output,
                     textures_delta,
                     shapes,
                     pixels_per_point,
                     viewport_output,
-                } = self.rendering.integration.egui_ctx().end_pass();
+                } = self.window.integration.egui_ctx().end_pass();
 
                 let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
 
                 if repaint_after.is_zero() {
-                    self.rendering.window.request_redraw();
+                    self.window.window.request_redraw();
                     eltarget.set_control_flow(ControlFlow::Poll);
                 } else if let Some(repaint_after_instant) =
                     Instant::now().checked_add(repaint_after)
@@ -204,20 +199,20 @@ impl AppInstance {
                     ));
                 }
 
-                self.rendering
+                self.window
                     .integration
-                    .handle_platform_output(&self.rendering.window, platform_output);
+                    .handle_platform_output(&self.window.window, platform_output);
 
                 // Draw the GUI onto the output texture.
                 let paint_jobs = self
-                    .rendering
+                    .window
                     .integration
                     .egui_ctx()
                     .tessellate(shapes, pixels_per_point);
 
                 // Upload all resources for the GPU.
                 for (id, image_delta) in textures_delta.set {
-                    self.rendering.renderer.update_texture(
+                    self.window.renderer.update_texture(
                         &self.app.dispatch.device(),
                         &self.app.dispatch.queue(),
                         id,
@@ -225,7 +220,7 @@ impl AppInstance {
                     );
                 }
                 for id in textures_delta.free {
-                    self.rendering.renderer.free_texture(&id);
+                    self.window.renderer.free_texture(&id);
                 }
 
                 self.app.dispatch.queue().submit(Some({
@@ -235,15 +230,15 @@ impl AppInstance {
                         .device()
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-                    self.rendering.renderer.update_buffers(
+                    self.window.renderer.update_buffers(
                         &self.app.dispatch.device(),
                         &self.app.dispatch.queue(),
                         &mut encoder,
                         &paint_jobs,
-                        &self.rendering.screen_descriptor,
+                        &self.window.screen_descriptor,
                     );
 
-                    self.rendering.renderer.render(
+                    self.window.renderer.render(
                         &mut encoder
                             .begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: None,
@@ -261,7 +256,7 @@ impl AppInstance {
                             })
                             .forget_lifetime(),
                         &paint_jobs,
-                        &self.rendering.screen_descriptor,
+                        &self.window.screen_descriptor,
                     );
 
                     encoder.finish()
@@ -277,19 +272,19 @@ impl AppInstance {
                 // See: https://github.com/rust-windowing/winit/issues/208
                 // This solves an issue where the app would panic when minimizing on Windows.
                 if size.width > 0 && size.height > 0 {
-                    self.rendering.surface_config.width = size.width;
-                    self.rendering.surface_config.height = size.height;
-                    self.rendering.screen_descriptor.size_in_pixels = [size.width, size.height];
-                    self.rendering
+                    self.window.surface_config.width = size.width;
+                    self.window.surface_config.height = size.height;
+                    self.window.screen_descriptor.size_in_pixels = [size.width, size.height];
+                    self.window
                         .surface
-                        .configure(&self.app.dispatch.device(), &self.rendering.surface_config);
+                        .configure(&self.app.dispatch.device(), &self.window.surface_config);
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.rendering.screen_descriptor.pixels_per_point = scale_factor as f32;
-                self.rendering
+                self.window.screen_descriptor.pixels_per_point = scale_factor as f32;
+                self.window
                     .surface
-                    .configure(&self.app.dispatch.device(), &self.rendering.surface_config);
+                    .configure(&self.app.dispatch.device(), &self.window.surface_config);
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
@@ -318,11 +313,11 @@ impl AppInstance {
             }
             _ => {
                 let response = self
-                    .rendering
+                    .window
                     .integration
-                    .on_window_event(&self.rendering.window, &event);
+                    .on_window_event(&self.window.window, &event);
                 if response.repaint {
-                    self.rendering.window.request_redraw();
+                    self.window.window.request_redraw();
                     eltarget.set_control_flow(ControlFlow::Poll);
                 } else {
                     eltarget.set_control_flow(ControlFlow::WaitUntil(
@@ -365,17 +360,15 @@ impl AppInstance {
                 drop(target);
 
                 if let Some(tex) = self.editor.canvases.get_mut(&idx) {
-                    self.rendering
-                        .renderer
-                        .update_egui_texture_from_wgpu_texture(
-                            &self.app.dispatch.device(),
-                            &texture_view,
-                            texture_filter,
-                            tex.id,
-                        );
+                    self.window.renderer.update_egui_texture_from_wgpu_texture(
+                        &self.app.dispatch.device(),
+                        &texture_view,
+                        texture_filter,
+                        tex.id,
+                    );
                     tex.size = target_dim.to_vec2().into();
                 } else {
-                    let tex = self.rendering.renderer.register_native_texture(
+                    let tex = self.window.renderer.register_native_texture(
                         &self.app.dispatch.device(),
                         &texture_view,
                         texture_filter,

@@ -62,9 +62,6 @@ impl ControlsGui<'_> {
             ui.label("Extended Crosshair");
             ui.checkbox(&mut self.view_options.extended_crosshair, "Enable");
             ui.end_row();
-            ui.label("Bottom Bar");
-            ui.checkbox(&mut self.view_options.bottom_bar, "Enable");
-            ui.end_row();
             ui.label("Smooth Sampling");
             if ui
                 .checkbox(&mut self.view_options.smooth, "Enable")
@@ -259,7 +256,6 @@ pub struct ViewOptions {
     pub extended_crosshair: bool,
     pub smooth: bool,
     pub grid: bool,
-    pub bottom_bar: bool,
 }
 
 struct CanvasGui<'a> {

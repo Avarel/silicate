@@ -480,7 +480,8 @@ impl<'a> CanvasView<'a> {
         prepared.ui(ui, &response);
 
         if response.double_clicked_by(PointerButton::Middle) {
-            *image_rotation = (*image_rotation / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2;
+            *image_rotation = (*image_rotation / std::f32::consts::FRAC_PI_2).round()
+                * std::f32::consts::FRAC_PI_2;
         }
 
         // Rotation
@@ -545,18 +546,13 @@ impl<'a> CanvasView<'a> {
                 let box_pt2 = box_end_pos - box_dim_x_proj;
 
                 let draw_poly = |points: &[Pos2], stroke: Stroke| {
-                    for window in points.windows(2) {
-                        let &[pos1, pos2] = window else {
-                            unsafe { std::hint::unreachable_unchecked() }
-                        };
-                        painter.line_segment([pos1, pos2], stroke);
-                    }
+                    painter.add(Shape::closed_line(points.to_vec(), stroke))
                 };
 
-                let box_positions = [box_start_pos, box_pt1, box_end_pos, box_pt2, box_start_pos];
+                let box_positions = [box_start_pos, box_pt1, box_end_pos, box_pt2];
 
-                draw_poly(&box_positions, epaint::Stroke::new(5., Color32::BLACK));
-                draw_poly(&box_positions, epaint::Stroke::new(2., Color32::WHITE));
+                draw_poly(&box_positions, Stroke::new(5., Color32::BLACK));
+                draw_poly(&box_positions, Stroke::new(2., Color32::WHITE));
 
                 // when the click is release perform the zoom
                 if response.drag_stopped() {
@@ -673,20 +669,31 @@ impl PreparedView<'_> {
             let image_screen_center = ((rect.max - rect.min) / 2.0) / image_size;
 
             let painter = plot_ui.painter();
+
+            let origin = rect.min + image_screen_center * image_size;
+            let rot = Rot2::from_angle(*self.image_rotation);
+
             painter.add(Shape::mesh({
                 let mut mesh = Mesh::default();
-                mesh.add_colored_rect(
-                    rect.expand(2.0),
-                    Color32::from_rgba_premultiplied(0, 0, 0, 100),
-                );
-                mesh.add_colored_rect(rect, Color32::from_rgba_premultiplied(10, 10, 10, 50));
-
-                mesh.rotate(
-                    emath::Rot2::from_angle(*self.image_rotation),
-                    rect.min + image_screen_center * image_size,
-                );
+                mesh.add_colored_rect(rect, Color32::from_rgba_premultiplied(0, 0, 0, 50));
+                mesh.rotate(rot, origin);
                 mesh
             }));
+
+            painter.add({
+                let points = [
+                    rect.left_top(),
+                    rect.right_top(),
+                    rect.right_bottom(),
+                    rect.left_bottom(),
+                ]
+                .map(|mut p| {
+                    p = origin + rot * (p - origin);
+                    p
+                });
+
+                Shape::closed_line(points.to_vec(), Stroke::new(1.5, Color32::BLACK))
+            });
 
             image
                 .rotate(*self.image_rotation, Vec2::splat(0.5))
@@ -717,7 +724,7 @@ impl PreparedView<'_> {
                         ui.visuals().weak_text_color(),
                     );
 
-                    mesh.rotate(emath::Rot2::from_angle(*self.image_rotation), pointer);
+                    mesh.rotate(Rot2::from_angle(*self.image_rotation), pointer);
                     mesh
                 }));
             }
