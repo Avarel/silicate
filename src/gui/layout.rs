@@ -11,6 +11,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
+use super::custom::layer_collapsible::LayerCollapsible;
 use super::{
     canvas::CanvasView,
     custom::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider},
@@ -174,50 +175,6 @@ impl ControlsGui<'_> {
         ui.add_space(10.0);
     }
 
-    fn layout_collapsible(
-        ui: &mut Ui,
-        id: u32,
-        name: String,
-        hidden: &mut bool,
-        changed: &mut bool,
-    ) -> (CollapsingState, InnerResponse<()>) {
-        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ui.ctx(),
-            ui.make_persistent_id(id),
-            false,
-        );
-
-        let response = ui.horizontal(|ui| {
-            let mut frame = egui::Frame::new()
-                .corner_radius(3)
-                .inner_margin(5)
-                .begin(ui);
-            {
-                let ui = &mut frame.content_ui;
-                if ui
-                    .add(Label::new(name).selectable(false).sense(Sense::click()))
-                    .clicked()
-                {
-                    state.toggle(ui);
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let mut shown = !*hidden;
-                    *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
-                    *hidden = !shown;
-                    state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-                });
-            }
-            let response = frame.allocate_space(ui);
-            if response.hovered() {
-                frame.frame.fill = Color32::from_rgb(50, 50, 50)
-            } else {
-                frame.frame.fill = Color32::from_rgb(25, 25, 25)
-            }
-            frame.end(ui);
-        });
-        (state, response)
-    }
-
     fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
         layers.iter_mut().for_each(|layer| {
             let (id, layer_name, hidden) = match layer {
@@ -239,17 +196,18 @@ impl ControlsGui<'_> {
                 }
             };
 
-            let (mut state, header_res) =
-                Self::layout_collapsible(ui, id, layer_name, hidden, changed);
+            let collapsible = LayerCollapsible::new(id, layer_name, hidden).ui(ui);
+
+            *changed |= collapsible.response.changed();
 
             match layer {
                 SilicaHierarchy::Layer(layer) => {
-                    state.show_body_unindented(ui, |ui| {
+                    collapsible.show_body_unindented(ui, |ui| {
                         Self::layout_layer_control(ui, layer, changed);
                     });
                 }
                 SilicaHierarchy::Group(layer) => {
-                    state.show_body_indented(&header_res.response, ui, |ui| {
+                    collapsible.show_body_indented(ui, |ui| {
                         Self::layout_layers_sub(ui, &mut layer.children, changed);
                     });
                 }
@@ -260,19 +218,16 @@ impl ControlsGui<'_> {
     fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
         let hidden = &mut file.background_hidden;
 
-        let (mut state, _) = Self::layout_collapsible(
-            ui,
-            u32::MAX,
-            String::from("Background Color"),
-            hidden,
-            changed,
-        );
+        let collapsible =
+            LayerCollapsible::new(u32::MAX, String::from("Background Color"), hidden).ui(ui);
 
-        state.show_body_unindented(ui, |ui| {
-            let bg = file.background_color; // rgb to srgb
+        *changed |= collapsible.response.changed();
+
+        collapsible.show_body_unindented(ui, |ui| {
+            let bg = file.background_color;
             let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
             *changed |= super::custom::color_picker::color_picker_color32(ui, &mut rgb);
-            file.background_color = rgb.to_rgba_unmultiplied(); // srgb to rgb
+            file.background_color = rgb.to_rgba_unmultiplied();
         });
     }
 
