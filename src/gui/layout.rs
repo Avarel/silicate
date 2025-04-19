@@ -9,7 +9,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
-use super::canvas::CanvasView;
+use super::{canvas::CanvasView, custom::slider::OpacitySlider};
 
 struct ControlsGui<'a> {
     app: &'a Arc<App>,
@@ -153,24 +153,7 @@ impl ControlsGui<'_> {
     }
 
     fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
-        let mut percent = l.opacity * 100.0;
-        ui.horizontal(|ui| {
-            ui.label("Opacity");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                // TODO 0 = None
-                //      100 = Max
-                ui.label(format!("{:.0}%", percent));
-            });
-        });
-        // TODO: make this more efficient
-        ui.style_mut().spacing.slider_width = ui.available_width();
-        ui.style_mut().spacing.slider_rail_height = 3.0;
-        ui.style_mut().visuals.slider_trailing_fill = true;
-        ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(0, 100, 200);
-        *changed |= ui
-            .add(Slider::new(&mut percent, 0.0..=100.0).show_value(false))
-            .changed();
-        l.opacity = (percent / 100.0).clamp(0.0, 1.0);
+        *changed |= OpacitySlider::new(&mut l.opacity).ui(ui).changed();
 
         ui.style_mut().spacing.combo_width = ui.available_width();
         ComboBox::from_id_salt(0)

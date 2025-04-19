@@ -1,3 +1,4 @@
+mod custom;
 mod canvas;
 mod layout;
 
