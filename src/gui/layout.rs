@@ -1,5 +1,5 @@
-use egui::load::SizedTexture;
 use egui::*;
+use egui::{collapsing_header::CollapsingState, load::SizedTexture};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use silica::{
     file::ProcreateFile,
@@ -174,92 +174,20 @@ impl ControlsGui<'_> {
         ui.add_space(10.0);
     }
 
-    fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
-        layers.iter_mut().for_each(|layer| {
-            let (id, layer_name, hidden) = match layer {
-                SilicaHierarchy::Layer(layer) => {
-                    let layer_name = layer
-                        .name
-                        .to_owned()
-                        .unwrap_or_else(|| format!("Unnamed Layer"));
-
-                    let id = ui.make_persistent_id(layer.id);
-                    (id, layer_name, &mut layer.hidden)
-                }
-                SilicaHierarchy::Group(layer) => {
-                    let layer_name = layer
-                        .name
-                        .to_owned()
-                        .unwrap_or_else(|| format!("Unnamed Group"));
-
-                    let id = ui.make_persistent_id(layer.id);
-                    (id, layer_name, &mut layer.hidden)
-                }
-            };
-
-            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                id,
-                false,
-            );
-
-            let header_res = ui.horizontal(|ui| {
-                let mut frame = egui::Frame::new()
-                    .corner_radius(3)
-                    .inner_margin(5)
-                    .begin(ui);
-                {
-                    let ui = &mut frame.content_ui;
-                    if ui
-                        .add(
-                            Label::new(layer_name)
-                                .selectable(false)
-                                .sense(Sense::click()),
-                        )
-                        .clicked()
-                    {
-                        state.toggle(ui);
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let mut shown = !*hidden;
-                        *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
-                        *hidden = !shown;
-                        state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-                    });
-                }
-                let response = frame.allocate_space(ui);
-                if response.hovered() {
-                    frame.frame.fill = Color32::from_rgb(50, 50, 50)
-                } else {
-                    frame.frame.fill = Color32::from_rgb(25, 25, 25)
-                }
-                frame.end(ui);
-            });
-            match layer {
-                SilicaHierarchy::Layer(layer) => {
-                    state.show_body_unindented(ui, |ui| {
-                        Self::layout_layer_control(ui, layer, changed);
-                    });
-                }
-                SilicaHierarchy::Group(layer) => {
-                    state.show_body_indented(&header_res.response, ui, |ui| {
-                        Self::layout_layers_sub(ui, &mut layer.children, changed);
-                    });
-                }
-            };
-        });
-    }
-
-    fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
+    fn layout_collapsible(
+        ui: &mut Ui,
+        id: u32,
+        name: String,
+        hidden: &mut bool,
+        changed: &mut bool,
+    ) -> (CollapsingState, InnerResponse<()>) {
         let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
             ui.ctx(),
-            ui.make_persistent_id(0),
+            ui.make_persistent_id(id),
             false,
         );
 
-        let hidden = &mut file.background_hidden;
-
-        ui.horizontal(|ui| {
+        let response = ui.horizontal(|ui| {
             let mut frame = egui::Frame::new()
                 .corner_radius(3)
                 .inner_margin(5)
@@ -267,11 +195,7 @@ impl ControlsGui<'_> {
             {
                 let ui = &mut frame.content_ui;
                 if ui
-                    .add(
-                        Label::new("Background Color")
-                            .selectable(false)
-                            .sense(Sense::click()),
-                    )
+                    .add(Label::new(name).selectable(false).sense(Sense::click()))
                     .clicked()
                 {
                     state.toggle(ui);
@@ -291,6 +215,58 @@ impl ControlsGui<'_> {
             }
             frame.end(ui);
         });
+        (state, response)
+    }
+
+    fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
+        layers.iter_mut().for_each(|layer| {
+            let (id, layer_name, hidden) = match layer {
+                SilicaHierarchy::Layer(layer) => {
+                    let layer_name = layer
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| format!("Unnamed Layer"));
+
+                    (layer.id, layer_name, &mut layer.hidden)
+                }
+                SilicaHierarchy::Group(layer) => {
+                    let layer_name = layer
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| format!("Unnamed Group"));
+
+                    (layer.id, layer_name, &mut layer.hidden)
+                }
+            };
+
+            let (mut state, header_res) =
+                Self::layout_collapsible(ui, id, layer_name, hidden, changed);
+
+            match layer {
+                SilicaHierarchy::Layer(layer) => {
+                    state.show_body_unindented(ui, |ui| {
+                        Self::layout_layer_control(ui, layer, changed);
+                    });
+                }
+                SilicaHierarchy::Group(layer) => {
+                    state.show_body_indented(&header_res.response, ui, |ui| {
+                        Self::layout_layers_sub(ui, &mut layer.children, changed);
+                    });
+                }
+            };
+        });
+    }
+
+    fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
+        let hidden = &mut file.background_hidden;
+
+        let (mut state, _) = Self::layout_collapsible(
+            ui,
+            u32::MAX,
+            String::from("Background Color"),
+            hidden,
+            changed,
+        );
 
         state.show_body_unindented(ui, |ui| {
             let bg = file.background_color; // rgb to srgb
