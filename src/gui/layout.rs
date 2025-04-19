@@ -2,14 +2,16 @@ use egui::load::SizedTexture;
 use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
-use silicate_compositor::blend::BlendingMode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
-use super::{canvas::CanvasView, custom::slider::OpacitySlider};
+use super::{
+    canvas::CanvasView,
+    custom::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider},
+};
 
 struct ControlsGui<'a> {
     app: &'a Arc<App>,
@@ -38,7 +40,7 @@ impl ControlsGui<'_> {
                 ui.label(file.stroke_count.to_string());
                 ui.end_row();
                 ui.label("Layer Count");
-                ui.label(file.layer_count.to_string());
+                ui.label(file.layer_count().to_string());
                 ui.end_row();
                 ui.label("Canvas Size");
 
@@ -80,9 +82,14 @@ impl ControlsGui<'_> {
                     .write()
                     .get_mut(&self.active_canvas)
                 {
-                    let mut degree = instance.rotation.to_degrees();
-                    ui.add(Slider::new(&mut degree, 0.0..=360.0).suffix(" deg"));
-                    instance.rotation = degree.to_radians();
+                    ui.add(
+                        Slider::new(&mut instance.rotation, 0.0..=std::f32::consts::TAU)
+                            .custom_formatter(|v, _| {
+                                let degree = v.to_degrees();
+                                format!("{degree:.0}")
+                            })
+                            .suffix(" deg"),
+                    );
                 } else {
                     ui.label("No file loaded...");
                 }
@@ -154,20 +161,14 @@ impl ControlsGui<'_> {
 
     fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
         *changed |= OpacitySlider::new(&mut l.opacity).ui(ui).changed();
-
-        ui.style_mut().spacing.combo_width = ui.available_width();
-        ComboBox::from_id_salt(0)
-            .selected_text(l.blend.as_str())
-            .show_ui(ui, |ui| {
-                for b in BlendingMode::all() {
-                    *changed |= ui.selectable_value(&mut l.blend, *b, b.as_str()).changed();
-                }
-            });
+        ui.add_space(10.0);
+        *changed |= BlendModeRadio::new(&mut l.blend).ui(ui).changed();
 
         Grid::new(l.id).show(ui, |ui| {
             ui.label("Clipped");
             *changed |= Checkbox::without_text(&mut l.clipped).ui(ui).changed();
         });
+        ui.add_space(10.0);
     }
 
     fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, changed: &mut bool) {
@@ -200,13 +201,20 @@ impl ControlsGui<'_> {
             );
 
             let header_res = ui.horizontal(|ui| {
-                let mut frame = egui::Frame::default()
-                    .corner_radius(2.5)
-                    .inner_margin(5.0)
+                let mut frame = egui::Frame::new()
+                    .corner_radius(3)
+                    .inner_margin(5)
                     .begin(ui);
                 {
                     let ui = &mut frame.content_ui;
-                    if ui.strong(layer_name).clicked() {
+                    if ui
+                        .add(
+                            Label::new(layer_name)
+                                .selectable(false)
+                                .sense(Sense::click()),
+                        )
+                        .clicked()
+                    {
                         state.toggle(ui);
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -224,17 +232,18 @@ impl ControlsGui<'_> {
                 }
                 frame.end(ui);
             });
-
-            state.show_body_indented(&header_res.response, ui, |ui| {
-                match layer {
-                    SilicaHierarchy::Layer(layer) => {
+            match layer {
+                SilicaHierarchy::Layer(layer) => {
+                    state.show_body_unindented(ui, |ui| {
                         Self::layout_layer_control(ui, layer, changed);
-                    }
-                    SilicaHierarchy::Group(layer) => {
+                    });
+                }
+                SilicaHierarchy::Group(layer) => {
+                    state.show_body_indented(&header_res.response, ui, |ui| {
                         Self::layout_layers_sub(ui, layer, changed);
-                    }
-                };
-            });
+                    });
+                }
+            };
         });
     }
 
@@ -260,11 +269,24 @@ impl ControlsGui<'_> {
                 ui.end_row();
                 ui.label("Background Color");
 
-                // Safety: This is trivially safe. The underlying container is of 4 elements.
-                // This does the same thing as split_array_mut except that is not stabilized yet.
-                let bg = unsafe { &mut *(file.background_color.as_mut_ptr() as *mut [f32; 3]) };
+                // Safety: this is trivially safe, N=3 < 4
+                let bg = unsafe {
+                    file.background_color
+                        .first_chunk_mut::<3>()
+                        .unwrap_unchecked()
+                };
                 changed |= ui.color_edit_button_rgb(bg).changed();
             });
+
+            // let bg = &mut file.background_color;
+            // let rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
+            // let mut color = Color32::from(rgb);
+            // let old_value = color;
+            // color_picker::color_picker_color32(ui, &mut color, color_picker::Alpha::Opaque);
+            // if old_value != color {
+            //     *bg = Rgba::from(color).to_rgba_unmultiplied();
+            //     changed = true;
+            // }
 
             instance.tick_change(changed);
         } else {
@@ -382,6 +404,7 @@ impl ViewerGui {
                 .style(egui_dock::Style::from_egui(ui.style()))
                 .show_add_buttons(true)
                 .show_leaf_close_all_buttons(false)
+                .show_leaf_collapse_buttons(false)
                 .show_inside(
                     ui,
                     &mut CanvasGui {

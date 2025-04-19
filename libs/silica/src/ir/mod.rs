@@ -57,8 +57,6 @@ pub struct ProcreateUnloadedFile<'a> {
     //     videoDuration: String? = "Calculating..."
     pub tile_size: u32,
 
-    pub layer_count: u32,
-
     info: IRData<'a>,
 
     layers: Vec<SilicaIRHierarchy<'a>>,
@@ -98,8 +96,6 @@ impl<'a> ProcreateUnloadedFile<'a> {
             atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
-        let layer_count = layers.iter().map(|ir| ir.count_layer()).sum::<u32>() + 1;
-
         Ok(Self {
             info: IRData {
                 archive,
@@ -132,7 +128,6 @@ impl<'a> ProcreateUnloadedFile<'a> {
                 vertically: nka.fetch::<bool>(root, "flippedVertically")?,
             },
             tile_size,
-            layer_count,
             composite: nka.fetch::<SilicaIRLayer>(root, "composite")?,
             layers,
         })
@@ -177,7 +172,6 @@ impl<'a> ProcreateUnloadedFile<'a> {
                 flipped: self.flipped,
                 tile_size: self.tile_size,
                 size: self.info.size,
-                layer_count: self.layer_count,
             },
             ProcreateFileMetadata {
                 atlas_texture,

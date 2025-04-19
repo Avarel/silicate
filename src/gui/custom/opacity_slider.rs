@@ -1,6 +1,6 @@
 use egui::*;
 
-const FILL_COLOR: Color32 = Color32::from_rgb(48, 116, 243);
+const FILL_COLOR: Color32 = super::ACCENT_COLOR;
 const HANDLE_RADIUS: f32 = 5.0;
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]

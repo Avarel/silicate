@@ -92,6 +92,15 @@ pub enum SilicaHierarchy {
     Group(SilicaGroup),
 }
 
+impl SilicaHierarchy {
+    pub fn layer_count(&self) -> u32 {
+        match self {
+            SilicaHierarchy::Layer(_) => 1,
+            SilicaHierarchy::Group(silica_group) => silica_group.layer_count(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroup {
     pub hidden: bool,
@@ -100,6 +109,12 @@ pub struct SilicaGroup {
 
     // This is unofficial
     pub id: u32,
+}
+
+impl SilicaGroup {
+    pub fn layer_count(&self) -> u32 {
+        self.children.iter().map(|hier| hier.layer_count()).sum()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

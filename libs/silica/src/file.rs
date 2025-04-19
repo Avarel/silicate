@@ -29,7 +29,6 @@ pub struct ProcreateFile {
     pub composite: Option<SilicaLayer>,
     pub layers: SilicaGroup,
     pub size: Size<u32>,
-    pub layer_count: u32,
 }
 
 pub struct ProcreateFileMetadata {
@@ -66,5 +65,9 @@ impl ProcreateFile {
         dispatch: &GpuDispatch,
     ) -> Result<(Self, ProcreateFileMetadata), SilicaError> {
         ProcreateUnloadedFile::from_ns(&archive, &nka)?.load(dispatch)
+    }
+
+    pub fn layer_count(&self) -> u32 {
+        self.layers.layer_count()
     }
 }
