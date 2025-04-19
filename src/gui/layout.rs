@@ -1,7 +1,10 @@
 use egui::load::SizedTexture;
 use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
-use silica::layers::{SilicaHierarchy, SilicaLayer};
+use silica::{
+    file::ProcreateFile,
+    layers::{SilicaHierarchy, SilicaLayer},
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
@@ -247,6 +250,56 @@ impl ControlsGui<'_> {
         });
     }
 
+    fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
+        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+            ui.ctx(),
+            ui.make_persistent_id(0),
+            false,
+        );
+
+        let hidden = &mut file.background_hidden;
+
+        ui.horizontal(|ui| {
+            let mut frame = egui::Frame::new()
+                .corner_radius(3)
+                .inner_margin(5)
+                .begin(ui);
+            {
+                let ui = &mut frame.content_ui;
+                if ui
+                    .add(
+                        Label::new("Background Color")
+                            .selectable(false)
+                            .sense(Sense::click()),
+                    )
+                    .clicked()
+                {
+                    state.toggle(ui);
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let mut shown = !*hidden;
+                    *changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                    *hidden = !shown;
+                    state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                });
+            }
+            let response = frame.allocate_space(ui);
+            if response.hovered() {
+                frame.frame.fill = Color32::from_rgb(50, 50, 50)
+            } else {
+                frame.frame.fill = Color32::from_rgb(25, 25, 25)
+            }
+            frame.end(ui);
+        });
+
+        state.show_body_unindented(ui, |ui| {
+            let bg = file.background_color; // rgb to srgb
+            let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
+            *changed |= super::custom::color_picker::color_picker_color32(ui, &mut rgb);
+            file.background_color = rgb.to_rgba_unmultiplied(); // srgb to rgb
+        });
+    }
+
     fn layout_layers(&self, ui: &mut Ui) {
         if let Some(instance) = self
             .app
@@ -259,22 +312,7 @@ impl ControlsGui<'_> {
             let mut changed = false;
 
             Self::layout_layers_sub(ui, &mut file.layers, &mut changed);
-
-            ui.separator();
-
-            // Let background controls be first since color controls are bad.
-            Grid::new("layers.background").show(ui, |ui| {
-                ui.label("Background");
-                changed |= ui.checkbox(&mut file.background_hidden, "Hidden").changed();
-                ui.end_row();
-                ui.label("Background Color");
-
-            });
-
-            let bg = file.background_color; // rgb to srgb
-            let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
-            changed |= super::custom::color_picker::color_picker_color32(ui, &mut rgb);
-            file.background_color = rgb.to_rgba_unmultiplied(); // srgb to rgb
+            Self::layout_background_control(ui, &mut file, &mut changed);
 
             instance.tick_change(changed);
         } else {
