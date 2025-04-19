@@ -269,24 +269,12 @@ impl ControlsGui<'_> {
                 ui.end_row();
                 ui.label("Background Color");
 
-                // Safety: this is trivially safe, N=3 < 4
-                let bg = unsafe {
-                    file.background_color
-                        .first_chunk_mut::<3>()
-                        .unwrap_unchecked()
-                };
-                changed |= ui.color_edit_button_rgb(bg).changed();
             });
 
-            // let bg = &mut file.background_color;
-            // let rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
-            // let mut color = Color32::from(rgb);
-            // let old_value = color;
-            // color_picker::color_picker_color32(ui, &mut color, color_picker::Alpha::Opaque);
-            // if old_value != color {
-            //     *bg = Rgba::from(color).to_rgba_unmultiplied();
-            //     changed = true;
-            // }
+            let bg = file.background_color; // rgb to srgb
+            let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
+            changed |= super::custom::color_picker::color_picker_color32(ui, &mut rgb);
+            file.background_color = rgb.to_rgba_unmultiplied(); // srgb to rgb
 
             instance.tick_change(changed);
         } else {

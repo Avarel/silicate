@@ -18,13 +18,11 @@ impl<'a> OpacitySlider<'a> {
     }
 
     fn get_value(&mut self) -> f32 {
-        let value = *self.value;
-        value.clamp(0.0, 1.0)
+        self.value.clamp(0.0, 1.0)
     }
 
-    fn set_value(&mut self, mut value: f32) {
-        value = value.clamp(0.0, 1.0);
-        *self.value = value;
+    fn set_value(&mut self, value: f32) {
+        *self.value = value.clamp(0.0, 1.0);
     }
 
     /// For instance, `position` is the mouse position and `position_range` is the physical location of the slider on the screen.
@@ -100,7 +98,7 @@ impl OpacitySlider<'_> {
             let visuals = ui.style().interact(response);
             let widget_visuals = &ui.visuals().widgets;
 
-            let rail_rect = self.rail_rect(rect);
+            let rail_rect = super::rail_rect(rect);
             let corner_radius = widget_visuals.inactive.corner_radius;
 
             ui.painter()
@@ -137,14 +135,6 @@ impl OpacitySlider<'_> {
 
     fn position_range(&self, rect: &Rect) -> Rangef {
         rect.x_range().shrink(HANDLE_RADIUS)
-    }
-
-    fn rail_rect(&self, rect: &Rect) -> Rect {
-        const RADIUS: f32 = 1.0;
-        Rect::from_min_max(
-            pos2(rect.left(), rect.center().y - RADIUS),
-            pos2(rect.right(), rect.center().y + RADIUS),
-        )
     }
 
     pub fn ui(mut self, ui: &mut Ui) -> Response {
