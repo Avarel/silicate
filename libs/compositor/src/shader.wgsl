@@ -284,7 +284,7 @@ struct LayerData {
 };
 
 struct ChunkData {
-    atlas_coords: u32,
+    atlas_index: u32,
     clip_atlas_index: u32,
     layer_index: u32,
 };
@@ -332,7 +332,7 @@ fn sample_atlas_texture(atlas_index: u32, coords: vec2f) -> vec4f {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    var bg = vec4(0.0);
+    var bga = vec4(0.0);
 
     let segment = segments[in.chunk_index];
 
@@ -346,7 +346,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         }
 
         var clipa = select(sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, 1.0, layer.clipped == 0);
-        var fg = sample_atlas_texture(chunk.atlas_coords, in.coords) * clipa;
+        var fga = sample_atlas_texture(chunk.atlas_index, in.coords) * clipa;
+
+        var bg = vec4(saturate(bga.rgb / bga.a), bga.a);
+        var fg = vec4(saturate(fga.rgb / fga.a), fga.a * layer.opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);
@@ -382,7 +385,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         final_pixel = saturate(final_pixel);
 
         // Compute final premultiplied colors
-        bg = premultiplied_blend(bg, fg, vec4(final_pixel, fg.a * layer.opacity));
+        bga = premultiplied_blend(bga, fga, vec4(final_pixel, fg.a));
     }
-    return bg;
+    return bga;
 }
