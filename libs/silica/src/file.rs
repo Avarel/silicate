@@ -1,6 +1,6 @@
 use crate::data::{Flipped, Orientation};
 use crate::ir::ProcreateUnloadedFile;
-use crate::layers::{CanvasTiling, SilicaGroup, SilicaLayer};
+use crate::layers::{CanvasTiling, SilicaHierarchy, SilicaLayer};
 use crate::{
     error::SilicaError,
     ns_archive::{NsKeyedArchive, Size},
@@ -27,7 +27,7 @@ pub struct ProcreateFile {
     pub stroke_count: usize,
     pub tile_size: u32,
     pub composite: Option<SilicaLayer>,
-    pub layers: SilicaGroup,
+    pub layers: Vec<SilicaHierarchy>,
     pub size: Size<u32>,
 }
 
@@ -68,6 +68,6 @@ impl ProcreateFile {
     }
 
     pub fn layer_count(&self) -> u32 {
-        self.layers.layer_count()
+        self.layers.iter().map(|layer| layer.layer_count()).sum()
     }
 }

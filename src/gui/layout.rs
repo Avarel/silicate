@@ -1,7 +1,7 @@
 use egui::load::SizedTexture;
 use egui::*;
 use egui_dock::{NodeIndex, SurfaceIndex};
-use silica::layers::{SilicaGroup, SilicaHierarchy, SilicaLayer};
+use silica::layers::{SilicaHierarchy, SilicaLayer};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
@@ -171,8 +171,8 @@ impl ControlsGui<'_> {
         ui.add_space(10.0);
     }
 
-    fn layout_layers_sub(ui: &mut Ui, layers: &mut SilicaGroup, changed: &mut bool) {
-        layers.children.iter_mut().for_each(|layer| {
+    fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
+        layers.iter_mut().for_each(|layer| {
             let (id, layer_name, hidden) = match layer {
                 SilicaHierarchy::Layer(layer) => {
                     let layer_name = layer
@@ -240,7 +240,7 @@ impl ControlsGui<'_> {
                 }
                 SilicaHierarchy::Group(layer) => {
                     state.show_body_indented(&header_res.response, ui, |ui| {
-                        Self::layout_layers_sub(ui, layer, changed);
+                        Self::layout_layers_sub(ui, &mut layer.children, changed);
                     });
                 }
             };

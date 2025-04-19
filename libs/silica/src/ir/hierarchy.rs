@@ -183,10 +183,6 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
 }
 
 impl<'a> SilicaIRGroup<'a> {
-    pub(crate) fn count_layer(&self) -> u32 {
-        self.children.iter().map(|ir| ir.count_layer()).sum::<u32>()
-    }
-
     pub(crate) fn load(
         self,
         dispatch: &GpuDispatch,
@@ -209,13 +205,6 @@ impl<'a> SilicaIRGroup<'a> {
 }
 
 impl<'a> SilicaIRHierarchy<'a> {
-    pub(crate) fn count_layer(&self) -> u32 {
-        match self {
-            SilicaIRHierarchy::Layer(_) => 1,
-            SilicaIRHierarchy::Group(group) => group.count_layer(),
-        }
-    }
-
     pub(crate) fn load(
         self,
         dispatch: &GpuDispatch,

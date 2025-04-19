@@ -8,7 +8,7 @@ use crate::layers::AtlasTextureTiling;
 use crate::ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError};
 use crate::{
     error::SilicaError,
-    layers::{CanvasTiling, SilicaGroup},
+    layers::CanvasTiling,
 };
 use hierarchy::{SilicaIRHierarchy, SilicaIRLayer};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
@@ -152,17 +152,11 @@ impl<'a> ProcreateUnloadedFile<'a> {
                     .composite
                     .load(dispatch, &atlas_texture, &self.info)
                     .ok(),
-                layers: SilicaGroup {
-                    hidden: false,
-                    name: Some(String::from("Root Layer")),
-                    children: {
-                        self.layers
-                            .into_par_iter()
-                            .map(|ir| ir.load(dispatch, &atlas_texture, &self.info))
-                            .collect::<Result<_, _>>()?
-                    },
-                    id: 0,
-                },
+                layers: self
+                    .layers
+                    .into_par_iter()
+                    .map(|ir| ir.load(dispatch, &atlas_texture, &self.info))
+                    .collect::<Result<_, _>>()?,
                 author_name: self.author_name,
                 background_hidden: self.background_hidden,
                 stroke_count: self.stroke_count,

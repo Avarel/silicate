@@ -6,7 +6,7 @@ use parking_lot::{Mutex, RwLock};
 use silica::{
     error::SilicaError,
     file::{ProcreateFile, ProcreateFileMetadata},
-    layers::{SilicaGroup, SilicaHierarchy, SilicaLayer},
+    layers::{SilicaHierarchy, SilicaLayer},
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
@@ -243,19 +243,19 @@ impl CompositorApp {
     /// layers for rendering.
     fn linearize_silica_layers<'a>(
         composite_layers: &mut Vec<CompositeLayer>,
-        layers: &'a SilicaGroup,
+        layers: &'a Vec<SilicaHierarchy>,
     ) {
         composite_layers.clear();
 
         fn inner<'a>(
-            layers: &'a SilicaGroup,
+            layers: &'a Vec<SilicaHierarchy>,
             composite_layers: &mut Vec<CompositeLayer>,
             override_hidden: bool,
         ) {
-            for layer in layers.children.iter().rev() {
+            for layer in layers.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(group, composite_layers, group.hidden | override_hidden);
+                        inner(&group.children, composite_layers, group.hidden | override_hidden);
                     }
                     SilicaHierarchy::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
@@ -272,21 +272,21 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    fn linearize_silica_chunks<'a>(composite_layers: &mut Vec<ChunkTile>, layers: &'a SilicaGroup) {
+    fn linearize_silica_chunks<'a>(composite_layers: &mut Vec<ChunkTile>, layers: &'a Vec<SilicaHierarchy>) {
         composite_layers.clear();
 
         let mut layer_counter = 0;
 
         fn inner<'a>(
-            layers: &'a SilicaGroup,
+            layers: &'a Vec<SilicaHierarchy>,
             chunks: &mut Vec<ChunkTile>,
             clip_layer: &mut Option<&'a SilicaLayer>,
             layer_counter: &mut u32,
         ) {
-            for layer in layers.children.iter().rev() {
+            for layer in layers.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(group, chunks, clip_layer, layer_counter);
+                        inner(&group.children, chunks, clip_layer, layer_counter);
                     }
                     SilicaHierarchy::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
