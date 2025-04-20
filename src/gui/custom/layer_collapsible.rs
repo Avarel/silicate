@@ -22,6 +22,27 @@ impl<'a> LayerCollapsible<'a> {
         self
     }
 
+    fn paint_icon(ui: &mut Ui, openness: f32, response: &Response) {
+        let visuals = ui.style().interact(response);
+
+        let rect = response.rect;
+
+        // Draw a pointy triangle arrow:
+        let rect = Rect::from_center_size(rect.center(), vec2(rect.width(), rect.height() / 2.0));
+        let rect = rect.expand(visuals.expansion);
+        let mut points = vec![rect.right_top(), rect.center_bottom(), rect.left_top()];
+        use std::f32::consts::TAU;
+        let rotation = emath::Rot2::from_angle(remap(openness, 0.0..=1.0, -TAU / 4.0..=0.0));
+        for p in &mut points {
+            *p = rect.center() + rotation * (*p - rect.center());
+        }
+
+        ui.painter().add(Shape::line(
+            points,
+            Stroke::new(1.0, visuals.fg_stroke.color),
+        ));
+    }
+
     pub fn ui(self, ui: &mut Ui) -> Prepared {
         let id = ui.make_persistent_id(self.id);
         let mut state =
@@ -50,7 +71,7 @@ impl<'a> LayerCollapsible<'a> {
                     let mut shown = !*self.hidden;
                     changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
                     *self.hidden = !shown;
-                    state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                    state.show_toggle_button(ui, Self::paint_icon);
                 })
                 .response;
 
@@ -64,6 +85,7 @@ impl<'a> LayerCollapsible<'a> {
             if response.clicked() {
                 state.toggle(ui);
             }
+
         }
 
         let mut response = frame.allocate_space(ui);
