@@ -177,14 +177,14 @@ impl ControlsGui<'_> {
 
     fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
         layers.iter_mut().for_each(|layer| {
-            let (id, layer_name, hidden) = match layer {
+            let (id, layer_name, hidden, size_change) = match layer {
                 SilicaHierarchy::Layer(layer) => {
                     let layer_name = layer
                         .name
                         .to_owned()
                         .unwrap_or_else(|| format!("Unnamed Layer"));
 
-                    (layer.id, layer_name, &mut layer.hidden)
+                    (layer.id, layer_name, &mut layer.hidden, false)
                 }
                 SilicaHierarchy::Group(layer) => {
                     let layer_name = layer
@@ -192,11 +192,11 @@ impl ControlsGui<'_> {
                         .to_owned()
                         .unwrap_or_else(|| format!("Unnamed Group"));
 
-                    (layer.id, layer_name, &mut layer.hidden)
+                    (layer.id, layer_name, &mut layer.hidden, true)
                 }
             };
 
-            let collapsible = LayerCollapsible::new(id, layer_name, hidden).ui(ui);
+            let collapsible = LayerCollapsible::new(id, layer_name, hidden).size_change(size_change).ui(ui);
 
             *changed |= collapsible.response.changed();
 
