@@ -5,7 +5,7 @@ use clap::Parser;
 use egui_wgpu::wgpu;
 use egui_winit::winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::LogicalSize,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
@@ -17,7 +17,7 @@ use tokio::runtime::Runtime;
 
 pub use egui_winit::winit;
 
-const INITIAL_SIZE: PhysicalSize<u32> = PhysicalSize {
+const INITIAL_SIZE: LogicalSize<u32> = LogicalSize {
     width: 1200,
     height: 700,
 };
