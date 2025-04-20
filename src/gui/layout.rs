@@ -164,9 +164,12 @@ impl ControlsGui<'_> {
     }
 
     fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
-        *changed |= OpacitySlider::new(&mut l.opacity).ui(ui).changed();
-        ui.add_space(10.0);
-        *changed |= BlendModeRadio::new(&mut l.blend).ui(ui).changed();
+        ui.push_id(l.id, |ui| {
+            *changed |= OpacitySlider::new(&mut l.opacity).ui(ui).changed();
+            ui.add_space(10.0);
+            *changed |= BlendModeRadio::new(&mut l.blend).ui(ui).changed();
+        });
+
 
         Grid::new(l.id).show(ui, |ui| {
             ui.label("Clipped");
