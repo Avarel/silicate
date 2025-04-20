@@ -9,7 +9,12 @@ pub struct LayerCollapsible<'a> {
 
 impl<'a> LayerCollapsible<'a> {
     pub fn new(id: u32, name: String, hidden: &'a mut bool) -> Self {
-        Self { id, name, hidden, size_change: true }
+        Self {
+            id,
+            name,
+            hidden,
+            size_change: true,
+        }
     }
 
     pub fn size_change(mut self, size_change: bool) -> Self {
@@ -24,6 +29,9 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut changed = false;
 
+        let mut overlay_ui = ui.new_child(UiBuilder::new());
+
+        let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
             .corner_radius(3)
             .inner_margin(5)
@@ -35,22 +43,29 @@ impl<'a> LayerCollapsible<'a> {
                 ui.set_min_height(40.0);
             }
 
-            if Label::new(self.name)
-                .selectable(false)
-                .sense(Sense::click())
-                .ui(ui)
-                .clicked()
-            {
+            Label::new(self.name).selectable(false).ui(ui);
+
+            let response = ui
+                .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let mut shown = !*self.hidden;
+                    changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                    *self.hidden = !shown;
+                    state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                })
+                .response;
+
+            control_width = response.rect.width();
+        });
+
+        {
+            let mut label_rect = frame.frame.outer_rect(frame.content_ui.min_rect());
+            label_rect.set_width(label_rect.width() - control_width);
+            let response = overlay_ui.allocate_rect(label_rect, Sense::click());
+            if response.clicked() {
                 state.toggle(ui);
             }
+        }
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let mut shown = !*self.hidden;
-                changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
-                *self.hidden = !shown;
-                state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-            });
-        });
         let mut response = frame.allocate_space(ui);
         if response.hovered() {
             frame.frame.fill = Color32::from_rgb(50, 50, 50)
@@ -64,7 +79,6 @@ impl<'a> LayerCollapsible<'a> {
         }
         Prepared { state, response }
     }
-
 }
 
 pub struct Prepared {
