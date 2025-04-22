@@ -9,6 +9,13 @@ pub struct Pane {
 }
 
 impl Pane {
+    const SHADOW: Shadow = Shadow {
+        offset: [0, 0],
+        blur: 20,
+        spread: 10,
+        color: Color32::from_black_alpha(75),
+    };
+
     pub fn new(name: String, width: f32) -> Self {
         Self { name, width }
     }
@@ -18,6 +25,7 @@ impl Pane {
             .fill(Color32::from_gray(32))
             .inner_margin(10)
             .corner_radius(10)
+            .shadow(Self::SHADOW)
             .show(ui, |ui| {
                 ui.set_width(self.width);
                 ui.with_layout(Layout::default(), |ui| {

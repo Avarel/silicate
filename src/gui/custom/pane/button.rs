@@ -1,6 +1,6 @@
 use egui::*;
 
-pub type PaneButtonDrawer = fn(&mut Ui, Rect, Color32);
+type PaneButtonDrawer = fn(&mut Ui, Rect, Color32);
 
 pub struct PaneButton {
     drawer: PaneButtonDrawer
@@ -19,7 +19,7 @@ impl PaneButton {
         Self::new(Self::layer_button_drawer)
     }
 
-    pub fn menu_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
+    fn menu_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
         let small_rect_size = rect.size() * 0.75;
         let bar_rect_size = small_rect_size * vec2(1.0, 0.15);
         let top_rect = Rect::from_center_size(rect.min + rect.size() * vec2(0.5, 0.2), bar_rect_size);
@@ -31,7 +31,7 @@ impl PaneButton {
         ui.painter().add(Shape::rect_filled(bot_rect, 1.0, color));
     }
 
-    pub fn layer_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
+    fn layer_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
         let small_rect_size = rect.size() * 0.75;
         let back_rect =
             Rect::from_center_size(rect.min + rect.size() * vec2(0.625, 0.375), small_rect_size);
