@@ -11,6 +11,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
+use super::custom::color_picker::ColorPickerHsv;
 use super::custom::layer_collapsible::LayerCollapsible;
 use super::custom::pane::{button::PaneButton, menu::PaneMenu};
 use super::{
@@ -207,7 +208,7 @@ impl ControlsGui {
         collapsible.show_body_unindented(ui, |ui| {
             let bg = file.background_color;
             let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
-            *changed |= super::custom::color_picker::color_picker_color32(ui, &mut rgb);
+            *changed |= ColorPickerHsv::new(&mut rgb).ui(ui);
             file.background_color = rgb.to_rgba_unmultiplied();
         });
     }
