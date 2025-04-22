@@ -78,9 +78,10 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
         let window_attributes = Window::default_attributes()
             .with_decorations(true)
             .with_resizable(true)
-            .with_transparent(false)
+            .with_transparent(true)
+            .with_blur(true)
             .with_title("Silicate")
-            .with_inner_size(INITIAL_SIZE)
+            .with_min_inner_size(INITIAL_SIZE)
             .with_window_icon(taskbar_icon);
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());

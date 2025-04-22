@@ -380,7 +380,7 @@ impl PreparedView<'_> {
         plot_ui.painter().rect(
             plot_ui.max_rect(),
             CornerRadius::default(),
-            Color32::from_gray(20),
+            Color32::from_gray(32),
             Stroke::NONE,
             StrokeKind::Outside,
         );
@@ -393,7 +393,7 @@ impl PreparedView<'_> {
                 painter.vline(
                     x as f32,
                     plot_ui.max_rect().y_range(),
-                    Stroke::new(1.0, Color32::from_gray(30)),
+                    Stroke::new(1.0, Color32::from_gray(40)),
                 );
             }
             for y in (plot_ui.max_rect().min.y as u32..plot_ui.max_rect().max.y as u32).step_by(15)
@@ -401,7 +401,7 @@ impl PreparedView<'_> {
                 painter.hline(
                     plot_ui.max_rect().x_range(),
                     y as f32,
-                    Stroke::new(1.0, Color32::from_gray(30)),
+                    Stroke::new(1.0, Color32::from_gray(40)),
                 );
             }
         }

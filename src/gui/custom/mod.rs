@@ -4,6 +4,7 @@ pub mod opacity_slider;
 pub mod blend_radio;
 pub mod color_picker;
 pub mod layer_collapsible;
+pub mod pane;
 
 const ACCENT_COLOR: Color32 = Color32::from_rgb(48, 116, 243);
 

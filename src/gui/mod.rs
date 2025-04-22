@@ -3,7 +3,6 @@ mod canvas;
 mod layout;
 
 use self::layout::{ViewOptions, ViewerGui};
-use crate::gui::layout::ViewerTab;
 use crate::app::{App, CompositorApp, InstanceKey, UserEvent};
 use egui::{load::SizedTexture, FullOutput, ViewportId};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
@@ -103,20 +102,6 @@ impl AppInstance {
             new_instances: rx,
             active_canvas: InstanceKey(0),
             canvas_tree: egui_dock::DockState::new(Vec::new()),
-            viewer_tree: {
-                let tabs = vec![
-                    ViewerTab::Information,
-                    ViewerTab::ViewControls,
-                    ViewerTab::CanvasControls,
-                ];
-                let mut state = egui_dock::DockState::new(tabs);
-                state.main_surface_mut().split_below(
-                    egui_dock::NodeIndex::root(),
-                    0.4,
-                    vec![ViewerTab::Hierarchy],
-                );
-                state
-            },
         };
 
         let app_instance = AppInstance {

@@ -8,10 +8,10 @@ pub struct LayerCollapsible<'a> {
 }
 
 impl<'a> LayerCollapsible<'a> {
-    pub fn new(id: u32, name: String, hidden: &'a mut bool) -> Self {
+    pub fn new(id: u32, name: impl Into<String>, hidden: &'a mut bool) -> Self {
         Self {
             id,
-            name,
+            name: name.into(),
             hidden,
             size_change: true,
         }
@@ -54,7 +54,7 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
-            .corner_radius(3)
+            .corner_radius(4)
             .inner_margin(5)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
@@ -64,7 +64,7 @@ impl<'a> LayerCollapsible<'a> {
                 ui.set_min_height(40.0);
             }
 
-            Label::new(self.name).selectable(false).ui(ui);
+            Label::new(RichText::new(self.name).strong()).selectable(false).ui(ui);
 
             let response = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -90,9 +90,9 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut response = frame.allocate_space(ui);
         if response.hovered() {
-            frame.frame.fill = Color32::from_rgb(50, 50, 50)
+            frame.frame.fill = Color32::from_gray(35)
         } else {
-            frame.frame.fill = Color32::from_rgb(25, 25, 25)
+            frame.frame.fill = Color32::from_gray(27)
         }
         frame.paint(ui);
 
