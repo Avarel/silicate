@@ -86,7 +86,7 @@ impl AppInstance {
             }),
             rt,
             dispatch: dev.dispatch,
-            toasts: Mutex::new(egui_notify::Toasts::default()),
+            toasts: Mutex::new(egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft)),
             new_instances: tx,
             event_loop: event_loop_proxy,
         });
@@ -228,7 +228,7 @@ impl AppInstance {
                                     view: &output_view,
                                     resolve_target: None,
                                     ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                         store: wgpu::StoreOp::Store,
                                     },
                                 })],
@@ -282,7 +282,7 @@ impl AppInstance {
                             Ok(key) => {
                                 app.toasts.lock().success("Loaded file from drag/drop.");
                                 app.new_instances
-                                    .blocking_send((
+                                    .send((
                                         egui_dock::SurfaceIndex::main(),
                                         egui_dock::NodeIndex::root(),
                                         key,

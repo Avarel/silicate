@@ -9,7 +9,7 @@ repository = "https://github.com/Avarel/procreate-rs"
 license = "MIT"
 
 [workspace]
-members = ["libs/compositor", "libs/lz4_flex", "libs/silica"]
+members = ["libs/compositor", "libs/lz4_flex", "libs/silica", "libs/egui_dock"]
 
 [features]
 default = []
@@ -35,7 +35,7 @@ egui = "0.31"
 egui-wgpu = "0.31.0"
 egui-winit = "0.31.0"
 # winit = "0.29"
-egui_dock = "0.16"
+egui_dock = { path = "libs/egui_dock" }
 egui-notify = "0.19"
 # Async runtime
 rfd = { version = "0.15", default-features = false, features = ["tokio", "xdg-portal"] }

@@ -230,6 +230,10 @@ struct CanvasGui<'a> {
 impl egui_dock::TabViewer for CanvasGui<'_> {
     type Tab = InstanceKey;
 
+    fn allowed_in_windows(&self, _: &mut Self::Tab) -> bool {
+        false
+    }
+
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         let tex = self.canvases.get(tab);
 
@@ -381,7 +385,28 @@ impl ViewerGui {
                 .style({
                     let mut style = egui_dock::Style::from_egui(ui.style());
                     style.tab.tab_body.inner_margin = Margin::ZERO;
-                    style.tab_bar.height = 30.0;
+                    style.tab_bar.height = 50.0;
+                    style.tab_bar.hline_color = Color32::TRANSPARENT;
+                    style.tab_bar.inner_margin = Margin::same(10);
+
+                    style.tab.spacing = 10.0;
+
+                    style.tab.active.corner_radius = CornerRadius::same(10);
+                    style.tab.active.outline_color = Color32::TRANSPARENT;
+
+                    style.tab.inactive.corner_radius = CornerRadius::same(10);
+                    style.tab.inactive.outline_color = Color32::TRANSPARENT;
+
+                    style.tab.focused.corner_radius = CornerRadius::same(10);
+                    style.tab.focused.outline_color = Color32::TRANSPARENT;
+                    style.tab.focused.bg_fill = super::custom::ACCENT_COLOR;
+
+                    style.tab.hovered.corner_radius = CornerRadius::same(10);
+                    style.tab.hovered.outline_color = Color32::TRANSPARENT;
+
+                    style.buttons.close_tab_color = Color32::WHITE;
+                    style.buttons.close_tab_bg_fill = Color32::TRANSPARENT;
+
                     style
                 })
                 .show_add_buttons(true)

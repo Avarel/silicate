@@ -6,7 +6,7 @@ pub mod color_picker;
 pub mod layer_collapsible;
 pub mod pane;
 
-const ACCENT_COLOR: Color32 = Color32::from_rgb(48, 116, 243);
+pub const ACCENT_COLOR: Color32 = Color32::from_rgb(48, 116, 243);
 
 fn rail_rect(rect: &Rect) -> Rect {
     const RADIUS: f32 = 1.0;
