@@ -287,6 +287,7 @@ impl AppInstance {
                                         egui_dock::NodeIndex::root(),
                                         key,
                                     ))
+                                    .await
                                     .unwrap();
                             }
                         }
