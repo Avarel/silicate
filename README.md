@@ -1,17 +1,17 @@
 # Silicate - Procreate File Renderer
 
 <p align="center">
-  <img src="media/windows.png" width="400"/>
-  <img src="media/macos.png" width="400"/>
+  <img src="media/clean.png" width="400"/>
+  <img src="media/editor.png" width="400"/>
 </p>
 
-Cross-platform native viewer for `.procreate` files. There is a 
+Cross-platform native viewer for `.procreate` files. There is a
 `reference.procreate` file in the base directory for users to try.
 
 ## Downloads
 * Latest builds are available through CI [here](https://github.com/Avarel/procreate-rs/actions/).
   * Download the `release-{insert your OS here}` zip and unpack to obtain the binary.
-    * macOS users: You will need to unpack the zip and the dmg file to access 
+    * macOS users: You will need to unpack the zip and the dmg file to access
       the binary. You might also need to go to System Preferences and allow the
       application to run, since there is no code signing.
 
@@ -64,7 +64,7 @@ All `.procreate` files are standard ZIP files with the following structure.
 ### NS Keyed Archive
 This is Apple's format for serializing Objective-C/Swift instances. It is basically
 a giant dictionary containing 4 items:
-* `version` - Irrelevant 
+* `version` - Irrelevant
 * `archiver` - Irrelevant
 * `top` - Top-level structure of the instance.
   * In this case, we are interested in the SilicaDocument instance.
