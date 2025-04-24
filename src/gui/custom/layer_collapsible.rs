@@ -4,7 +4,7 @@ pub struct LayerCollapsible<'a> {
     id: u32,
     name: String,
     hidden: &'a mut bool,
-    size_change: bool,
+    size_change_on_open: bool,
 }
 
 impl<'a> LayerCollapsible<'a> {
@@ -13,12 +13,12 @@ impl<'a> LayerCollapsible<'a> {
             id,
             name: name.into(),
             hidden,
-            size_change: true,
+            size_change_on_open: true,
         }
     }
 
     pub fn size_change(mut self, size_change: bool) -> Self {
-        self.size_change = size_change;
+        self.size_change_on_open = size_change;
         self
     }
 
@@ -58,13 +58,28 @@ impl<'a> LayerCollapsible<'a> {
             .inner_margin(5)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
-            if self.size_change {
+            if self.size_change_on_open {
                 ui.set_min_height((1.0 - state.openness(ui.ctx())) * 40.0);
             } else {
                 ui.set_min_height(40.0);
             }
 
-            Label::new(RichText::new(self.name).strong()).selectable(false).ui(ui);
+            // if !state.is_open() || !self.size_change_on_open {
+            //     let (what_rect, _) = ui.allocate_exact_size(vec2(50.0, 40.0), Sense::empty());
+            //     ui.painter()
+            //         .add(Shape::rect_filled(what_rect, 5, Color32::WHITE));
+            // } else {
+            //     let (what_rect, _) = ui.allocate_exact_size(
+            //         vec2(50.0, remap(state.openness(ui.ctx()), 0.0..=1.0, 50.0..=5.0)),
+            //         Sense::empty(),
+            //     );
+            //     ui.painter()
+            //         .add(Shape::rect_filled(what_rect, 5, Color32::GRAY));
+            // }
+
+            Label::new(RichText::new(self.name).strong())
+                .selectable(false)
+                .ui(ui);
 
             let response = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -85,7 +100,6 @@ impl<'a> LayerCollapsible<'a> {
             if response.clicked() {
                 state.toggle(ui);
             }
-
         }
 
         let mut response = frame.allocate_space(ui);
