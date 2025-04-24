@@ -330,6 +330,10 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
             .unwrap_or("Untitled Artwork".to_string())
             .into()
     }
+
+    fn id(&mut self, tab: &mut Self::Tab) -> Id {
+        Id::new(*tab)
+    }
 }
 
 pub struct ViewerGui {
