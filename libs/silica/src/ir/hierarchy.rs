@@ -1,14 +1,9 @@
-use std::io::Read;
-use std::num::NonZeroU32;
-use std::sync::OnceLock;
 use crate::layers::{SilicaChunk, SilicaHierarchy, SilicaImageData};
 use crate::ns_archive::{NsClass, NsDecode};
-use crate::ns_archive::{
-    NsKeyedArchive, NsObjects, error::NsArchiveError,
-};
+use crate::ns_archive::{NsKeyedArchive, NsObjects, error::NsArchiveError};
 use crate::{
     error::SilicaError,
-    layers::{SilicaLayer, SilicaGroup},
+    layers::{SilicaGroup, SilicaLayer},
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
@@ -18,6 +13,9 @@ use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::buffer::BufferDimensions;
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
+use std::io::Read;
+use std::num::NonZeroU32;
+use std::sync::OnceLock;
 
 use super::IRData;
 
@@ -137,7 +135,6 @@ impl SilicaIRLayer<'_> {
             uuid,
             version: nka.fetch::<u64>(world, "version")?,
             image: SilicaImageData { chunks },
-            id: meta.layer_id_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         })
     }
 }
@@ -199,7 +196,6 @@ impl<'a> SilicaIRGroup<'a> {
                 .into_par_iter()
                 .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
-            id: meta.layer_id_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         })
     }
 }

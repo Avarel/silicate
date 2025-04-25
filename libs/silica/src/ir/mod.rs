@@ -6,10 +6,7 @@ use crate::data::{Flipped, Orientation};
 use crate::file::{ProcreateFile, ProcreateFileMetadata};
 use crate::layers::AtlasTextureTiling;
 use crate::ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError};
-use crate::{
-    error::SilicaError,
-    layers::CanvasTiling,
-};
+use crate::{error::SilicaError, layers::CanvasTiling};
 use hierarchy::{SilicaIRHierarchy, SilicaIRLayer};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::dev::GpuDispatch;
@@ -21,7 +18,6 @@ struct IRData<'a> {
 
     size: Size<u32>,
     tiling: CanvasTiling,
-    layer_id_counter: AtomicU32,
     chunk_id_counter: AtomicU32,
 }
 
@@ -102,7 +98,6 @@ impl<'a> ProcreateUnloadedFile<'a> {
                 file_names,
                 size,
                 tiling: canvas_tiling,
-                layer_id_counter: AtomicU32::new(1),
                 chunk_id_counter: AtomicU32::new(1),
             },
             author_name: nka.fetch::<Option<String>>(root, "authorName")?,

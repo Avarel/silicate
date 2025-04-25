@@ -71,7 +71,8 @@ impl<'a> BlendModeRadio<'a> {
             .inner_margin(Margin::symmetric(0, 5))
             .corner_radius(4)
             .fill(Color32::from_rgb(20, 20, 20))
-            .show(ui, |ui| self.layout_scroll_area(ui)).response;
+            .show(ui, |ui| self.layout_scroll_area(ui))
+            .response;
 
         if old_value != *self.value {
             response.mark_changed();

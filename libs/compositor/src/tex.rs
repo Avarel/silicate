@@ -77,11 +77,10 @@ impl GpuTexture {
     }
 
     pub fn create_array_view(&self) -> wgpu::TextureView {
-        self.texture
-            .create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..wgpu::TextureViewDescriptor::default()
-            })
+        self.texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..wgpu::TextureViewDescriptor::default()
+        })
     }
 
     pub fn create_srgb_view(&self) -> wgpu::TextureView {

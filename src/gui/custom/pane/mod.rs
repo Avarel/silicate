@@ -31,12 +31,19 @@ impl Pane {
                 ui.with_layout(Layout::default(), |ui| {
                     Frame::new().inner_margin(10).show(ui, |ui| {
                         ui.add(
-                            Label::new(RichText::new(&self.name).heading().strong().color(Color32::WHITE))
-                                .selectable(false),
+                            Label::new(
+                                RichText::new(&self.name)
+                                    .heading()
+                                    .strong()
+                                    .color(Color32::WHITE),
+                            )
+                            .selectable(false),
                         );
                     });
 
-                    ScrollArea::vertical().id_salt(ui.next_auto_id()).show(ui, add_body);
+                    ScrollArea::vertical()
+                        .id_salt(ui.next_auto_id())
+                        .show(ui, add_body);
                 })
             });
     }

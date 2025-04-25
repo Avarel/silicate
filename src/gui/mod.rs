@@ -1,5 +1,5 @@
-mod custom;
 mod canvas;
+mod custom;
 mod layout;
 
 use self::layout::{ViewOptions, ViewerGui};
@@ -86,7 +86,9 @@ impl AppInstance {
             }),
             rt,
             dispatch: dev.dispatch,
-            toasts: Mutex::new(egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft)),
+            toasts: Mutex::new(
+                egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
+            ),
             new_instances: tx,
             event_loop: event_loop_proxy,
         });

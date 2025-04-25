@@ -1,5 +1,4 @@
-use crate::ns_archive::{error::NsArchiveError, NsKeyedArchive};
-
+use crate::ns_archive::{NsKeyedArchive, error::NsArchiveError};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Flipped {

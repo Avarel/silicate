@@ -11,7 +11,7 @@ use std::num::NonZeroU32;
 use self::tex::GpuTexture;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, CompositorBuffers};
-use canvas::{CompositorAtlasTiling, CompositorCanvasTiling, ChunkInstance, VertexInput};
+use canvas::{ChunkInstance, CompositorAtlasTiling, CompositorCanvasTiling, VertexInput};
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::CommandEncoder;
@@ -88,7 +88,10 @@ impl Target {
     }
 
     pub fn set_flipped(&mut self, horizontally: bool, vertically: bool) {
-        self.buffers.canvas.data_mut().set_flipped(horizontally, vertically);
+        self.buffers
+            .canvas
+            .data_mut()
+            .set_flipped(horizontally, vertically);
         self.buffers.canvas.load_buffer(self.dispatch.queue());
     }
 
@@ -191,24 +194,22 @@ impl Target {
         let output_view = self.output.create_default_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(
-                            bg.map(|[r, g, b, _]| wgpu::Color {
-                                r: f64::from(r),
-                                g: f64::from(g),
-                                b: f64::from(b),
-                                a: 1.0,
-                            })
-                            .unwrap_or(wgpu::Color::TRANSPARENT),
-                        ),
-                        store: wgpu::StoreOp::Store,
-                    },
-                }),
-            ],
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(
+                        bg.map(|[r, g, b, _]| wgpu::Color {
+                            r: f64::from(r),
+                            g: f64::from(g),
+                            b: f64::from(b),
+                            a: 1.0,
+                        })
+                        .unwrap_or(wgpu::Color::TRANSPARENT),
+                    ),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,

@@ -1,6 +1,6 @@
 use egui::*;
 
-use super::{Pane, button::PaneButton};
+use super::{button::PaneButton, Pane};
 
 pub struct PaneMenu {
     name: String,
@@ -10,7 +10,11 @@ pub struct PaneMenu {
 
 impl PaneMenu {
     pub fn new(name: impl Into<String>, pane_button: PaneButton, align: Align) -> Self {
-        Self { name: name.into(), pane_button, align }
+        Self {
+            name: name.into(),
+            pane_button,
+            align,
+        }
     }
 
     pub fn show<R>(self, ui: &mut Ui, add_body: impl FnOnce(&mut Ui) -> R) {

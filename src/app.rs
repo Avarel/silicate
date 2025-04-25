@@ -25,6 +25,8 @@ use std::{collections::HashMap, num::NonZeroU32};
 use tokio::time::MissedTickBehavior;
 use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
+use crate::addendum::SilicaHierarchyAddendum;
+
 pub struct App {
     pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
@@ -45,6 +47,7 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
+    pub addendum: Vec<SilicaHierarchyAddendum>,
     pub target: Mutex<Target>,
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
@@ -122,6 +125,7 @@ impl App {
         self.compositor.instances.write().insert(
             key,
             Instance {
+                addendum: crate::addendum::build(&file.layers),
                 flipped: file.flipped,
                 file: RwLock::new(file),
                 target: Mutex::new(target),
@@ -255,7 +259,11 @@ impl CompositorApp {
             for layer in layers.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(&group.children, composite_layers, group.hidden | override_hidden);
+                        inner(
+                            &group.children,
+                            composite_layers,
+                            group.hidden | override_hidden,
+                        );
                     }
                     SilicaHierarchy::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
@@ -272,7 +280,10 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    fn linearize_silica_chunks<'a>(composite_layers: &mut Vec<ChunkTile>, layers: &'a Vec<SilicaHierarchy>) {
+    fn linearize_silica_chunks<'a>(
+        composite_layers: &mut Vec<ChunkTile>,
+        layers: &'a Vec<SilicaHierarchy>,
+    ) {
         composite_layers.clear();
 
         let mut layer_counter = 0;

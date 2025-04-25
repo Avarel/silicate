@@ -1,6 +1,8 @@
-mod gui;
+mod addendum;
 mod app;
+mod gui;
 
+use app::UserEvent;
 use clap::Parser;
 use egui_wgpu::wgpu;
 use egui_winit::winit::{
@@ -10,7 +12,6 @@ use egui_winit::winit::{
     window::Window,
 };
 use gui::AppInstance;
-use app::UserEvent;
 use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;

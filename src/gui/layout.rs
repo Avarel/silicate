@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
+use crate::addendum::{SilicaHierarchyAddendum, SilicaLayerAddendum};
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
 use super::custom::color_picker::ColorPickerHsv;
@@ -142,60 +143,80 @@ impl ControlsGui {
         });
     }
 
-    fn layout_layer_control(ui: &mut Ui, l: &mut SilicaLayer, changed: &mut bool) {
-        ui.push_id(l.id, |ui| {
-            *changed |= OpacitySlider::new(&mut l.opacity).ui(ui).changed();
+    fn layout_layer_control(
+        ui: &mut Ui,
+        layer: &mut SilicaLayer,
+        addendum: &SilicaLayerAddendum,
+        changed: &mut bool,
+    ) {
+        ui.push_id(addendum.id, |ui| {
+            *changed |= OpacitySlider::new(&mut layer.opacity).ui(ui).changed();
             ui.add_space(10.0);
-            *changed |= BlendModeRadio::new(&mut l.blend).ui(ui).changed();
+            *changed |= BlendModeRadio::new(&mut layer.blend).ui(ui).changed();
         });
 
-        Grid::new(l.id).show(ui, |ui| {
+        Grid::new(addendum.id).show(ui, |ui| {
             ui.label("Clipped");
-            *changed |= Checkbox::without_text(&mut l.clipped).ui(ui).changed();
+            *changed |= Checkbox::without_text(&mut layer.clipped).ui(ui).changed();
         });
         ui.add_space(10.0);
     }
 
-    fn layout_layers_sub(ui: &mut Ui, layers: &mut Vec<SilicaHierarchy>, changed: &mut bool) {
-        layers.iter_mut().for_each(|layer| {
-            let (id, layer_name, hidden, size_change) = match layer {
-                SilicaHierarchy::Layer(layer) => {
-                    let layer_name = layer
-                        .name
-                        .to_owned()
-                        .unwrap_or_else(|| format!("Unnamed Layer"));
+    fn layout_layers_sub(
+        ui: &mut Ui,
+        layers: &mut Vec<SilicaHierarchy>,
+        addendum: &[SilicaHierarchyAddendum],
+        changed: &mut bool,
+    ) {
+        layers
+            .iter_mut()
+            .zip(addendum.iter())
+            .for_each(|(mut layer, addendum)| {
+                let (id, layer_name, hidden, size_change) = match (&mut layer, addendum) {
+                    (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
+                        let layer_name = layer
+                            .name
+                            .to_owned()
+                            .unwrap_or_else(|| format!("Unnamed Layer"));
 
-                    (layer.id, layer_name, &mut layer.hidden, false)
-                }
-                SilicaHierarchy::Group(layer) => {
-                    let layer_name = layer
-                        .name
-                        .to_owned()
-                        .unwrap_or_else(|| format!("Unnamed Group"));
+                        (addendum.id, layer_name, &mut layer.hidden, false)
+                    }
+                    (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
+                        let layer_name = layer
+                            .name
+                            .to_owned()
+                            .unwrap_or_else(|| format!("Unnamed Group"));
 
-                    (layer.id, layer_name, &mut layer.hidden, true)
-                }
-            };
+                        (addendum.id, layer_name, &mut layer.hidden, true)
+                    }
+                    _ => unreachable!(),
+                };
 
-            let collapsible = LayerCollapsible::new(id, layer_name, hidden)
-                .size_change(size_change)
-                .ui(ui);
+                let collapsible = LayerCollapsible::new(id, layer_name, hidden)
+                    .size_change(size_change)
+                    .ui(ui);
 
-            *changed |= collapsible.response.changed();
+                *changed |= collapsible.response.changed();
 
-            match layer {
-                SilicaHierarchy::Layer(layer) => {
-                    collapsible.show_body_unindented(ui, |ui| {
-                        Self::layout_layer_control(ui, layer, changed);
-                    });
-                }
-                SilicaHierarchy::Group(layer) => {
-                    collapsible.show_body_indented(ui, |ui| {
-                        Self::layout_layers_sub(ui, &mut layer.children, changed);
-                    });
-                }
-            };
-        });
+                match (layer, addendum) {
+                    (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
+                        collapsible.show_body_unindented(ui, |ui| {
+                            Self::layout_layer_control(ui, layer, addendum, changed);
+                        });
+                    }
+                    (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
+                        collapsible.show_body_indented(ui, |ui| {
+                            Self::layout_layers_sub(
+                                ui,
+                                &mut layer.children,
+                                &addendum.children,
+                                changed,
+                            );
+                        });
+                    }
+                    _ => unreachable!(),
+                };
+            });
     }
 
     fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
@@ -300,7 +321,12 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                 let mut file = instance.file.write();
                 let mut changed = false;
 
-                ControlsGui::layout_layers_sub(ui, &mut file.layers, &mut changed);
+                ControlsGui::layout_layers_sub(
+                    ui,
+                    &mut file.layers,
+                    &instance.addendum,
+                    &mut changed,
+                );
                 ControlsGui::layout_background_control(ui, &mut file, &mut changed);
 
                 instance.tick_change(changed);

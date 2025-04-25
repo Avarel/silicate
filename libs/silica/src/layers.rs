@@ -106,9 +106,6 @@ pub struct SilicaGroup {
     pub hidden: bool,
     pub children: Vec<SilicaHierarchy>,
     pub name: Option<String>,
-
-    // This is unofficial
-    pub id: u32,
 }
 
 impl SilicaGroup {
@@ -128,8 +125,6 @@ pub struct SilicaChunk {
 pub struct SilicaImageData {
     pub chunks: Vec<SilicaChunk>,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
@@ -160,7 +155,4 @@ pub struct SilicaLayer {
     pub version: u64,
 
     pub image: SilicaImageData,
-
-    // This is unofficial
-    pub id: u32,
 }
