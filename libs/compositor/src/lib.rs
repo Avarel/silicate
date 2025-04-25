@@ -42,8 +42,6 @@ pub struct CompositeLayer {
 pub struct Target {
     dispatch: GpuDispatch,
     buffers: CompositorBuffers,
-    /// Output texture dimensions.
-    dim: BufferDimensions,
     /// Compositor output buffers and texture.
     output: GpuTexture,
     atlas_texture: GpuTexture,
@@ -57,22 +55,20 @@ impl Target {
         atlas_data: CompositorAtlasTiling,
         atlas_texture: GpuTexture,
     ) -> Self {
-        let dim = BufferDimensions::new(canvas.width, canvas.height);
         Self {
             output: GpuTexture::empty_with_extent(
                 &dispatch,
-                dim.extent(),
+                wgpu::Extent3d {
+                    width: canvas.width,
+                    height: canvas.height,
+                    depth_or_array_layers: 1,
+                },
                 GpuTexture::OUTPUT_USAGE,
             ),
             dispatch: dispatch.clone(),
             buffers: CompositorBuffers::new(dispatch, canvas, atlas_data),
-            dim,
             atlas_texture,
         }
-    }
-
-    pub fn dim(&self) -> BufferDimensions {
-        self.dim
     }
 
     pub fn output(&self) -> &GpuTexture {
@@ -97,8 +93,6 @@ impl Target {
 
     /// Render composite layers using the compositor pipeline.
     pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>) {
-        assert!(!self.dim.is_empty(), "set_dimensions required");
-
         let command_buffers = {
             let mut encoder = self
                 .dispatch

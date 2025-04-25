@@ -100,6 +100,14 @@ impl GpuTexture {
         })
     }
 
+    pub fn width(&self) -> u32 {
+        self.size.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.size.height
+    }
+
     /// Clear the texture with a certain color.
     #[allow(dead_code)]
     pub fn clear(&self, dispatch: &GpuDispatch, color: wgpu::Color) {

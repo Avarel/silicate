@@ -4,7 +4,7 @@ mod layout;
 
 use self::layout::{ViewOptions, ViewerGui};
 use crate::app::{App, CompositorApp, InstanceKey, UserEvent};
-use egui::{load::SizedTexture, FullOutput, ViewportId};
+use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 use egui_winit::winit::{
     event_loop::{ActiveEventLoop, EventLoopProxy},
@@ -330,7 +330,7 @@ impl AppInstance {
                 };
 
                 let instances = self.app.compositor.instances.read();
-                let Some(target) = instances
+                let Some(instance) = instances
                     .get(&idx)
                     .and_then(|instance| instance.target.try_lock())
                 else {
@@ -339,10 +339,10 @@ impl AppInstance {
                     return;
                 };
 
-                let output = target.output();
+                let output = instance.output();
                 let texture_view = output.create_srgb_view();
-                let target_dim = target.dim();
-                drop(target);
+                let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
+                drop(instance);
 
                 if let Some(tex) = self.editor.canvases.get_mut(&idx) {
                     self.window.renderer.update_egui_texture_from_wgpu_texture(
@@ -351,7 +351,7 @@ impl AppInstance {
                         texture_filter,
                         tex.id,
                     );
-                    tex.size = target_dim.to_vec2().into();
+                    tex.size = target_dim;
                 } else {
                     let tex = self.window.renderer.register_native_texture(
                         &self.app.dispatch.device(),
@@ -362,7 +362,7 @@ impl AppInstance {
                         idx,
                         SizedTexture {
                             id: tex,
-                            size: target_dim.to_vec2().into(),
+                            size: target_dim,
                         },
                     );
                 }
