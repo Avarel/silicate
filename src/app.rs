@@ -14,7 +14,7 @@ use silicate_compositor::{
     dev::GpuDispatch,
     pipeline::Pipeline,
     tex::GpuTexture,
-    ChunkTile, CompositeLayer, Target,
+    ChunkTile, CompositeLayer, CompositorTarget,
 };
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -48,7 +48,7 @@ pub struct InstanceKey(pub usize);
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
     pub addendum: Vec<SilicaHierarchyAddendum>,
-    pub target: Mutex<Target>,
+    pub target: Mutex<CompositorTarget>,
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
     pub rotation: f32,
@@ -97,14 +97,14 @@ impl App {
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
-        let mut target = Target::new(
+        let mut target = CompositorTarget::new(
             self.dispatch.clone(),
+            (file.size.width, file.size.height),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
             atlas_texture,
+            1
         );
-        dbg!(file.flipped);
-        dbg!(file.orientation);
 
         let rotation = match file.orientation {
             silica::data::Orientation::NoRotation => 0.0,
@@ -373,7 +373,7 @@ impl CompositorApp {
                     eprintln!("Reloading chunks");
                     target.load_chunk_buffer(composite_chunks.as_slice());
                 }
-                target.render(&self.pipeline, background);
+                target.render(&self.pipeline, background, 0);
                 // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
                 // std::thread::sleep(std::time::Duration::from_secs(1));
                 // Debugging notes: if the GPU is highly contended, the main

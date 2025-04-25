@@ -39,7 +39,7 @@ pub struct CompositeLayer {
 }
 
 /// Output target of a compositor pipeline.
-pub struct Target {
+pub struct CompositorTarget {
     dispatch: GpuDispatch,
     buffers: CompositorBuffers,
     /// Compositor output buffers and texture.
@@ -47,21 +47,23 @@ pub struct Target {
     atlas_texture: GpuTexture,
 }
 
-impl Target {
+impl CompositorTarget {
     /// Create a new compositor target.
     pub fn new(
         dispatch: GpuDispatch,
+        (width, height): (u32, u32),
         canvas: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
         atlas_texture: GpuTexture,
+        layers: u32,
     ) -> Self {
         Self {
             output: GpuTexture::empty_with_extent(
                 &dispatch,
                 wgpu::Extent3d {
-                    width: canvas.width,
-                    height: canvas.height,
-                    depth_or_array_layers: 1,
+                    width: width,
+                    height: height,
+                    depth_or_array_layers: layers,
                 },
                 GpuTexture::OUTPUT_USAGE,
             ),
@@ -92,14 +94,14 @@ impl Target {
     }
 
     /// Render composite layers using the compositor pipeline.
-    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>) {
+    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>, target_layer: u32) {
         let command_buffers = {
             let mut encoder = self
                 .dispatch
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-            self.render_command(pipeline, &mut encoder, bg);
+            self.render_command(pipeline, &mut encoder, bg, target_layer);
 
             encoder.finish()
         };
@@ -111,7 +113,10 @@ impl Target {
         pipeline: &Pipeline,
         encoder: &mut CommandEncoder,
         bg: Option<[f32; 4]>,
+        target_layer: u32
     ) {
+        debug_assert!(target_layer < self.output.layers());
+
         let canvas_bind_group =
             self.dispatch
                 .device()

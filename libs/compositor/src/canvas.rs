@@ -14,8 +14,8 @@ impl CompositorAtlasTiling {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CompositorCanvasTiling {
-    pub(super) height: u32,
-    pub(super) width: u32,
+    height: u32,
+    width: u32,
     cols: u32,
     rows: u32,
     tile_size: u32,
