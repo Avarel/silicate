@@ -52,31 +52,38 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut overlay_ui = ui.new_child(UiBuilder::new());
 
+        const PREVIEW_WIDTH: f32 = 60.0;
+        const HEIGHT: f32 = 50.0;
+        const PREVIEW_BG: Color32 = Color32::from_gray(30);
+
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
             .corner_radius(4)
-            .inner_margin(5)
+            .inner_margin(3)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
             if self.size_change_on_open {
-                ui.set_min_height((1.0 - state.openness(ui.ctx())) * 40.0);
+                ui.set_min_height((1.0 - state.openness(ui.ctx())) * HEIGHT);
             } else {
-                ui.set_min_height(40.0);
+                ui.set_min_height(HEIGHT);
             }
 
             if !state.is_open() || !self.size_change_on_open {
-                let (preview_rect, _) = ui.allocate_exact_size(vec2(50.0, 40.0), Sense::empty());
+                let (preview_rect, _) = ui.allocate_exact_size(vec2(PREVIEW_WIDTH, HEIGHT), Sense::empty());
                 ui.painter()
-                    .add(Shape::rect_filled(preview_rect, 5, Color32::from_gray(20)));
+                    .add(Shape::rect_filled(preview_rect, 5, PREVIEW_BG));
 
                 preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
             } else {
                 let (preview_rect, _) = ui.allocate_exact_size(
-                    vec2(50.0, remap(state.openness(ui.ctx()), 0.0..=1.0, 50.0..=5.0)),
+                    vec2(
+                        PREVIEW_WIDTH,
+                        remap(state.openness(ui.ctx()), 0.0..=1.0, HEIGHT..=5.0),
+                    ),
                     Sense::empty(),
                 );
                 ui.painter()
-                    .add(Shape::rect_filled(preview_rect, 5, Color32::GRAY));
+                    .add(Shape::rect_filled(preview_rect, 2, PREVIEW_BG));
             }
 
             Label::new(RichText::new(self.name).strong())

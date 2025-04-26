@@ -182,6 +182,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                 let mut changed = false;
 
                 LayersHierarchy {
+                    instance: &instance,
                     previews: self.previews,
                     layers: &mut file.layers,
                     addendum: &instance.addendum,

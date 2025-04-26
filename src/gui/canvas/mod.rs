@@ -175,8 +175,16 @@ impl<'a> CanvasView<'a> {
                 bounds.set_y(&min_auto_bounds);
             }
 
+            fn is_upright(theta: f32) -> bool {
+                let deg = theta.rem_euclid(std::f32::consts::TAU).to_degrees();
+                !(45.0..135.0).contains(&deg) && !(225.0..315.0).contains(&deg)
+            }
+
             if let Some(image) = image.as_ref() {
-                let image_size = image.size().unwrap();
+                let mut image_size = image.size().unwrap();
+                if !is_upright(*image_rotation) {
+                    std::mem::swap(&mut image_size.x, &mut image_size.y);
+                }
                 let image_bounds = {
                     let mut bounds = CanvasViewBounds::NOTHING;
                     let left_top = Vec2::new(-image_size.x / 2.0, -image_size.y / 2.0);
@@ -228,6 +236,7 @@ impl<'a> CanvasView<'a> {
 
         if response.double_clicked_by(PointerButton::Middle) {
             fn round_to_nearest_quarter_turn(theta: f32) -> f32 {
+                let theta = theta.rem_euclid(std::f32::consts::TAU);
                 (theta / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2
             }
             *image_rotation = round_to_nearest_quarter_turn(*image_rotation);
@@ -259,6 +268,7 @@ impl<'a> CanvasView<'a> {
                     let theta = f32::atan2(p2.y, p2.x) - f32::atan2(p1.y, p1.x);
 
                     *image_rotation += theta;
+                    *image_rotation = image_rotation.rem_euclid(std::f32::consts::TAU);
 
                     let painter = ui.painter();
                     painter.add(Shape::dashed_line(

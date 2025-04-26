@@ -319,6 +319,8 @@ impl AppInstance {
         match event {
             UserEvent::RemoveInstance(idx) => {
                 self.editor.remove_index(idx);
+                self.editor.canvases.remove(&idx);
+                self.editor.previews.retain(|&(k, _), _| k != idx);
             }
             UserEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
