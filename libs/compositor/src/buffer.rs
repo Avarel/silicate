@@ -323,6 +323,10 @@ impl CompositorBuffers {
             (num_cols * num_rows) as usize,
             ChunkSegment { start: 0, end: 0 },
         );
+        for segment in segments.iter_mut() {
+            segment.start = 0;
+            segment.end = 0;
+        }
 
         // Create a mutable list of segment references by index for fast access
         for chunk in chunks_data {

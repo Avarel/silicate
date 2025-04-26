@@ -36,7 +36,7 @@ impl ControlsGui {
             ui.label(file.stroke_count.to_string());
             ui.end_row();
             ui.label("Layer Count");
-            ui.label(file.layer_count().to_string());
+            ui.label(file.layer_count(false).to_string());
             ui.end_row();
             ui.label("Canvas Size");
 
@@ -131,12 +131,10 @@ impl ControlsGui {
             ui.label("Actions");
             ui.vertical(|ui| {
                 if ui.button("Export View").clicked() {
-                    let target = instance.target.lock();
-                    let texture = target.output();
-                    let copied_texture = texture.clone(&app.dispatch);
+                    let texture = instance.output_texture.clone();
                     app.rt.spawn({
                         let app = app.clone();
-                        async move { app.save_dialog(copied_texture).await }
+                        async move { app.save_dialog(texture).await }
                     });
                 }
             });
@@ -164,6 +162,8 @@ impl ControlsGui {
 
     fn layout_layers_sub(
         ui: &mut Ui,
+        previews: &HashMap<(InstanceKey, u32), SizedTexture>,
+        idx: InstanceKey,
         layers: &mut Vec<SilicaHierarchy>,
         addendum: &[SilicaHierarchyAddendum],
         changed: &mut bool,
@@ -192,22 +192,32 @@ impl ControlsGui {
                     _ => unreachable!(),
                 };
 
+                let image = previews
+                    .get(&(idx, id))
+                    .map(|tex| Image::from_texture(*tex));
+
                 let collapsible = LayerCollapsible::new(id, layer_name, hidden)
                     .size_change(size_change)
-                    .ui(ui);
+                    .ui(ui, |ui| {
+                        if let Some(image) = image {
+                            image.paint_at(ui, ui.max_rect());
+                        }
+                    });
 
                 *changed |= collapsible.response.changed();
 
                 match (layer, addendum) {
                     (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
                         collapsible.show_body_unindented(ui, |ui| {
-                            Self::layout_layer_control(ui, layer, addendum, changed);
+                            ControlsGui::layout_layer_control(ui, layer, addendum, changed);
                         });
                     }
                     (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
                         collapsible.show_body_indented(ui, |ui| {
                             Self::layout_layers_sub(
                                 ui,
+                                previews,
+                                idx,
                                 &mut layer.children,
                                 &addendum.children,
                                 changed,
@@ -222,13 +232,28 @@ impl ControlsGui {
     fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
         let hidden = &mut file.background_hidden;
 
-        let collapsible = LayerCollapsible::new(u32::MAX, "Background Color", hidden).ui(ui);
+        let [r, g, b, _] = file.background_color;
+
+        let collapsible =
+            LayerCollapsible::new(u32::MAX, "Background Color", hidden).ui(ui, |ui| {
+                ui.painter().rect(
+                    ui.max_rect(),
+                    5,
+                    Color32::from(Rgba::from_srgba_premultiplied(
+                        (r * 255.0) as u8,
+                        (g * 255.0) as u8,
+                        (b * 255.0) as u8,
+                        255,
+                    )),
+                    Stroke::NONE,
+                    StrokeKind::Middle,
+                );
+            });
 
         *changed |= collapsible.response.changed();
 
         collapsible.show_body_unindented(ui, |ui| {
-            let bg = file.background_color;
-            let mut rgb = Rgba::from_rgb(bg[0], bg[1], bg[2]);
+            let mut rgb = Rgba::from_rgb(r, g, b);
             *changed |= ColorPickerHsv::new(&mut rgb).ui(ui);
             file.background_color = rgb.to_rgba_unmultiplied();
         });
@@ -244,6 +269,7 @@ pub struct ViewOptions {
 struct CanvasGui<'a> {
     app: &'a Arc<App>,
     canvases: &'a mut HashMap<InstanceKey, SizedTexture>,
+    previews: &'a HashMap<(InstanceKey, u32), SizedTexture>,
     instances: &'a mut HashMap<InstanceKey, Instance>,
     view_options: &'a mut ViewOptions,
 }
@@ -323,6 +349,8 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
                 ControlsGui::layout_layers_sub(
                     ui,
+                    self.previews,
+                    *tab,
                     &mut file.layers,
                     &instance.addendum,
                     &mut changed,
@@ -365,6 +393,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 pub struct ViewerGui {
     pub app: Arc<App>,
 
+    pub previews: HashMap<(InstanceKey, u32), SizedTexture>,
     pub canvases: HashMap<InstanceKey, SizedTexture>,
     pub active_canvas: InstanceKey,
     pub view_options: ViewOptions,
@@ -448,6 +477,7 @@ impl ViewerGui {
                         app: &self.app,
                         view_options: &mut self.view_options,
                         canvases: &mut self.canvases,
+                        previews: &mut self.previews,
                         instances: &mut instances,
                     },
                 );

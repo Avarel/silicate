@@ -96,6 +96,7 @@ impl AppInstance {
         let editor = ViewerGui {
             app: app.clone(),
             canvases: HashMap::new(),
+            previews: HashMap::new(),
             view_options: ViewOptions {
                 smooth: false,
                 grid: true,
@@ -318,7 +319,7 @@ impl AppInstance {
             UserEvent::RemoveInstance(idx) => {
                 self.editor.remove_index(idx);
             }
-            e @ UserEvent::RebindTexture(idx) => {
+            UserEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
                 // Do not block on any locks/rwlocks since we do not want to block
                 // the GUI thread when the renderer is potentially taking a long
@@ -330,19 +331,13 @@ impl AppInstance {
                 };
 
                 let instances = self.app.compositor.instances.read();
-                let Some(instance) = instances
-                    .get(&idx)
-                    .and_then(|instance| instance.target.try_lock())
-                else {
-                    // bounce the event
-                    self.app.event_loop.send_event(e).unwrap();
+                let Some(instance) = instances.get(&idx) else {
                     return;
                 };
 
-                let output = instance.output();
+                let output = &instance.output_texture;
                 let texture_view = output.create_srgb_view();
                 let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
-                drop(instance);
 
                 if let Some(tex) = self.editor.canvases.get_mut(&idx) {
                     self.window.renderer.update_egui_texture_from_wgpu_texture(
@@ -365,6 +360,48 @@ impl AppInstance {
                             size: target_dim,
                         },
                     );
+                }
+            }
+            UserEvent::RebindPreviews(idx) => {
+                let instances = self.app.compositor.instances.read();
+                let Some(instance) = instances.get(&idx) else {
+                    return;
+                };
+
+                let Some(preview_texture) = &instance.preview_textures else {
+                    return;
+                };
+
+                let texture_filter = wgpu::FilterMode::Linear;
+                let target_dim = Vec2::new(
+                    preview_texture.width() as f32,
+                    preview_texture.height() as f32,
+                );
+
+                for i in 0..preview_texture.layers() {
+                    let texture_view = preview_texture.create_srgb_view_layer(i);
+                    if let Some(tex) = self.editor.previews.get_mut(&(idx, i)) {
+                        self.window.renderer.update_egui_texture_from_wgpu_texture(
+                            &self.app.dispatch.device(),
+                            &texture_view,
+                            texture_filter,
+                            tex.id,
+                        );
+                        tex.size = target_dim;
+                    } else {
+                        let tex = self.window.renderer.register_native_texture(
+                            &self.app.dispatch.device(),
+                            &texture_view,
+                            texture_filter,
+                        );
+                        self.editor.previews.insert(
+                            (idx, i),
+                            SizedTexture {
+                                id: tex,
+                                size: target_dim,
+                            },
+                        );
+                    }
                 }
             }
         }

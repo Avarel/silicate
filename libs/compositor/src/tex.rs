@@ -25,6 +25,15 @@ impl GpuTexture {
         .union(wgpu::TextureUsages::TEXTURE_BINDING)
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
 
+    pub fn empty(
+        dispatch: &GpuDispatch,
+        width: u32,
+        height: u32,
+        usage: wgpu::TextureUsages,
+    ) -> Self {
+        Self::empty_layers(dispatch, width, height, 1, usage)
+    }
+
     /// Create an empty texture.
     pub fn empty_layers(
         dispatch: &GpuDispatch,
@@ -90,12 +99,22 @@ impl GpuTexture {
         })
     }
 
-    #[allow(dead_code)]
     pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
+        self.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: None,
+            base_array_layer: layer,
+            array_layer_count: Some(1),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
+        })
+    }
+
+    pub fn create_srgb_view_layer(&self, layer: u32) -> wgpu::TextureView {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             base_array_layer: layer,
             array_layer_count: Some(1),
+            dimension: Some(wgpu::TextureViewDimension::D2),
             ..Default::default()
         })
     }
@@ -109,7 +128,6 @@ impl GpuTexture {
     }
 
     /// Clear the texture with a certain color.
-    #[allow(dead_code)]
     pub fn clear(&self, dispatch: &GpuDispatch, color: wgpu::Color) {
         dispatch.queue().submit(Some({
             let mut encoder = dispatch
@@ -207,12 +225,12 @@ impl GpuTexture {
         }));
     }
 
-    /// Clone the texture.
+    /// Clone the texture into an independent clone.
     ///
     /// ### Note
     /// `dev` should be the same device that created this texture
     /// in the first place.
-    pub fn clone(&self, dispatch: &GpuDispatch) -> Self {
+    pub fn clone_buffer(&self, dispatch: &GpuDispatch) -> Self {
         let clone = Self::empty_with_extent(
             dispatch,
             self.size,

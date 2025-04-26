@@ -39,6 +39,7 @@ pub struct App {
 #[derive(Debug, Clone, Copy)]
 pub enum UserEvent {
     RebindTexture(InstanceKey),
+    RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
 }
 
@@ -49,10 +50,12 @@ pub struct Instance {
     pub file: RwLock<ProcreateFile>,
     pub addendum: Vec<SilicaHierarchyAddendum>,
     pub target: Mutex<CompositorTarget>,
+    pub output_texture: GpuTexture,
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
     pub rotation: f32,
     pub flipped: silica::data::Flipped,
+    pub preview_textures: Option<GpuTexture>,
 }
 
 impl Instance {
@@ -67,6 +70,97 @@ impl Instance {
     pub fn is_upright(&self) -> bool {
         !(45.0..135.0).contains(&self.rotation.to_degrees())
             && !(225.0..315.0).contains(&self.rotation.to_degrees())
+    }
+
+    pub fn generate_previews(&mut self, dispatch: &GpuDispatch, pipeline: &Pipeline) {
+        let file = self.file.read();
+        let aspect_ratio = file.size.width as f32 / file.size.height as f32;
+        let scaled_height = (256.0 * aspect_ratio) as u32;
+
+        let preview_textures = {
+            fn generate_silica_layers_preview(
+                pipeline: &Pipeline,
+                target: &mut CompositorTarget,
+                preview_textures: &GpuTexture,
+                layers: &[SilicaHierarchy],
+                addendum: &[SilicaHierarchyAddendum],
+            ) {
+                fn inner(
+                    pipeline: &Pipeline,
+                    target: &mut CompositorTarget,
+                    preview_textures: &GpuTexture,
+                    layers: &[SilicaHierarchy],
+                    addendums: &[SilicaHierarchyAddendum],
+                ) {
+                    for (layer, addendum) in layers.iter().zip(addendums.iter()) {
+                        {
+                            let layer = std::slice::from_ref(layer);
+                            let mut composite_layers = Vec::new();
+                            CompositorApp::linearize_silica_layers(&mut composite_layers, layer);
+
+                            target.load_layer_buffer(composite_layers.as_slice());
+
+                            let mut composite_chunks = Vec::new();
+                            CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer);
+                            composite_chunks.sort_by_key(|v| (v.col, v.row));
+                            target.load_chunk_buffer(composite_chunks.as_slice());
+                        }
+                        match (layer, addendum) {
+                            (
+                                SilicaHierarchy::Group(group),
+                                SilicaHierarchyAddendum::Group(addendum),
+                            ) => {
+                                target.render(
+                                    pipeline,
+                                    None,
+                                    preview_textures.create_view_layer(addendum.id),
+                                );
+                                inner(
+                                    pipeline,
+                                    target,
+                                    preview_textures,
+                                    &group.children,
+                                    &addendum.children,
+                                );
+                            }
+                            (
+                                SilicaHierarchy::Layer(_),
+                                SilicaHierarchyAddendum::Layer(addendum),
+                            ) => {
+                                target.render(
+                                    pipeline,
+                                    None,
+                                    preview_textures.create_view_layer(addendum.id),
+                                );
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+
+                inner(pipeline, target, preview_textures, layers, addendum);
+            }
+
+            let preview_textures = GpuTexture::empty_layers(
+                dispatch,
+                256,
+                scaled_height,
+                file.layer_count(true),
+                GpuTexture::OUTPUT_USAGE,
+            );
+
+            generate_silica_layers_preview(
+                pipeline,
+                &mut self.target.lock(),
+                &preview_textures,
+                &file.layers,
+                &self.addendum,
+            );
+
+            preview_textures
+        };
+
+        self.preview_textures = Some(preview_textures);
     }
 }
 
@@ -97,14 +191,21 @@ impl App {
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
-        let mut target = CompositorTarget::new(
+        let mut composite_target = CompositorTarget::new(
             self.dispatch.clone(),
-            (file.size.width, file.size.height),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
-            atlas_texture,
-            1
+            atlas_texture.clone(),
         );
+
+        let output_texture = GpuTexture::empty(
+            &self.dispatch,
+            file.size.width,
+            file.size.height,
+            GpuTexture::OUTPUT_USAGE,
+        );
+
+        composite_target.set_flipped(file.flipped.horizontally, file.flipped.vertically);
 
         let rotation = match file.orientation {
             silica::data::Orientation::NoRotation => 0.0,
@@ -115,26 +216,28 @@ impl App {
         }
         .to_radians();
 
-        target.set_flipped(file.flipped.horizontally, file.flipped.vertically);
+        let addendum = crate::addendum::build(&file.layers);
 
         let id = self
             .compositor
             .curr_id
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let key = InstanceKey(id);
-        self.compositor.instances.write().insert(
-            key,
-            Instance {
-                addendum: crate::addendum::build(&file.layers),
-                flipped: file.flipped,
-                file: RwLock::new(file),
-                target: Mutex::new(target),
-                changed: AtomicBool::new(true),
-                needs_to_load_chunks: AtomicBool::new(true),
-                rotation,
-            },
-        );
+        let mut instance = Instance {
+            addendum,
+            output_texture,
+            flipped: file.flipped,
+            file: RwLock::new(file),
+            target: Mutex::new(composite_target),
+            changed: AtomicBool::new(true),
+            needs_to_load_chunks: AtomicBool::new(true),
+            preview_textures: None,
+            rotation,
+        };
+        instance.generate_previews(&self.dispatch, &self.compositor.pipeline);
+        self.compositor.instances.write().insert(key, instance);
         self.rebind_texture(key);
+        self.rebind_previews(key);
         Ok(key)
     }
 
@@ -240,19 +343,25 @@ impl App {
             .send_event(UserEvent::RebindTexture(id))
             .unwrap();
     }
+
+    pub fn rebind_previews(&self, id: InstanceKey) {
+        self.event_loop
+            .send_event(UserEvent::RebindPreviews(id))
+            .unwrap();
+    }
 }
 
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    fn linearize_silica_layers<'a>(
+    fn linearize_silica_layers(
         composite_layers: &mut Vec<CompositeLayer>,
-        layers: &'a Vec<SilicaHierarchy>,
+        layers: &[SilicaHierarchy],
     ) {
         composite_layers.clear();
 
-        fn inner<'a>(
-            layers: &'a Vec<SilicaHierarchy>,
+        fn inner(
+            layers: &[SilicaHierarchy],
             composite_layers: &mut Vec<CompositeLayer>,
             override_hidden: bool,
         ) {
@@ -280,16 +389,13 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    fn linearize_silica_chunks<'a>(
-        composite_layers: &mut Vec<ChunkTile>,
-        layers: &'a Vec<SilicaHierarchy>,
-    ) {
+    fn linearize_silica_chunks(composite_layers: &mut Vec<ChunkTile>, layers: &[SilicaHierarchy]) {
         composite_layers.clear();
 
         let mut layer_counter = 0;
 
         fn inner<'a>(
-            layers: &'a Vec<SilicaHierarchy>,
+            layers: &'a [SilicaHierarchy],
             chunks: &mut Vec<ChunkTile>,
             clip_layer: &mut Option<&'a SilicaLayer>,
             layer_counter: &mut u32,
@@ -373,7 +479,11 @@ impl CompositorApp {
                     eprintln!("Reloading chunks");
                     target.load_chunk_buffer(composite_chunks.as_slice());
                 }
-                target.render(&self.pipeline, background, 0);
+                target.render(
+                    &self.pipeline,
+                    background,
+                    instance.output_texture.create_default_view(),
+                );
                 // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
                 // std::thread::sleep(std::time::Duration::from_secs(1));
                 // Debugging notes: if the GPU is highly contended, the main

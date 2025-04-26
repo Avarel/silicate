@@ -67,7 +67,7 @@ impl ProcreateFile {
         ProcreateUnloadedFile::from_ns(&archive, &nka)?.load(dispatch)
     }
 
-    pub fn layer_count(&self) -> u32 {
-        self.layers.iter().map(|layer| layer.layer_count()).sum()
+    pub fn layer_count(&self, include_groups: bool) -> u32 {
+        self.layers.iter().map(|layer| layer.layer_count(include_groups)).sum()
     }
 }

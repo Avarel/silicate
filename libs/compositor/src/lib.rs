@@ -14,7 +14,7 @@ use buffer::{BufferDimensions, CompositorBuffers};
 use canvas::{ChunkInstance, CompositorAtlasTiling, CompositorCanvasTiling, VertexInput};
 use dev::GpuDispatch;
 use pipeline::Pipeline;
-use wgpu::CommandEncoder;
+use wgpu::{CommandEncoder, TextureView};
 
 #[derive(Debug)]
 pub struct ChunkTile {
@@ -42,8 +42,6 @@ pub struct CompositeLayer {
 pub struct CompositorTarget {
     dispatch: GpuDispatch,
     buffers: CompositorBuffers,
-    /// Compositor output buffers and texture.
-    output: GpuTexture,
     atlas_texture: GpuTexture,
 }
 
@@ -51,30 +49,15 @@ impl CompositorTarget {
     /// Create a new compositor target.
     pub fn new(
         dispatch: GpuDispatch,
-        (width, height): (u32, u32),
         canvas: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
         atlas_texture: GpuTexture,
-        layers: u32,
     ) -> Self {
         Self {
-            output: GpuTexture::empty_with_extent(
-                &dispatch,
-                wgpu::Extent3d {
-                    width: width,
-                    height: height,
-                    depth_or_array_layers: layers,
-                },
-                GpuTexture::OUTPUT_USAGE,
-            ),
             dispatch: dispatch.clone(),
             buffers: CompositorBuffers::new(dispatch, canvas, atlas_data),
             atlas_texture,
         }
-    }
-
-    pub fn output(&self) -> &GpuTexture {
-        &self.output
     }
 
     pub fn load_layer_buffer(&mut self, layers: &[CompositeLayer]) {
@@ -94,14 +77,14 @@ impl CompositorTarget {
     }
 
     /// Render composite layers using the compositor pipeline.
-    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>, target_layer: u32) {
+    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>, output_view: TextureView) {
         let command_buffers = {
             let mut encoder = self
                 .dispatch
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-            self.render_command(pipeline, &mut encoder, bg, target_layer);
+            self.render_command(pipeline, &mut encoder, bg, output_view);
 
             encoder.finish()
         };
@@ -113,10 +96,8 @@ impl CompositorTarget {
         pipeline: &Pipeline,
         encoder: &mut CommandEncoder,
         bg: Option<[f32; 4]>,
-        target_layer: u32
+        output_view: TextureView,
     ) {
-        debug_assert!(target_layer < self.output.layers());
-
         let canvas_bind_group =
             self.dispatch
                 .device()
@@ -190,7 +171,6 @@ impl CompositorTarget {
                     label: Some("mixing_bind_group"),
                 });
 
-        let output_view = self.output.create_default_view();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

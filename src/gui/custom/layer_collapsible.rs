@@ -43,7 +43,7 @@ impl<'a> LayerCollapsible<'a> {
         ));
     }
 
-    pub fn ui(self, ui: &mut Ui) -> Prepared {
+    pub fn ui(self, ui: &mut Ui, preview_body: impl FnOnce(&mut Ui)) -> Prepared {
         let id = ui.make_persistent_id(self.id);
         let mut state =
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
@@ -64,18 +64,20 @@ impl<'a> LayerCollapsible<'a> {
                 ui.set_min_height(40.0);
             }
 
-            // if !state.is_open() || !self.size_change_on_open {
-            //     let (what_rect, _) = ui.allocate_exact_size(vec2(50.0, 40.0), Sense::empty());
-            //     ui.painter()
-            //         .add(Shape::rect_filled(what_rect, 5, Color32::WHITE));
-            // } else {
-            //     let (what_rect, _) = ui.allocate_exact_size(
-            //         vec2(50.0, remap(state.openness(ui.ctx()), 0.0..=1.0, 50.0..=5.0)),
-            //         Sense::empty(),
-            //     );
-            //     ui.painter()
-            //         .add(Shape::rect_filled(what_rect, 5, Color32::GRAY));
-            // }
+            if !state.is_open() || !self.size_change_on_open {
+                let (preview_rect, _) = ui.allocate_exact_size(vec2(50.0, 40.0), Sense::empty());
+                ui.painter()
+                    .add(Shape::rect_filled(preview_rect, 5, Color32::from_gray(20)));
+
+                preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
+            } else {
+                let (preview_rect, _) = ui.allocate_exact_size(
+                    vec2(50.0, remap(state.openness(ui.ctx()), 0.0..=1.0, 50.0..=5.0)),
+                    Sense::empty(),
+                );
+                ui.painter()
+                    .add(Shape::rect_filled(preview_rect, 5, Color32::GRAY));
+            }
 
             Label::new(RichText::new(self.name).strong())
                 .selectable(false)
