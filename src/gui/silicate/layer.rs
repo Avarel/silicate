@@ -3,7 +3,7 @@ use silica::layers::SilicaLayer;
 
 use crate::{
     addendum::SilicaLayerAddendum,
-    gui::custom::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider},
+    gui::widgets::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider},
 };
 
 pub(super) struct LayerControl<'a> {

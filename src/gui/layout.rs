@@ -8,9 +8,9 @@ use tokio::sync::mpsc::Receiver;
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
 use super::canvas::CanvasView;
-use super::custom::pane::{button::PaneButton, menu::PaneMenu};
 use super::silicate::background::BackgroundControl;
 use super::silicate::hierarchy::LayersHierarchy;
+use super::widgets::pane::{button::PaneButton, menu::PaneMenu};
 
 struct ControlsGui;
 
@@ -291,7 +291,7 @@ impl ViewerGui {
 
                     style.tab.focused.corner_radius = CornerRadius::same(10);
                     style.tab.focused.outline_color = Color32::TRANSPARENT;
-                    style.tab.focused.bg_fill = super::custom::ACCENT_COLOR;
+                    style.tab.focused.bg_fill = super::widgets::ACCENT_COLOR;
 
                     style.tab.hovered.corner_radius = CornerRadius::same(10);
                     style.tab.hovered.outline_color = Color32::TRANSPARENT;
