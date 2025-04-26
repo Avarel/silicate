@@ -1,24 +1,16 @@
 use egui::load::SizedTexture;
 use egui::{Frame, *};
 use egui_dock::{NodeIndex, SurfaceIndex};
-use silica::{
-    file::ProcreateFile,
-    layers::{SilicaHierarchy, SilicaLayer},
-};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
-use crate::addendum::{SilicaHierarchyAddendum, SilicaLayerAddendum};
 use crate::app::{App, Instance, InstanceKey, UserEvent};
 
-use super::custom::color_picker::ColorPickerHsv;
-use super::custom::layer_collapsible::LayerCollapsible;
+use super::canvas::CanvasView;
 use super::custom::pane::{button::PaneButton, menu::PaneMenu};
-use super::{
-    canvas::CanvasView,
-    custom::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider},
-};
+use super::silicate::background::BackgroundControl;
+use super::silicate::hierarchy::LayersHierarchy;
 
 struct ControlsGui;
 
@@ -49,46 +41,6 @@ impl ControlsGui {
             ui.label(format!("{} by {}", dim1, dim2));
         });
     }
-
-    // fn layout_view_control(&mut self, ui: &mut Ui) {
-    //     Grid::new("View Grid").show(ui, |ui| {
-    //         ui.label("Grid View");
-    //         ui.checkbox(&mut self.view_options.grid, "Enable");
-    //         ui.end_row();
-    //         ui.label("Extended Crosshair");
-    //         ui.checkbox(&mut self.view_options.extended_crosshair, "Enable");
-    //         ui.end_row();
-    //         ui.label("Smooth Sampling");
-    //         if ui
-    //             .checkbox(&mut self.view_options.smooth, "Enable")
-    //             .changed()
-    //         {
-    //             self.app.rebind_texture(self.active_canvas);
-    //         }
-    //         ui.end_row();
-    //         ui.label("Rotation");
-    //         {
-    //             if let Some(instance) = self
-    //                 .app
-    //                 .compositor
-    //                 .instances
-    //                 .write()
-    //                 .get_mut(&self.active_canvas)
-    //             {
-    //                 ui.add(
-    //                     Slider::new(&mut instance.rotation, 0.0..=std::f32::consts::TAU)
-    //                         .custom_formatter(|v, _| {
-    //                             let degree = v.to_degrees();
-    //                             format!("{degree:.0}")
-    //                         })
-    //                         .suffix(" deg"),
-    //                 );
-    //             } else {
-    //                 ui.label("No file loaded...");
-    //             }
-    //         }
-    //     });
-    // }
 
     fn layout_canvas_control(ui: &mut Ui, instance: &mut Instance) {
         Grid::new("Canvas Grid").show(ui, |ui| {
@@ -138,124 +90,6 @@ impl ControlsGui {
                     });
                 }
             });
-        });
-    }
-
-    fn layout_layer_control(
-        ui: &mut Ui,
-        layer: &mut SilicaLayer,
-        addendum: &SilicaLayerAddendum,
-        changed: &mut bool,
-    ) {
-        ui.push_id(addendum.id, |ui| {
-            *changed |= OpacitySlider::new(&mut layer.opacity).ui(ui).changed();
-            ui.add_space(10.0);
-            *changed |= BlendModeRadio::new(&mut layer.blend).ui(ui).changed();
-        });
-
-        Grid::new(addendum.id).show(ui, |ui| {
-            ui.label("Clipped");
-            *changed |= Checkbox::without_text(&mut layer.clipped).ui(ui).changed();
-        });
-        ui.add_space(10.0);
-    }
-
-    fn layout_layers_sub(
-        ui: &mut Ui,
-        previews: &HashMap<(InstanceKey, u32), SizedTexture>,
-        idx: InstanceKey,
-        layers: &mut Vec<SilicaHierarchy>,
-        addendum: &[SilicaHierarchyAddendum],
-        changed: &mut bool,
-    ) {
-        layers
-            .iter_mut()
-            .zip(addendum.iter())
-            .for_each(|(mut layer, addendum)| {
-                let (id, layer_name, hidden, size_change) = match (&mut layer, addendum) {
-                    (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
-                        let layer_name = layer
-                            .name
-                            .to_owned()
-                            .unwrap_or_else(|| format!("Unnamed Layer"));
-
-                        (addendum.id, layer_name, &mut layer.hidden, false)
-                    }
-                    (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
-                        let layer_name = layer
-                            .name
-                            .to_owned()
-                            .unwrap_or_else(|| format!("Unnamed Group"));
-
-                        (addendum.id, layer_name, &mut layer.hidden, true)
-                    }
-                    _ => unreachable!(),
-                };
-
-                let image = previews
-                    .get(&(idx, id))
-                    .map(|tex| Image::from_texture(*tex));
-
-                let collapsible = LayerCollapsible::new(id, layer_name, hidden)
-                    .size_change(size_change)
-                    .ui(ui, |ui| {
-                        if let Some(image) = image {
-                            image.paint_at(ui, ui.max_rect());
-                        }
-                    });
-
-                *changed |= collapsible.response.changed();
-
-                match (layer, addendum) {
-                    (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
-                        collapsible.show_body_unindented(ui, |ui| {
-                            ControlsGui::layout_layer_control(ui, layer, addendum, changed);
-                        });
-                    }
-                    (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
-                        collapsible.show_body_indented(ui, |ui| {
-                            Self::layout_layers_sub(
-                                ui,
-                                previews,
-                                idx,
-                                &mut layer.children,
-                                &addendum.children,
-                                changed,
-                            );
-                        });
-                    }
-                    _ => unreachable!(),
-                };
-            });
-    }
-
-    fn layout_background_control(ui: &mut Ui, file: &mut ProcreateFile, changed: &mut bool) {
-        let hidden = &mut file.background_hidden;
-
-        let [r, g, b, _] = file.background_color;
-
-        let collapsible =
-            LayerCollapsible::new(u32::MAX, "Background Color", hidden).ui(ui, |ui| {
-                ui.painter().rect(
-                    ui.max_rect(),
-                    5,
-                    Color32::from(Rgba::from_srgba_premultiplied(
-                        (r * 255.0) as u8,
-                        (g * 255.0) as u8,
-                        (b * 255.0) as u8,
-                        255,
-                    )),
-                    Stroke::NONE,
-                    StrokeKind::Middle,
-                );
-            });
-
-        *changed |= collapsible.response.changed();
-
-        collapsible.show_body_unindented(ui, |ui| {
-            let mut rgb = Rgba::from_rgb(r, g, b);
-            *changed |= ColorPickerHsv::new(&mut rgb).ui(ui);
-            file.background_color = rgb.to_rgba_unmultiplied();
         });
     }
 }
@@ -347,15 +181,14 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                 let mut file = instance.file.write();
                 let mut changed = false;
 
-                ControlsGui::layout_layers_sub(
-                    ui,
-                    self.previews,
-                    *tab,
-                    &mut file.layers,
-                    &instance.addendum,
-                    &mut changed,
-                );
-                ControlsGui::layout_background_control(ui, &mut file, &mut changed);
+                LayersHierarchy {
+                    previews: self.previews,
+                    layers: &mut file.layers,
+                    addendum: &instance.addendum,
+                }
+                .ui(ui, *tab, &mut changed);
+
+                BackgroundControl { file: &mut file }.ui(ui, &mut changed);
 
                 instance.tick_change(changed);
             },

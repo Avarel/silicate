@@ -68,6 +68,9 @@ impl ProcreateFile {
     }
 
     pub fn layer_count(&self, include_groups: bool) -> u32 {
-        self.layers.iter().map(|layer| layer.layer_count(include_groups)).sum()
+        self.layers
+            .iter()
+            .map(|layer| layer.layer_count(include_groups))
+            .sum()
     }
 }

@@ -1,6 +1,7 @@
 mod canvas;
 mod custom;
 mod layout;
+mod silicate;
 
 use self::layout::{ViewOptions, ViewerGui};
 use crate::app::{App, CompositorApp, InstanceKey, UserEvent};

@@ -110,7 +110,11 @@ pub struct SilicaGroup {
 
 impl SilicaGroup {
     pub fn layer_count(&self, include_groups: bool) -> u32 {
-        self.children.iter().map(|hier| hier.layer_count(include_groups)).sum::<u32>() + u32::from(include_groups)
+        self.children
+            .iter()
+            .map(|hier| hier.layer_count(include_groups))
+            .sum::<u32>()
+            + u32::from(include_groups)
     }
 }
 

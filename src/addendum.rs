@@ -75,3 +75,8 @@ pub fn build(layers: &[SilicaHierarchy]) -> Vec<SilicaHierarchyAddendum> {
     let mut data = AddendumData::new();
     build_addendum(layers, &mut data)
 }
+
+// pub enum SilicaHierarchyAddendumTraverser<'a> {
+//     Layer(&'a SilicaLayer, &'a SilicaLayerAddendum),
+//     Group(&'a SilicaGroup, &'a SilicaGroupAddendum),
+// }
