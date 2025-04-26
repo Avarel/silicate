@@ -39,13 +39,13 @@ pub struct CompositeLayer {
 }
 
 /// Output target of a compositor pipeline.
-pub struct CompositorTarget {
+pub struct Compositor {
     dispatch: GpuDispatch,
     buffers: CompositorBuffers,
     atlas_texture: GpuTexture,
 }
 
-impl CompositorTarget {
+impl Compositor {
     /// Create a new compositor target.
     pub fn new(
         dispatch: GpuDispatch,
@@ -172,7 +172,7 @@ impl CompositorTarget {
             wgpu::IndexFormat::Uint16,
         );
         pass.draw_indexed(
-            0..CompositorBuffers::INDICES.len() as u32,
+            0..self.buffers.indices.data().len() as u32,
             0,
             0..self.buffers.tiles.data().len() as u32,
         );

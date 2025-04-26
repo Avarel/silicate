@@ -307,7 +307,7 @@ var<storage, read> layers: array<LayerData>;
 @group(2) @binding(4)
 var<storage, read> segments: array<SegmentData>;
 @group(2) @binding(5)
-var<uniform> bg: vec4f;
+var<uniform> bg_in: vec4f;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -332,9 +332,13 @@ fn sample_atlas_texture(atlas_index: u32, coords: vec2f) -> vec4f {
     return textureSample(atlas_texture, splr, uv, a_coords.z);
 }
 
+fn to_premultiplied(c: vec4f) -> vec3f {
+    return select(saturate(c.rgb / c.a), vec3f(0.0), c.a == 0.0);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    var bga = bg;
+    var bga = bg_in;
 
     let segment = segments[in.chunk_index];
 
@@ -350,8 +354,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var clipa = select(sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, 1.0, layer.clipped == 0);
         var fga = sample_atlas_texture(chunk.atlas_index, in.coords) * clipa;
 
-        var bg = vec4(saturate(bga.rgb / bga.a), bga.a);
-        var fg = vec4(saturate(fga.rgb / fga.a), fga.a * layer.opacity);
+        var bg = vec4(to_premultiplied(bga), bga.a);
+        var fg = vec4(to_premultiplied(fga), fga.a * layer.opacity);
 
         // Blend straight colors according to modes
         var final_pixel = vec3(0.0);

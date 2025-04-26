@@ -14,7 +14,7 @@ use silicate_compositor::{
     dev::GpuDispatch,
     pipeline::Pipeline,
     tex::GpuTexture,
-    ChunkTile, CompositeLayer, CompositorTarget,
+    ChunkTile, CompositeLayer, Compositor,
 };
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -49,7 +49,7 @@ pub struct InstanceKey(pub usize);
 pub struct Instance {
     pub file: RwLock<ProcreateFile>,
     pub addendum: Vec<SilicaHierarchyAddendum>,
-    pub target: Mutex<CompositorTarget>,
+    pub target: Mutex<Compositor>,
     pub output_texture: GpuTexture,
     pub changed: AtomicBool,
     pub needs_to_load_chunks: AtomicBool,
@@ -80,14 +80,14 @@ impl Instance {
         let preview_textures = {
             fn generate_silica_layers_preview(
                 pipeline: &Pipeline,
-                target: &mut CompositorTarget,
+                target: &mut Compositor,
                 preview_textures: &GpuTexture,
                 layers: &[SilicaHierarchy],
                 addendum: &[SilicaHierarchyAddendum],
             ) {
                 fn inner(
                     pipeline: &Pipeline,
-                    target: &mut CompositorTarget,
+                    target: &mut Compositor,
                     preview_textures: &GpuTexture,
                     layers: &[SilicaHierarchy],
                     addendums: &[SilicaHierarchyAddendum],
@@ -189,7 +189,7 @@ impl App {
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
-        let mut composite_target = CompositorTarget::new(
+        let mut composite_target = Compositor::new(
             self.dispatch.clone(),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),

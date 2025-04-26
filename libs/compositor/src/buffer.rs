@@ -85,7 +85,7 @@ impl<const ALIGN: u32> BufferDimensions<ALIGN> {
 }
 
 /// Association between CPU buffer and GPU buffer.
-pub struct DataBuffer<T> {
+pub(crate) struct DataBuffer<T> {
     label: &'static str,
     data: T,
     buffer: wgpu::Buffer,
@@ -195,10 +195,13 @@ where
 
 pub(crate) struct CompositorBuffers {
     dispatch: GpuDispatch,
+
     pub(crate) vertices: DataBuffer<[VertexInput; 4]>,
     pub(crate) indices: DataBuffer<[u16; 4]>,
+
     pub(crate) background: DataBuffer<[f32; 4]>,
     pub(crate) atlas: DataBuffer<CompositorAtlasTiling>,
+
     pub(crate) canvas: DataBuffer<CompositorCanvasTiling>,
     pub(crate) segments: DataBuffer<Vec<ChunkSegment>>,
     pub(crate) chunks: DataBuffer<Vec<ChunkData>>,
@@ -232,95 +235,73 @@ impl CompositorBuffers {
     ];
 
     /// Initial indices of the 2 triangle strips
-    pub(super) const INDICES: [u16; 4] = [0, 2, 1, 3];
+    const INDICES: [u16; 4] = [0, 2, 1, 3];
 
     pub(super) fn new(
         dispatch: GpuDispatch,
         canvas_data: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
     ) -> Self {
-        let device = dispatch.device();
-
-        // Create the vertex buffer.
-        let vertices = DataBuffer::init(
-            device,
-            "vertex_buffer",
-            Self::SQUARE_VERTICES,
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
-        // Index draw buffer
-        let indices = DataBuffer::init(
-            device,
-            "index_buffer",
-            Self::INDICES,
-            wgpu::BufferUsages::INDEX,
-        );
-
-        let layers = DataBuffer::init_vec(
-            device,
-            "layer_buffer",
-            Vec::new(),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let chunks = DataBuffer::init_vec(
-            device,
-            "chunk_buffer",
-            Vec::new(),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let segments = DataBuffer::init_vec(
-            device,
-            "segment_buffer",
-            Vec::new(),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let atlas = DataBuffer::init(
-            device,
-            "atlas_buffer",
-            atlas_data,
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let tiles = DataBuffer::init_vec(
-            device,
-            "tile_buffer",
-            (0..canvas_data.rows())
-                .flat_map(|row| {
-                    (0..canvas_data.cols()).map(move |col| ChunkInstance::new(col, row))
-                })
-                .collect::<Vec<_>>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let canvas = DataBuffer::init(
-            device,
-            "canvas_buffer",
-            canvas_data,
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let background = DataBuffer::init(
-            device,
-            "background",
-            [0.0; 4],
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
-
         Self {
+            vertices: DataBuffer::init(
+                dispatch.device(),
+                "vertex_buffer",
+                Self::SQUARE_VERTICES,
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            ),
+            indices: DataBuffer::init(
+                dispatch.device(),
+                "index_buffer",
+                Self::INDICES,
+                wgpu::BufferUsages::INDEX,
+            ),
+            background: DataBuffer::init(
+                dispatch.device(),
+                "background",
+                [0.0; 4],
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            ),
+            atlas: DataBuffer::init(
+                dispatch.device(),
+                "atlas_buffer",
+                atlas_data,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            ),
+            layers: DataBuffer::init_vec(
+                dispatch.device(),
+                "layer_buffer",
+                Vec::new(),
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            ),
+            segments: DataBuffer::init_vec(
+                dispatch.device(),
+                "segment_buffer",
+                Vec::new(),
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            ),
+            chunks: DataBuffer::init_vec(
+                dispatch.device(),
+                "chunk_buffer",
+                Vec::new(),
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            ),
+            canvas: DataBuffer::init(
+                dispatch.device(),
+                "canvas_buffer",
+                canvas_data,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            ),
+            tiles: DataBuffer::init_vec(
+                dispatch.device(),
+                "tile_buffer",
+                (0..canvas_data.rows())
+                    .flat_map(|row| {
+                        (0..canvas_data.cols()).map(move |col| ChunkInstance::new(col, row))
+                    })
+                    .collect::<Vec<_>>(),
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            ),
             dispatch,
-            vertices,
-            indices,
-            background,
-            atlas,
-            layers,
-            segments,
-            chunks,
-            canvas,
-            tiles,
         }
     }
 

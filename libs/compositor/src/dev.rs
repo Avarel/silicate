@@ -9,6 +9,7 @@ pub struct GpuHandle {
     pub dispatch: GpuDispatch,
 }
 
+/// Device handle and command queue.
 #[derive(Debug, Clone)]
 pub struct GpuDispatch {
     /// Logical compute device.
@@ -26,6 +27,7 @@ impl GpuDispatch {
         &self.queue
     }
 
+    /// Create a command encoder, run the closure, finish the encoder and submit to the queue.
     pub fn submit_queue(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
         self.queue.submit([{
             let mut encoder = self
@@ -46,13 +48,11 @@ impl GpuHandle {
                 dx12: wgpu::Dx12BackendOptions::default(),
                 gl: wgpu::GlBackendOptions::default(),
             },
-            backends: const {
-                if !cfg!(target_os = "linux") {
-                    // Prefer native APIs... they're generally faster.
-                    wgpu::Backends::DX12.union(wgpu::Backends::METAL)
-                } else {
-                    wgpu::Backends::PRIMARY
-                }
+            backends: if !cfg!(target_os = "linux") {
+                // Prefer native APIs... they're generally faster.
+                wgpu::Backends::DX12 | wgpu::Backends::METAL
+            } else {
+                wgpu::Backends::PRIMARY
             },
             flags: wgpu::InstanceFlags::default(),
         }
