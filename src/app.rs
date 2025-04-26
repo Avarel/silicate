@@ -112,7 +112,6 @@ impl Instance {
                             ) => {
                                 target.render(
                                     pipeline,
-                                    None,
                                     preview_textures.create_view_layer(addendum.id),
                                 );
                                 inner(
@@ -129,7 +128,6 @@ impl Instance {
                             ) => {
                                 target.render(
                                     pipeline,
-                                    None,
                                     preview_textures.create_view_layer(addendum.id),
                                 );
                             }
@@ -479,9 +477,9 @@ impl CompositorApp {
                     eprintln!("Reloading chunks");
                     target.load_chunk_buffer(composite_chunks.as_slice());
                 }
+                target.set_background(background);
                 target.render(
                     &self.pipeline,
-                    background,
                     instance.output_texture.create_default_view(),
                 );
                 // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive

@@ -209,17 +209,11 @@ impl AppInstance {
                     self.window.renderer.free_texture(&id);
                 }
 
-                self.app.dispatch.queue().submit(Some({
-                    let mut encoder = self
-                        .app
-                        .dispatch
-                        .device()
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
+                self.app.dispatch.submit_queue(|encoder| {
                     self.window.renderer.update_buffers(
                         &self.app.dispatch.device(),
                         &self.app.dispatch.queue(),
-                        &mut encoder,
+                        encoder,
                         &paint_jobs,
                         &self.window.screen_descriptor,
                     );
@@ -244,9 +238,7 @@ impl AppInstance {
                         &paint_jobs,
                         &self.window.screen_descriptor,
                     );
-
-                    encoder.finish()
-                }));
+                });
                 output_frame.present();
             }
             WindowEvent::CloseRequested => {

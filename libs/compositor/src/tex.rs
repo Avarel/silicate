@@ -127,32 +127,6 @@ impl GpuTexture {
         self.size.height
     }
 
-    /// Clear the texture with a certain color.
-    pub fn clear(&self, dispatch: &GpuDispatch, color: wgpu::Color) {
-        dispatch.queue().submit(Some({
-            let mut encoder = dispatch
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.create_default_view(),
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            encoder.finish()
-        }));
-    }
-
     /// Replace a section of the texture with raw RGBA data.
     ///
     /// ### Note
@@ -199,11 +173,7 @@ impl GpuTexture {
         destination_origin: wgpu::Origin3d,
         size: wgpu::Extent3d,
     ) {
-        // Copy the texture to the output buffer
-        dispatch.queue().submit(Some({
-            let mut encoder = dispatch
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        dispatch.submit_queue(|encoder| {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -220,9 +190,7 @@ impl GpuTexture {
                 },
                 size,
             );
-
-            encoder.finish()
-        }));
+        });
     }
 
     /// Clone the texture into an independent clone.
@@ -236,18 +204,14 @@ impl GpuTexture {
             self.size,
             Self::OUTPUT_USAGE | wgpu::TextureUsages::COPY_DST,
         );
-        dispatch.queue().submit(Some({
-            let mut encoder = dispatch
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        dispatch.submit_queue(|encoder| {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_texture(
                 self.texture.as_image_copy(),
                 clone.texture.as_image_copy(),
                 self.size,
             );
-            encoder.finish()
-        }));
+        });
         clone
     }
 
@@ -260,11 +224,7 @@ impl GpuTexture {
             mapped_at_creation: false,
         });
 
-        // Copy the texture to the output buffer
-        dispatch.queue().submit(Some({
-            let mut encoder = dispatch
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        dispatch.submit_queue(|encoder| {
             // Copy the data from the texture to the buffer
             encoder.copy_texture_to_buffer(
                 self.texture.as_image_copy(),
@@ -278,9 +238,7 @@ impl GpuTexture {
                 },
                 dim.extent(),
             );
-
-            encoder.finish()
-        }));
+        });
 
         output_buffer
     }

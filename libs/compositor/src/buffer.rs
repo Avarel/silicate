@@ -86,6 +86,7 @@ impl<const ALIGN: u32> BufferDimensions<ALIGN> {
 
 /// Association between CPU buffer and GPU buffer.
 pub struct DataBuffer<T> {
+    label: &'static str,
     data: T,
     buffer: wgpu::Buffer,
 }
@@ -112,29 +113,41 @@ where
 {
     pub fn init_vec(
         device: &wgpu::Device,
-        name: &str,
+        label: &'static str,
         data: Vec<T>,
         usage: wgpu::BufferUsages,
     ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(name),
+            label: Some(label),
             contents: bytemuck::cast_slice(data.as_slice()),
             usage,
         });
-        Self { data, buffer }
+        Self {
+            label,
+            data,
+            buffer,
+        }
     }
 
     pub(super) fn data_len(&self) -> u64 {
         (self.data.len() * std::mem::size_of::<T>()) as u64
     }
 
+    pub fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: self.buffer(),
+            offset: 0,
+            size: std::num::NonZeroU64::new(self.data_len()),
+        })
+    }
+
     /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.
-    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch, name: &str) {
+    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch) {
         if self.buffer.size() < self.data_len() {
             self.buffer = dispatch
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(name),
+                    label: Some(self.label),
                     contents: bytemuck::cast_slice(self.data.as_slice()),
                     usage: self.buffer.usage(),
                 });
@@ -156,13 +169,22 @@ impl<T> DataBuffer<T>
 where
     T: bytemuck::NoUninit,
 {
-    pub fn init(device: &wgpu::Device, name: &str, data: T, usage: wgpu::BufferUsages) -> Self {
+    pub fn init(
+        device: &wgpu::Device,
+        label: &'static str,
+        data: T,
+        usage: wgpu::BufferUsages,
+    ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(name),
+            label: Some(label),
             contents: bytemuck::bytes_of(&data),
             usage,
         });
-        Self { data, buffer }
+        Self {
+            label,
+            data,
+            buffer,
+        }
     }
 
     /// Load the GPU vertex buffer with updated data.
@@ -175,6 +197,7 @@ pub(crate) struct CompositorBuffers {
     dispatch: GpuDispatch,
     pub(crate) vertices: DataBuffer<[VertexInput; 4]>,
     pub(crate) indices: DataBuffer<[u16; 4]>,
+    pub(crate) background: DataBuffer<[f32; 4]>,
     pub(crate) atlas: DataBuffer<CompositorAtlasTiling>,
     pub(crate) canvas: DataBuffer<CompositorCanvasTiling>,
     pub(crate) segments: DataBuffer<Vec<ChunkSegment>>,
@@ -280,10 +303,18 @@ impl CompositorBuffers {
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
+        let background = DataBuffer::init(
+            device,
+            "background",
+            [0.0; 4],
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
         Self {
             dispatch,
             vertices,
             indices,
+            background,
             atlas,
             layers,
             segments,
@@ -306,7 +337,7 @@ impl CompositorBuffers {
             });
         }
 
-        self.layers.load_vec_buffer(&self.dispatch, "layer_buffer");
+        self.layers.load_vec_buffer(&self.dispatch);
     }
 
     pub(super) fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
@@ -347,8 +378,7 @@ impl CompositorBuffers {
             segment.end = chunks.len() as u32; // always update end to current
         }
 
-        self.chunks.load_vec_buffer(&self.dispatch, "chunk_buffer");
-        self.segments
-            .load_vec_buffer(&self.dispatch, "segment_buffer");
+        self.chunks.load_vec_buffer(&self.dispatch);
+        self.segments.load_vec_buffer(&self.dispatch);
     }
 }

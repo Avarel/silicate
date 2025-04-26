@@ -76,26 +76,25 @@ impl CompositorTarget {
         self.buffers.canvas.load_buffer(self.dispatch.queue());
     }
 
+    pub fn set_background(&mut self, bg: Option<[f32; 4]>) {
+        let bg = bg.unwrap_or([0.0; 4]);
+        if self.buffers.background.data() != &bg {
+            *self.buffers.background.data_mut() = bg;
+            self.buffers.background.load_buffer(self.dispatch.queue());
+        }
+    }
+
     /// Render composite layers using the compositor pipeline.
-    pub fn render(&self, pipeline: &Pipeline, bg: Option<[f32; 4]>, output_view: TextureView) {
-        let command_buffers = {
-            let mut encoder = self
-                .dispatch
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-            self.render_command(pipeline, &mut encoder, bg, output_view);
-
-            encoder.finish()
-        };
-        self.dispatch.queue().submit(Some(command_buffers));
+    pub fn render(&self, pipeline: &Pipeline, output_view: TextureView) {
+        self.dispatch.submit_queue(|encoder| {
+            self.render_command(pipeline, encoder, output_view);
+        });
     }
 
     fn render_command(
         &self,
         pipeline: &Pipeline,
         encoder: &mut CommandEncoder,
-        bg: Option<[f32; 4]>,
         output_view: TextureView,
     ) {
         let canvas_bind_group =
@@ -128,44 +127,19 @@ impl CompositorTarget {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: {
-                                // TODO: upgrade when egui_wgpu hits wgpu 25
-                                // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
-
-                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: self.buffers.chunks.buffer(),
-                                    offset: 0,
-                                    size: std::num::NonZeroU64::new(self.buffers.chunks.data_len()),
-                                })
-                            },
+                            resource: self.buffers.chunks.as_binding_resource(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: {
-                                // TODO: upgrade when egui_wgpu hits wgpu 25
-                                // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
-
-                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: self.buffers.layers.buffer(),
-                                    offset: 0,
-                                    size: std::num::NonZeroU64::new(self.buffers.layers.data_len()),
-                                })
-                            },
+                            resource: self.buffers.layers.as_binding_resource(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: {
-                                // TODO: upgrade when egui_wgpu hits wgpu 25
-                                // wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(self.data.layers.buffer_slice()))
-
-                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: self.buffers.segments.buffer(),
-                                    offset: 0,
-                                    size: std::num::NonZeroU64::new(
-                                        self.buffers.segments.data_len(),
-                                    ),
-                                })
-                            },
+                            resource: self.buffers.segments.as_binding_resource(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: self.buffers.background.buffer().as_entire_binding(),
                         },
                     ],
                     label: Some("mixing_bind_group"),
@@ -177,15 +151,7 @@ impl CompositorTarget {
                 view: &output_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(
-                        bg.map(|[r, g, b, _]| wgpu::Color {
-                            r: f64::from(r),
-                            g: f64::from(g),
-                            b: f64::from(b),
-                            a: 1.0,
-                        })
-                        .unwrap_or(wgpu::Color::TRANSPARENT),
-                    ),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
                 },
             })],

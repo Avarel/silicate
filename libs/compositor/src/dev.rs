@@ -25,6 +25,18 @@ impl GpuDispatch {
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
+
+    pub fn submit_queue(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
+        self.queue.submit([{
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+            f(&mut encoder);
+
+            encoder.finish()
+        }]);
+    }
 }
 
 impl GpuHandle {

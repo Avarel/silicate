@@ -306,6 +306,8 @@ var<storage, read> chunks: array<ChunkData>;
 var<storage, read> layers: array<LayerData>;
 @group(2) @binding(4)
 var<storage, read> segments: array<SegmentData>;
+@group(2) @binding(5)
+var<uniform> bg: vec4f;
 
 // Blend alpha straight colors
 fn premultiplied_blend(bg: vec4f, fg: vec4f, cg: vec4f) -> vec4f {
@@ -332,7 +334,7 @@ fn sample_atlas_texture(atlas_index: u32, coords: vec2f) -> vec4f {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    var bga = vec4(0.0);
+    var bga = bg;
 
     let segment = segments[in.chunk_index];
 
