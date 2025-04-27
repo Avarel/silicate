@@ -91,7 +91,6 @@ pub struct AppInstance {
     viewer: ViewerGui,
     pub toasts: Toasts,
     rx_toasts: UnboundedReceiver<Toast>,
-    pub instances: HashMap<InstanceKey, Instance>,
 }
 
 impl AppInstance {
@@ -117,8 +116,7 @@ impl AppInstance {
 
         let viewer = ViewerGui {
             app: app.clone(),
-            canvases: HashMap::new(),
-            previews: HashMap::new(),
+            instances: HashMap::new(),
             view_options: ViewOptions {
                 smooth: false,
                 grid: true,
@@ -134,7 +132,6 @@ impl AppInstance {
             viewer,
             rx_toasts,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
-            instances: HashMap::new(),
         };
 
         app_instance
@@ -168,8 +165,7 @@ impl AppInstance {
                 let input = self.window.integration.take_egui_input(&self.window.window);
 
                 self.window.integration.egui_ctx().begin_pass(input);
-                self.viewer
-                    .layout_gui(&self.window.integration.egui_ctx(), &mut self.instances);
+                self.viewer.layout_gui(&self.window.integration.egui_ctx());
 
                 while let Ok(toast) = self.rx_toasts.try_recv() {
                     self.toasts.add(toast);
@@ -328,9 +324,7 @@ impl AppInstance {
     pub fn handle_user_event(&mut self, event: UserEvent) {
         match event {
             UserEvent::RemoveInstance(idx) => {
-                self.viewer.canvases.remove(&idx);
-                self.viewer.previews.retain(|&(k, _), _| k != idx);
-                self.instances.remove(&idx);
+                self.viewer.instances.remove(&idx);
             }
             UserEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
@@ -343,41 +337,36 @@ impl AppInstance {
                     wgpu::FilterMode::Nearest
                 };
 
-                let instances = &self.instances;
-                let Some(instance) = instances.get(&idx) else {
+                let Some(instance) = self.viewer.instances.get_mut(&idx) else {
                     return;
                 };
 
                 let output = &instance.output_texture;
                 let texture_view = output.create_srgb_view();
-                let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
+                let size = Vec2::new(output.width() as f32, output.height() as f32);
 
-                if let Some(tex) = self.viewer.canvases.get_mut(&idx) {
+                if let Some(tex) = &mut instance.canvas {
                     self.window.renderer.update_egui_texture_from_wgpu_texture(
                         &self.window.dispatch.device(),
                         &texture_view,
                         texture_filter,
                         tex.id,
                     );
-                    tex.size = target_dim;
+                    tex.size = size;
                 } else {
-                    let tex = self.window.renderer.register_native_texture(
+                    let id = self.window.renderer.register_native_texture(
                         &self.window.dispatch.device(),
                         &texture_view,
                         texture_filter,
                     );
-                    self.viewer.canvases.insert(
-                        idx,
-                        SizedTexture {
-                            id: tex,
-                            size: target_dim,
-                        },
-                    );
+                    instance.canvas = Some(SizedTexture {
+                        id,
+                        size,
+                    });
                 }
             }
             UserEvent::RebindPreviews(idx) => {
-                let instances = &self.instances;
-                let Some(instance) = instances.get(&idx) else {
+                let Some(instance) = self.viewer.instances.get_mut(&idx) else {
                     return;
                 };
 
@@ -386,39 +375,39 @@ impl AppInstance {
                 };
 
                 let texture_filter = wgpu::FilterMode::Linear;
-                let target_dim = Vec2::new(
+                let size = Vec2::new(
                     preview_texture.width() as f32,
                     preview_texture.height() as f32,
                 );
 
                 for i in 0..preview_texture.layers() {
                     let texture_view = preview_texture.create_srgb_view_layer(i);
-                    if let Some(tex) = self.viewer.previews.get_mut(&(idx, i)) {
+                    if let Some(tex) = instance.previews.get_mut(&i) {
                         self.window.renderer.update_egui_texture_from_wgpu_texture(
                             &self.window.dispatch.device(),
                             &texture_view,
                             texture_filter,
                             tex.id,
                         );
-                        tex.size = target_dim;
+                        tex.size = size;
                     } else {
-                        let tex = self.window.renderer.register_native_texture(
+                        let id = self.window.renderer.register_native_texture(
                             &self.window.dispatch.device(),
                             &texture_view,
                             texture_filter,
                         );
-                        self.viewer.previews.insert(
-                            (idx, i),
+                        instance.previews.insert(
+                            i,
                             SizedTexture {
-                                id: tex,
-                                size: target_dim,
+                                id,
+                                size,
                             },
                         );
                     }
                 }
             }
             UserEvent::NewInstance(instance_key, instance) => {
-                self.instances.insert(instance_key, instance);
+                self.viewer.instances.insert(instance_key, instance);
                 self.app
                     .event_loop
                     .send_event(UserEvent::RebindPreviews(instance_key))

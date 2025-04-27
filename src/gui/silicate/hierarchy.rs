@@ -10,7 +10,7 @@ use super::layer::LayerControl;
 
 pub struct LayersHierarchy<'a> {
     pub rotation: f32,
-    pub previews: &'a HashMap<(InstanceKey, u32), SizedTexture>,
+    pub previews: &'a HashMap<u32, SizedTexture>,
     pub layers: &'a mut [SilicaHierarchy],
     pub addendum: &'a [SilicaHierarchyAddendum],
 }
@@ -44,7 +44,7 @@ impl LayersHierarchy<'_> {
                 let collapsible = LayerCollapsible::new(id, layer_name, hidden)
                     .size_change(size_change)
                     .ui(ui, |ui| {
-                        if let Some(tex) = self.previews.get(&(idx, id)) {
+                        if let Some(tex) = self.previews.get(&id) {
                             let image = Image::from_texture(*tex);
 
                             fn round_to_nearest_quarter_turn(theta: f32) -> f32 {

@@ -19,9 +19,9 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{Sender, UnboundedSender},
@@ -121,6 +121,8 @@ impl App {
             preview_textures: None,
             compositor: handle,
             rotation,
+            previews: HashMap::new(),
+            canvas: None,
         };
         instance.generate_previews(
             Compositor::new(

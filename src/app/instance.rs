@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use egui::load::SizedTexture;
 use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
@@ -17,6 +20,9 @@ pub struct Instance {
     pub rotation: f32,
     pub preview_textures: Option<GpuTexture>,
     pub(super) compositor: CompositorHandle,
+
+    pub previews: HashMap<u32, SizedTexture>,
+    pub canvas: Option<SizedTexture>,
 }
 
 impl std::fmt::Debug for Instance {

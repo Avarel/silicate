@@ -9,12 +9,10 @@ pub struct BackgroundControl<'a> {
 
 impl BackgroundControl<'_> {
     pub fn ui(self, ui: &mut Ui) {
-        let hidden = &mut self.file.background_hidden;
-
         let [r, g, b, _] = self.file.background_color;
 
         let collapsible =
-            LayerCollapsible::new(u32::MAX, "Background Color", hidden).ui(ui, |ui| {
+            LayerCollapsible::new(u32::MAX, "Background Color", &mut self.file.background_hidden).ui(ui, |ui| {
                 ui.painter().rect(
                     ui.max_rect(),
                     5,

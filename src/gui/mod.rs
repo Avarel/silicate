@@ -2,7 +2,6 @@ mod canvas;
 mod silicate;
 mod widgets;
 
-use egui::load::SizedTexture;
 use egui::{Frame, *};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use std::collections::HashMap;
@@ -96,8 +95,6 @@ pub struct ViewOptions {
 
 struct CanvasGui<'a> {
     app: &'a Arc<App>,
-    canvases: &'a mut HashMap<InstanceKey, SizedTexture>,
-    previews: &'a HashMap<(InstanceKey, u32), SizedTexture>,
     instances: &'a mut HashMap<InstanceKey, Instance>,
     view_options: &'a mut ViewOptions,
 }
@@ -110,8 +107,6 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
-        let tex = self.canvases.get(tab);
-
         let Some(instance) = self.instances.get_mut(tab) else {
             return;
         };
@@ -121,7 +116,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
         CanvasView::new(
             *tab,
-            tex.copied().map(Image::from_texture),
+            instance.canvas.map(Image::from_texture),
             &mut instance.rotation,
         )
         .show_extended_crosshair(self.view_options.extended_crosshair)
@@ -174,7 +169,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
             |ui| {
                 LayersHierarchy {
                     rotation: instance.rotation,
-                    previews: self.previews,
+                    previews: &instance.previews,
                     layers: &mut instance.file.layers,
                     addendum: &instance.addendum,
                 }
@@ -221,19 +216,18 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 pub struct ViewerGui {
     pub app: Arc<App>,
 
-    pub previews: HashMap<(InstanceKey, u32), SizedTexture>,
-    pub canvases: HashMap<InstanceKey, SizedTexture>,
-    // pub active_canvas: InstanceKey,
+    pub instances: HashMap<InstanceKey, Instance>,
+
     pub view_options: ViewOptions,
     pub canvas_tree: egui_dock::DockState<InstanceKey>,
     pub(crate) new_instances: Receiver<(SurfaceIndex, NodeIndex, InstanceKey)>,
 }
 
 impl ViewerGui {
-    fn layout_view(&mut self, ui: &mut Ui, instances: &mut HashMap<InstanceKey, Instance>) {
+    fn layout_view(&mut self, ui: &mut Ui) {
         ui.set_min_size(ui.available_size());
 
-        if instances.is_empty() {
+        if self.instances.is_empty() {
             ui.allocate_space(vec2(
                 0.0,
                 ui.available_height() / 2.0 - ui.text_style_height(&style::TextStyle::Button),
@@ -294,9 +288,7 @@ impl ViewerGui {
                     &mut CanvasGui {
                         app: &self.app,
                         view_options: &mut self.view_options,
-                        canvases: &mut self.canvases,
-                        previews: &mut self.previews,
-                        instances,
+                        instances: &mut self.instances,
                     },
                 );
         }
@@ -305,12 +297,11 @@ impl ViewerGui {
     pub fn layout_gui(
         &mut self,
         context: &Context,
-        instances: &mut HashMap<InstanceKey, Instance>,
     ) {
         CentralPanel::default()
             .frame(Frame::NONE)
             .show(context, |ui| {
-                self.layout_view(ui, instances);
+                self.layout_view(ui);
             });
     }
 }
