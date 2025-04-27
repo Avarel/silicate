@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::{
@@ -8,11 +6,11 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use tokio::sync::watch::Sender;
-use tokio::sync::Notify;
 
 use crate::addendum::SilicaHierarchyAddendum;
 use crate::app::compositor::CompositorApp;
+
+use super::compositor::CompositorHandle;
 
 #[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub struct InstanceKey(pub usize);
@@ -23,10 +21,7 @@ pub struct Instance {
     pub output_texture: GpuTexture,
     pub rotation: f32,
     pub preview_textures: Option<GpuTexture>,
-
-    pub(crate) previously_sent_file: Arc<ProcreateFile>,
-    pub(crate) compositor_sender: Sender<Arc<ProcreateFile>>,
-    pub(crate) notify: Arc<Notify>,
+    pub(super) compositor: CompositorHandle,
 }
 
 impl Instance {
@@ -35,15 +30,11 @@ impl Instance {
             && !(225.0..315.0).contains(&self.rotation.to_degrees())
     }
 
-    pub fn submit(&mut self) {
-        if *self.previously_sent_file != self.file {
-            let file = Arc::new(self.file.clone());
-            self.compositor_sender.send_replace(Arc::clone(&file));
-            self.previously_sent_file = file;
-        }
+    pub fn submit_to_compositor(&mut self) {
+        self.compositor.submit(&self.file);
     }
 
-    pub fn generate_previews(&mut self, target: &mut Compositor, dispatch: &GpuDispatch, pipeline: &Pipeline) {
+    pub fn generate_previews(&mut self, mut target: Compositor, dispatch: &GpuDispatch, pipeline: &Pipeline) {
         let file = &self.file;
         let aspect_ratio = file.size.width as f32 / file.size.height as f32;
         let scaled_height = (256.0 * aspect_ratio) as u32;
@@ -120,7 +111,7 @@ impl Instance {
 
             generate_silica_layers_preview(
                 pipeline,
-                target,
+                &mut target,
                 &preview_textures,
                 &file.layers,
                 &self.addendum,
@@ -135,7 +126,6 @@ impl Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        self.notify.notify_waiters();
         println!("Closing {:?}", self.file.name);
     }
 }

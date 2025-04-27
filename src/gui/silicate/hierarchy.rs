@@ -1,6 +1,5 @@
 use crate::{
-    addendum::SilicaHierarchyAddendum,
-    app::instance::InstanceKey,
+    addendum::SilicaHierarchyAddendum, app::instance::InstanceKey,
     gui::widgets::layer_collapsible::LayerCollapsible,
 };
 use egui::{load::SizedTexture, *};
@@ -17,7 +16,7 @@ pub struct LayersHierarchy<'a> {
 }
 
 impl LayersHierarchy<'_> {
-    pub fn ui(self, ui: &mut Ui, idx: InstanceKey, changed: &mut bool) {
+    pub fn ui(self, ui: &mut Ui, idx: InstanceKey) {
         self.layers
             .iter_mut()
             .zip(self.addendum.iter())
@@ -89,12 +88,10 @@ impl LayersHierarchy<'_> {
                         }
                     });
 
-                *changed |= collapsible.response.changed();
-
                 match (layer, addendum) {
                     (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
                         collapsible.show_body_unindented(ui, |ui| -> _ {
-                            LayerControl { layer, addendum }.ui(ui, changed)
+                            LayerControl { layer, addendum }.ui(ui)
                         });
                     }
                     (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
@@ -105,7 +102,7 @@ impl LayersHierarchy<'_> {
                                 layers: &mut layer.children,
                                 addendum: &addendum.children,
                             }
-                            .ui(ui, idx, changed);
+                            .ui(ui, idx);
                         });
                     }
                     _ => unreachable!(),

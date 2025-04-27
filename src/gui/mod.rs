@@ -178,13 +178,16 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                     layers: &mut instance.file.layers,
                     addendum: &instance.addendum,
                 }
-                .ui(ui, *tab, &mut false);
+                .ui(ui, *tab);
 
-                BackgroundControl { file: &mut instance.file }.ui(ui, &mut false);
+                BackgroundControl {
+                    file: &mut instance.file,
+                }
+                .ui(ui);
             },
         );
 
-        instance.submit();
+        instance.submit_to_compositor();
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {

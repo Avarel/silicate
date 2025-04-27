@@ -12,18 +12,16 @@ pub(super) struct LayerControl<'a> {
 }
 
 impl LayerControl<'_> {
-    pub fn ui(self, ui: &mut Ui, changed: &mut bool) {
+    pub fn ui(self, ui: &mut Ui) {
         ui.push_id(self.addendum.id, |ui| {
-            *changed |= OpacitySlider::new(&mut self.layer.opacity).ui(ui).changed();
+            OpacitySlider::new(&mut self.layer.opacity).ui(ui);
             ui.add_space(10.0);
-            *changed |= BlendModeRadio::new(&mut self.layer.blend).ui(ui).changed();
+            BlendModeRadio::new(&mut self.layer.blend).ui(ui);
         });
 
         Grid::new(self.addendum.id).show(ui, |ui| {
             ui.label("Clipped");
-            *changed |= Checkbox::without_text(&mut self.layer.clipped)
-                .ui(ui)
-                .changed();
+            Checkbox::without_text(&mut self.layer.clipped).ui(ui);
         });
         ui.add_space(10.0);
     }

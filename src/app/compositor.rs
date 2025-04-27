@@ -5,16 +5,39 @@ use silica::{
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
 };
-use std::{num::NonZeroU32, sync::Arc};
 use std::sync::atomic::AtomicBool;
-use tokio::sync::{watch::{Receiver, Sender}, Notify};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use tokio::sync::watch::{Receiver, Sender};
 
 pub struct CompositorApp {
     pub target: Compositor,
     pub needs_to_load_chunks: AtomicBool,
     pub pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
-    notify: Arc<Notify>,
+    alive: Arc<AtomicBool>,
+}
+
+pub struct CompositorHandle {
+    previously_sent_file: Arc<ProcreateFile>,
+    compositor_sender: Sender<Arc<ProcreateFile>>,
+    alive: Arc<AtomicBool>,
+}
+
+impl CompositorHandle {
+    pub fn submit(&mut self, file: &ProcreateFile) {
+        if *self.previously_sent_file != *file {
+            let file = Arc::new(file.clone());
+            self.compositor_sender.send_replace(Arc::clone(&file));
+            self.previously_sent_file = file;
+        }
+    }
+}
+
+impl Drop for CompositorHandle {
+    fn drop(&mut self) {
+        eprintln!("Notifying compositor to die");
+        self.alive.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl CompositorApp {
@@ -108,22 +131,28 @@ impl CompositorApp {
         pipeline: Pipeline,
         file: Arc<ProcreateFile>,
         target: Compositor,
-    ) -> (Self, Arc<Notify>, Sender<Arc<ProcreateFile>>) {
-        let (tx, mut rx) = tokio::sync::watch::channel(file);
+    ) -> (Self, CompositorHandle) {
+        let (tx, mut rx) = tokio::sync::watch::channel(file.clone());
 
         rx.mark_changed();
 
-        let notify = Arc::new(Notify::new());
+        let alive = Arc::new(AtomicBool::new(true));
 
         let compositor = Self {
-            notify: notify.clone(),
+            alive: alive.clone(),
             rx,
             target,
             needs_to_load_chunks: AtomicBool::new(true),
             pipeline,
         };
 
-        (compositor, notify, tx)
+        let handle = CompositorHandle {
+            previously_sent_file: file.clone(),
+            compositor_sender: tx,
+            alive,
+        };
+
+        (compositor, handle)
     }
 
     pub async fn rendering_thread(mut self, output_texture: GpuTexture) {
@@ -131,12 +160,22 @@ impl CompositorApp {
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
 
         loop {
-            tokio::select! {
-                _ = self.notify.notified() => { break }
-                _ = self.rx.changed() => {}
+            let alive = self.alive.load(std::sync::atomic::Ordering::Relaxed);
+
+            let file = tokio::select! {
+                _ = self.rx.changed() => (*self.rx.borrow()).clone(),
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    if alive {
+                        continue
+                    } else {
+                        break
+                    }
+                }
             };
 
-            let file = (*self.rx.borrow()).clone();
+            if !alive {
+                break;
+            }
 
             let new_layer_config = file.layers.clone();
             let background = (!file.background_hidden).then_some(file.background_color);

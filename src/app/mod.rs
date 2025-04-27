@@ -80,7 +80,7 @@ impl App {
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
-        let mut composite_target = Compositor::new(
+        let composite_target = Compositor::new(
             self.dispatch.clone(),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
@@ -94,8 +94,6 @@ impl App {
             GpuTexture::OUTPUT_USAGE,
         );
 
-        composite_target.set_flipped(file.flipped.horizontally, file.flipped.vertically);
-
         let rotation = match file.orientation {
             silica::data::Orientation::NoRotation => 0.0,
             silica::data::Orientation::Clockwise180 => 180.0,
@@ -108,7 +106,7 @@ impl App {
         let addendum = crate::addendum::build(&file.layers);
 
         let initial_compositor_file = Arc::new(file.clone());
-        let (mut compositor, notify, compositor_sender) = CompositorApp::new(
+        let (compositor, handle) = CompositorApp::new(
             self.pipeline.clone(),
             initial_compositor_file.clone(),
             composite_target,
@@ -119,16 +117,23 @@ impl App {
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let key = InstanceKey(id);
         let mut instance = Instance {
-            notify,
             addendum,
             file: file.clone(),
             output_texture: output_texture.clone(),
             preview_textures: None,
-            previously_sent_file: initial_compositor_file,
-            compositor_sender,
+            compositor: handle,
             rotation,
         };
-        instance.generate_previews(&mut compositor.target, &self.dispatch, &self.pipeline);
+        instance.generate_previews(
+            Compositor::new(
+                self.dispatch.clone(),
+                canvas,
+                CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
+                atlas_texture.clone(),
+            ),
+            &self.dispatch,
+            &self.pipeline,
+        );
 
         self.rt
             .spawn(compositor.rendering_thread(output_texture.clone()));

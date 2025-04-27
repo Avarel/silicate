@@ -85,6 +85,7 @@ impl<const ALIGN: u32> BufferDimensions<ALIGN> {
 }
 
 /// Association between CPU buffer and GPU buffer.
+#[derive(Clone)]
 pub(crate) struct DataBuffer<T> {
     label: &'static str,
     data: T,

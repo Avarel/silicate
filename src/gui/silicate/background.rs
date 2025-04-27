@@ -8,7 +8,7 @@ pub struct BackgroundControl<'a> {
 }
 
 impl BackgroundControl<'_> {
-    pub fn ui(self, ui: &mut Ui, changed: &mut bool) {
+    pub fn ui(self, ui: &mut Ui) {
         let hidden = &mut self.file.background_hidden;
 
         let [r, g, b, _] = self.file.background_color;
@@ -29,11 +29,11 @@ impl BackgroundControl<'_> {
                 );
             });
 
-        *changed |= collapsible.response.changed();
+        collapsible.response.changed();
 
         collapsible.show_body_unindented(ui, |ui| {
             let mut rgb = Rgba::from_rgb(r, g, b);
-            *changed |= ColorPickerHsv::new(&mut rgb).ui(ui);
+            ColorPickerHsv::new(&mut rgb).ui(ui);
             self.file.background_color = rgb.to_rgba_unmultiplied();
         });
     }
