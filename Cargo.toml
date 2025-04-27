@@ -28,8 +28,6 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
     "bmp",
 ] }
-# Synchronization
-parking_lot = "0.12"
 # Display GUI
 egui = "0.31"
 egui-wgpu = "0.31.0"

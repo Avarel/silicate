@@ -69,7 +69,8 @@ impl<'a> LayerCollapsible<'a> {
             }
 
             if !state.is_open() || !self.size_change_on_open {
-                let (preview_rect, _) = ui.allocate_exact_size(vec2(PREVIEW_WIDTH, HEIGHT), Sense::empty());
+                let (preview_rect, _) =
+                    ui.allocate_exact_size(vec2(PREVIEW_WIDTH, HEIGHT), Sense::empty());
                 ui.painter()
                     .add(Shape::rect_filled(preview_rect, 5, PREVIEW_BG));
 

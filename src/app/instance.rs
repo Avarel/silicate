@@ -1,11 +1,6 @@
 use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
-use silicate_compositor::{
-    dev::GpuDispatch,
-    pipeline::Pipeline,
-    tex::GpuTexture,
-    Compositor,
-};
+use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
 
 use crate::addendum::SilicaHierarchyAddendum;
 use crate::app::compositor::CompositorApp;
@@ -24,6 +19,19 @@ pub struct Instance {
     pub(super) compositor: CompositorHandle,
 }
 
+impl std::fmt::Debug for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Instance")
+            .field("file", &self.file)
+            .field("addendum", &self.addendum)
+            .field("output_texture", &self.output_texture)
+            .field("rotation", &self.rotation)
+            .field("preview_textures", &self.preview_textures)
+            .field("compositor", &"..")
+            .finish()
+    }
+}
+
 impl Instance {
     pub fn is_upright(&self) -> bool {
         !(45.0..135.0).contains(&self.rotation.to_degrees())
@@ -34,7 +42,12 @@ impl Instance {
         self.compositor.submit(&self.file);
     }
 
-    pub fn generate_previews(&mut self, mut target: Compositor, dispatch: &GpuDispatch, pipeline: &Pipeline) {
+    pub fn generate_previews(
+        &mut self,
+        mut target: Compositor,
+        dispatch: &GpuDispatch,
+        pipeline: &Pipeline,
+    ) {
         let file = &self.file;
         let aspect_ratio = file.size.width as f32 / file.size.height as f32;
         let scaled_height = (256.0 * aspect_ratio) as u32;

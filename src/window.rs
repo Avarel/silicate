@@ -1,6 +1,9 @@
 use crate::winit;
 
-use crate::app::{instance::InstanceKey, App, UserEvent};
+use crate::app::{
+    instance::{Instance, InstanceKey},
+    App, UserEvent,
+};
 use crate::gui::{ViewOptions, ViewerGui};
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_notify::{Toast, Toasts};
@@ -88,6 +91,7 @@ pub struct AppInstance {
     viewer: ViewerGui,
     pub toasts: Toasts,
     rx_toasts: UnboundedReceiver<Toast>,
+    pub instances: HashMap<InstanceKey, Instance>,
 }
 
 impl AppInstance {
@@ -121,7 +125,6 @@ impl AppInstance {
                 extended_crosshair: false,
             },
             new_instances: rx_instances,
-            active_canvas: InstanceKey(0),
             canvas_tree: egui_dock::DockState::new(Vec::new()),
         };
 
@@ -131,6 +134,7 @@ impl AppInstance {
             viewer,
             rx_toasts,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
+            instances: HashMap::new(),
         };
 
         app_instance
@@ -164,7 +168,8 @@ impl AppInstance {
                 let input = self.window.integration.take_egui_input(&self.window.window);
 
                 self.window.integration.egui_ctx().begin_pass(input);
-                self.viewer.layout_gui(&self.window.integration.egui_ctx());
+                self.viewer
+                    .layout_gui(&self.window.integration.egui_ctx(), &mut self.instances);
 
                 while let Ok(toast) = self.rx_toasts.try_recv() {
                     self.toasts.add(toast);
@@ -198,6 +203,8 @@ impl AppInstance {
                     .integration
                     .handle_platform_output(&self.window.window, platform_output);
 
+                let dispatch = &self.window.dispatch;
+
                 // Draw the GUI onto the output texture.
                 let paint_jobs = self
                     .window
@@ -208,8 +215,8 @@ impl AppInstance {
                 // Upload all resources for the GPU.
                 for (id, image_delta) in textures_delta.set {
                     self.window.renderer.update_texture(
-                        &self.app.dispatch.device(),
-                        &self.app.dispatch.queue(),
+                        dispatch.device(),
+                        dispatch.queue(),
                         id,
                         &image_delta,
                     );
@@ -218,10 +225,10 @@ impl AppInstance {
                     self.window.renderer.free_texture(&id);
                 }
 
-                self.app.dispatch.submit_queue(|encoder| {
+                self.window.dispatch.submit_queue(|encoder| {
                     self.window.renderer.update_buffers(
-                        &self.app.dispatch.device(),
-                        &self.app.dispatch.queue(),
+                        dispatch.device(),
+                        dispatch.queue(),
                         encoder,
                         &paint_jobs,
                         &self.window.screen_descriptor,
@@ -264,14 +271,14 @@ impl AppInstance {
                     self.window.screen_descriptor.size_in_pixels = [size.width, size.height];
                     self.window
                         .surface
-                        .configure(&self.app.dispatch.device(), &self.window.surface_config);
+                        .configure(&self.window.dispatch.device(), &self.window.surface_config);
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.window.screen_descriptor.pixels_per_point = scale_factor as f32;
                 self.window
                     .surface
-                    .configure(&self.app.dispatch.device(), &self.window.surface_config);
+                    .configure(&self.window.dispatch.device(), &self.window.surface_config);
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
@@ -321,9 +328,9 @@ impl AppInstance {
     pub fn handle_user_event(&mut self, event: UserEvent) {
         match event {
             UserEvent::RemoveInstance(idx) => {
-                self.viewer.remove_index(idx);
                 self.viewer.canvases.remove(&idx);
                 self.viewer.previews.retain(|&(k, _), _| k != idx);
+                self.instances.remove(&idx);
             }
             UserEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
@@ -336,7 +343,7 @@ impl AppInstance {
                     wgpu::FilterMode::Nearest
                 };
 
-                let instances = self.app.instances.read();
+                let instances = &self.instances;
                 let Some(instance) = instances.get(&idx) else {
                     return;
                 };
@@ -369,7 +376,7 @@ impl AppInstance {
                 }
             }
             UserEvent::RebindPreviews(idx) => {
-                let instances = self.app.instances.read();
+                let instances = &self.instances;
                 let Some(instance) = instances.get(&idx) else {
                     return;
                 };
@@ -409,6 +416,17 @@ impl AppInstance {
                         );
                     }
                 }
+            }
+            UserEvent::NewInstance(instance_key, instance) => {
+                self.instances.insert(instance_key, instance);
+                self.app
+                    .event_loop
+                    .send_event(UserEvent::RebindPreviews(instance_key))
+                    .unwrap();
+                self.app
+                    .event_loop
+                    .send_event(UserEvent::RebindTexture(instance_key))
+                    .unwrap();
             }
         }
     }

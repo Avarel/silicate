@@ -223,22 +223,15 @@ pub struct ViewerGui {
 
     pub previews: HashMap<(InstanceKey, u32), SizedTexture>,
     pub canvases: HashMap<InstanceKey, SizedTexture>,
-    pub active_canvas: InstanceKey,
+    // pub active_canvas: InstanceKey,
     pub view_options: ViewOptions,
     pub canvas_tree: egui_dock::DockState<InstanceKey>,
     pub(crate) new_instances: Receiver<(SurfaceIndex, NodeIndex, InstanceKey)>,
 }
 
 impl ViewerGui {
-    pub fn remove_index(&mut self, index: InstanceKey) {
-        self.canvases.remove(&index);
-        self.app.instances.write().remove(&index);
-    }
-
-    fn layout_view(&mut self, ui: &mut Ui) {
+    fn layout_view(&mut self, ui: &mut Ui, instances: &mut HashMap<InstanceKey, Instance>) {
         ui.set_min_size(ui.available_size());
-
-        let mut instances = self.app.instances.write();
 
         if instances.is_empty() {
             ui.allocate_space(vec2(
@@ -264,9 +257,6 @@ impl ViewerGui {
                 self.canvas_tree.push_to_focused_leaf(id);
             }
 
-            if let Some((_, &mut id)) = self.canvas_tree.find_active_focused() {
-                self.active_canvas = id;
-            }
             egui_dock::DockArea::new(&mut self.canvas_tree)
                 .id(Id::new("view.dock"))
                 .style({
@@ -306,17 +296,21 @@ impl ViewerGui {
                         view_options: &mut self.view_options,
                         canvases: &mut self.canvases,
                         previews: &mut self.previews,
-                        instances: &mut instances,
+                        instances,
                     },
                 );
         }
     }
 
-    pub fn layout_gui(&mut self, context: &Context) {
+    pub fn layout_gui(
+        &mut self,
+        context: &Context,
+        instances: &mut HashMap<InstanceKey, Instance>,
+    ) {
         CentralPanel::default()
             .frame(Frame::NONE)
             .show(context, |ui| {
-                self.layout_view(ui);
+                self.layout_view(ui, instances);
             });
     }
 }

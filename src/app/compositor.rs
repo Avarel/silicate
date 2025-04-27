@@ -36,7 +36,8 @@ impl CompositorHandle {
 impl Drop for CompositorHandle {
     fn drop(&mut self) {
         eprintln!("Notifying compositor to die");
-        self.alive.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.alive
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

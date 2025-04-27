@@ -7,7 +7,6 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use parking_lot::RwLock;
 use silica::{
     error::SilicaError,
     file::{ProcreateFile, ProcreateFileMetadata},
@@ -20,30 +19,30 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
+use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::{collections::HashMap, path::PathBuf};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{Sender, UnboundedSender},
 };
 
-pub struct App {
-    pub instances: RwLock<HashMap<InstanceKey, Instance>>,
-    pub dispatch: GpuDispatch,
-    pub rt: Arc<Runtime>,
-    pub toasts: UnboundedSender<Toast>,
-    pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
-    pub(crate) event_loop: EventLoopProxy<UserEvent>,
-    curr_id: AtomicUsize,
-    pipeline: Pipeline,
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub enum UserEvent {
+    NewInstance(InstanceKey, Instance),
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
+}
+
+pub struct App {
+    dispatch: GpuDispatch,
+    pub rt: Arc<Runtime>,
+    pub toasts: UnboundedSender<Toast>,
+    pub(crate) event_loop: EventLoopProxy<UserEvent>,
+    pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
+    pipeline: Pipeline,
+    curr_id: AtomicUsize,
 }
 
 impl App {
@@ -55,10 +54,9 @@ impl App {
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
         Self {
-            instances: RwLock::new(HashMap::new()),
             pipeline: Pipeline::new(&dispatch),
             rt,
-            dispatch: dispatch,
+            dispatch,
             toasts,
             new_instances,
             event_loop,
@@ -138,9 +136,9 @@ impl App {
         self.rt
             .spawn(compositor.rendering_thread(output_texture.clone()));
 
-        self.instances.write().insert(key, instance);
-        self.rebind_texture(key);
-        self.rebind_previews(key);
+        self.event_loop
+            .send_event(UserEvent::NewInstance(key, instance))
+            .unwrap();
         Ok(key)
     }
 
@@ -253,12 +251,6 @@ impl App {
     pub fn rebind_texture(&self, id: InstanceKey) {
         self.event_loop
             .send_event(UserEvent::RebindTexture(id))
-            .unwrap();
-    }
-
-    pub fn rebind_previews(&self, id: InstanceKey) {
-        self.event_loop
-            .send_event(UserEvent::RebindPreviews(id))
             .unwrap();
     }
 }

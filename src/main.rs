@@ -96,7 +96,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
 
         for path in self.initial_file.drain(..) {
-            match (&instance.app).load_file(path) {
+            match instance.app.load_file(path) {
                 Err(err) => {
                     instance
                         .toasts
