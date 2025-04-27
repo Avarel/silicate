@@ -1,7 +1,7 @@
-mod window;
 mod addendum;
 mod app;
 mod gui;
+mod window;
 
 use app::UserEvent;
 use clap::Parser;
@@ -12,10 +12,10 @@ use egui_winit::winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
-use window::AppInstance;
 use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;
+use window::AppInstance;
 
 pub use egui_winit::winit;
 
@@ -92,19 +92,21 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             .block_on(Self::handle_with_window(window.clone()))
             .unwrap();
 
-        let instance = AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
+        let mut instance =
+            AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
 
         for path in self.initial_file.drain(..) {
-            let app = &instance.app;
-            match app.load_file(path) {
+            match (&instance.app).load_file(path) {
                 Err(err) => {
-                    app.toasts
-                        .lock()
+                    instance
+                        .toasts
                         .error(format!("File from drag/drop failed to load. Reason: {err}"));
                 }
                 Ok(key) => {
-                    app.toasts.lock().success("Loaded file from command line.");
-                    app.new_instances
+                    instance.toasts.success("Loaded file from command line.");
+                    instance
+                        .app
+                        .new_instances
                         .blocking_send((
                             egui_dock::SurfaceIndex::main(),
                             egui_dock::NodeIndex::root(),

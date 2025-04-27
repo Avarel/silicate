@@ -3,7 +3,7 @@ pub mod instance;
 
 use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
-use egui_notify::Toasts;
+use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
@@ -28,8 +28,8 @@ use tokio::{runtime::Runtime, sync::mpsc::Sender};
 pub struct App {
     pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
-    pub compositor: Arc<compositor::CompositorApp>,
-    pub toasts: Mutex<Toasts>,
+    pub compositor: Arc<CompositorApp>,
+    pub toasts: Sender<Toast>,
     pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
 }
@@ -45,6 +45,7 @@ impl App {
     pub fn new(
         dispatch: GpuDispatch,
         rt: Arc<Runtime>,
+        toasts: Sender<Toast>,
         new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
@@ -56,9 +57,7 @@ impl App {
             }),
             rt,
             dispatch: dispatch,
-            toasts: Mutex::new(
-                egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
-            ),
+            toasts,
             new_instances,
             event_loop,
         }
@@ -139,21 +138,31 @@ impl App {
             .pick_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts.lock().info("Load cancelled.");
+            self.toasts
+                .send(Toast::info("Load cancelled."))
+                .await
+                .unwrap();
             return;
         };
 
         match self.load_file(handle.path().to_path_buf()) {
             Err(err) => {
-                self.toasts.lock().error(format!(
-                    "File {} failed to load. Reason: {err}",
-                    handle.file_name()
-                ));
+                self.toasts
+                    .send(Toast::error(format!(
+                        "File {} failed to load. Reason: {err}",
+                        handle.file_name()
+                    )))
+                    .await
+                    .unwrap();
             }
             Ok(key) => {
                 self.toasts
-                    .lock()
-                    .success(format!("File {} successfully opened.", handle.file_name()));
+                    .send(Toast::success(format!(
+                        "File {} successfully opened.",
+                        handle.file_name()
+                    )))
+                    .await
+                    .unwrap();
                 self.new_instances
                     .send((surface_index, node_index, key))
                     .await
@@ -173,22 +182,31 @@ impl App {
             .save_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts.lock().info("Export cancelled.");
+            self.toasts
+                .send(Toast::info("Export cancelled."))
+                .await
+                .unwrap();
             return;
         };
 
         let dim = BufferDimensions::from_extent(copied_texture.size);
         let path = handle.path().to_path_buf();
         if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
-            self.toasts.lock().error(format!(
-                "File {} failed to export. Reason: {err}.",
-                handle.file_name()
-            ));
+            self.toasts
+                .send(Toast::error(format!(
+                    "File {} failed to export. Reason: {err}.",
+                    handle.file_name()
+                )))
+                .await
+                .unwrap();
         } else {
-            self.toasts.lock().success(format!(
-                "File {} successfully exported.",
-                handle.file_name()
-            ));
+            self.toasts
+                .send(Toast::success(format!(
+                    "File {} successfully exported.",
+                    handle.file_name()
+                )))
+                .await
+                .unwrap();
         }
     }
 

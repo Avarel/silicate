@@ -3,10 +3,12 @@ use crate::winit;
 use crate::app::{instance::InstanceKey, App, UserEvent};
 use crate::gui::{ViewOptions, ViewerGui};
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
+use egui_notify::{Toast, Toasts};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 
 use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc::Receiver;
 use wgpu::Surface;
 
 use std::{
@@ -84,6 +86,8 @@ pub struct AppInstance {
     pub app: Arc<App>,
     window: WindowBundle,
     viewer: ViewerGui,
+    pub toasts: Toasts,
+    rx_toasts: Receiver<Toast>,
 }
 
 impl AppInstance {
@@ -96,9 +100,16 @@ impl AppInstance {
     ) -> Self {
         let window_bundle = WindowBundle::new(&dev, surface, window);
 
-        let (tx, rx) = tokio::sync::mpsc::channel(2);
+        let (tx_toasts, rx_toasts) = tokio::sync::mpsc::channel(2);
+        let (tx_instances, rx_instances) = tokio::sync::mpsc::channel(2);
 
-        let app = Arc::new(App::new(dev.dispatch, rt, tx, event_loop_proxy));
+        let app = Arc::new(App::new(
+            dev.dispatch,
+            rt,
+            tx_toasts,
+            tx_instances,
+            event_loop_proxy,
+        ));
         app.spawn_rendering_thread();
 
         let viewer = ViewerGui {
@@ -110,7 +121,7 @@ impl AppInstance {
                 grid: true,
                 extended_crosshair: false,
             },
-            new_instances: rx,
+            new_instances: rx_instances,
             active_canvas: InstanceKey(0),
             canvas_tree: egui_dock::DockState::new(Vec::new()),
         };
@@ -119,6 +130,8 @@ impl AppInstance {
             app,
             window: window_bundle,
             viewer,
+            rx_toasts,
+            toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
         };
 
         app_instance
@@ -153,10 +166,12 @@ impl AppInstance {
 
                 self.window.integration.egui_ctx().begin_pass(input);
                 self.viewer.layout_gui(&self.window.integration.egui_ctx());
-                self.app
-                    .toasts
-                    .lock()
-                    .show(&self.window.integration.egui_ctx());
+
+                while let Ok(toast) = self.rx_toasts.try_recv() {
+                    self.toasts.add(toast);
+                }
+                self.toasts.show(&self.window.integration.egui_ctx());
+
                 let FullOutput {
                     platform_output,
                     textures_delta,
@@ -267,11 +282,15 @@ impl AppInstance {
                         match app.load_file(file) {
                             Err(_) => {
                                 app.toasts
-                                    .lock()
-                                    .error("File from drag/drop failed to load.");
+                                    .send(Toast::error("File from drag/drop failed to load."))
+                                    .await
+                                    .unwrap();
                             }
                             Ok(key) => {
-                                app.toasts.lock().success("Loaded file from drag/drop.");
+                                app.toasts
+                                    .send(Toast::success("Loaded file from drag/drop."))
+                                    .await
+                                    .unwrap();
                                 app.new_instances
                                     .send((
                                         egui_dock::SurfaceIndex::main(),
