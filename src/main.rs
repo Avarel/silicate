@@ -1,3 +1,4 @@
+mod window;
 mod addendum;
 mod app;
 mod gui;
@@ -11,7 +12,7 @@ use egui_winit::winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
-use gui::AppInstance;
+use window::AppInstance;
 use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;

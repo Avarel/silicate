@@ -1,6 +1,7 @@
 pub mod compositor;
 pub mod instance;
 
+use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toasts;
 use egui_wgpu::wgpu;
@@ -15,12 +16,13 @@ use silicate_compositor::{
     buffer::BufferDimensions,
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
     dev::GpuDispatch,
+    pipeline::Pipeline,
     tex::GpuTexture,
     Compositor,
 };
-use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
 use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
 pub struct App {
@@ -40,6 +42,32 @@ pub enum UserEvent {
 }
 
 impl App {
+    pub fn new(
+        dispatch: GpuDispatch,
+        rt: Arc<Runtime>,
+        new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
+        event_loop: EventLoopProxy<UserEvent>,
+    ) -> Self {
+        Self {
+            compositor: Arc::new(CompositorApp {
+                instances: RwLock::new(HashMap::new()),
+                pipeline: Pipeline::new(&dispatch),
+                curr_id: AtomicUsize::new(0),
+            }),
+            rt,
+            dispatch: dispatch,
+            toasts: Mutex::new(
+                egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
+            ),
+            new_instances,
+            event_loop,
+        }
+    }
+
+    pub fn spawn_rendering_thread(&self) {
+        self.rt.spawn(self.compositor.clone().rendering_thread());
+    }
+
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.dispatch)).unwrap();

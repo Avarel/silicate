@@ -1,407 +1,335 @@
 mod canvas;
-mod layout;
 mod silicate;
 mod widgets;
 
-use self::layout::{ViewOptions, ViewerGui};
-use crate::app::{compositor::CompositorApp, instance::InstanceKey, App, UserEvent};
-use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
-use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
-use egui_winit::winit::{
-    event_loop::{ActiveEventLoop, EventLoopProxy},
-    window::Window,
+use egui::load::SizedTexture;
+use egui::{Frame, *};
+use egui_dock::{NodeIndex, SurfaceIndex};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::mpsc::Receiver;
+
+use crate::app::{
+    instance::{Instance, InstanceKey},
+    App, UserEvent,
 };
-use parking_lot::{Mutex, RwLock};
-use silicate_compositor::{dev::GpuHandle, pipeline::Pipeline};
-use tokio::runtime::Runtime;
-use wgpu::Surface;
 
-use crate::winit;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-use std::{sync::atomic::AtomicUsize, time::Duration};
-use winit::{event::WindowEvent, event_loop::ControlFlow};
+use canvas::CanvasView;
+use silicate::background::BackgroundControl;
+use silicate::hierarchy::LayersHierarchy;
+use widgets::pane::{button::PaneButton, menu::PaneMenu};
 
-pub struct AppWin {
-    surface: wgpu::Surface<'static>,
-    window: Arc<egui_winit::winit::window::Window>,
-    integration: egui_winit::State,
-    screen_descriptor: egui_wgpu::ScreenDescriptor,
-    renderer: egui_wgpu::Renderer,
-    surface_config: wgpu::SurfaceConfiguration,
-}
+struct ControlsGui;
 
-pub struct AppInstance {
-    pub app: Arc<App>,
-    pub window: AppWin,
-    pub(crate) editor: layout::ViewerGui,
-}
+impl ControlsGui {
+    fn layout_info(ui: &mut Ui, instance: &Instance) {
+        Grid::new("File Grid").show(ui, |ui| {
+            let file = instance.file.read();
+            ui.label("Name");
+            ui.label(file.name.as_deref().unwrap_or("Not Specified"));
+            ui.end_row();
+            ui.label("Author");
+            ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
+            ui.end_row();
+            ui.label("Stroke Count");
+            ui.label(file.stroke_count.to_string());
+            ui.end_row();
+            ui.label("Layer Count");
+            ui.label(file.layer_count(false).to_string());
+            ui.end_row();
+            ui.label("Canvas Size");
 
-impl AppInstance {
-    pub fn new(
-        dev: GpuHandle,
-        rt: Arc<Runtime>,
-        surface: Surface<'static>,
-        window: Arc<Window>,
-        event_loop_proxy: EventLoopProxy<UserEvent>,
-    ) -> Self {
-        let surface_caps = surface.get_capabilities(&dev.adapter);
-        let surface_format = surface_caps.formats[0];
-        let surface_alpha = surface_caps.alpha_modes[0];
-        let surface_present: wgpu::PresentMode = surface_caps.present_modes[0];
-        let surface_config = {
-            let window_size = window.inner_size();
-            wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: surface_format,
-                width: window_size.width,
-                height: window_size.height,
-                present_mode: surface_present,
-                view_formats: Vec::new(),
-                alpha_mode: surface_alpha,
-                desired_maximum_frame_latency: 0,
+            let mut dim1 = file.size.width;
+            let mut dim2 = file.size.height;
+
+            if !instance.is_upright() {
+                std::mem::swap(&mut dim1, &mut dim2);
             }
-        };
-        dbg!(&surface_caps, &surface_config);
+            ui.label(format!("{} by {}", dim1, dim2));
+        });
+    }
 
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: window.scale_factor() as f32,
-        };
-        surface.configure(&dev.dispatch.device(), &surface_config);
+    fn layout_canvas_control(ui: &mut Ui, instance: &mut Instance) {
+        Grid::new("Canvas Grid").show(ui, |ui| {
+            ui.label("Flip");
+            ui.horizontal(|ui| {
+                let mut flip_reload = false;
 
-        let integration = egui_winit::State::new(
-            egui::Context::default(),
-            ViewportId::ROOT,
-            &window,
-            Some(window.scale_factor() as f32),
-            None,
-            None,
+                if ui.button("Horizontal").clicked() {
+                    if instance.is_upright() {
+                        instance.flipped.horizontally = !instance.flipped.horizontally;
+                    } else {
+                        instance.flipped.vertically = !instance.flipped.vertically;
+                    }
+                    instance.tick_change(true);
+                    flip_reload = true;
+                }
+                if ui.button("Vertical").clicked() {
+                    if instance.is_upright() {
+                        instance.flipped.vertically = !instance.flipped.vertically;
+                    } else {
+                        instance.flipped.horizontally = !instance.flipped.horizontally;
+                    }
+                    instance.tick_change(true);
+                    flip_reload = true;
+                }
+
+                if flip_reload {
+                    instance
+                        .target
+                        .lock()
+                        .set_flipped(instance.flipped.horizontally, instance.flipped.vertically);
+                }
+            });
+            ui.end_row();
+        });
+    }
+
+    fn layout_export_control(ui: &mut Ui, app: &Arc<App>, instance: &Instance) {
+        Grid::new("Share Grid").num_columns(2).show(ui, |ui| {
+            ui.label("Actions");
+            ui.vertical(|ui| {
+                if ui.button("Export View").clicked() {
+                    let texture = instance.output_texture.clone();
+                    app.rt.spawn({
+                        let app = app.clone();
+                        async move { app.save_dialog(texture).await }
+                    });
+                }
+            });
+        });
+    }
+}
+
+pub struct ViewOptions {
+    pub extended_crosshair: bool,
+    pub smooth: bool,
+    pub grid: bool,
+}
+
+struct CanvasGui<'a> {
+    app: &'a Arc<App>,
+    canvases: &'a mut HashMap<InstanceKey, SizedTexture>,
+    previews: &'a HashMap<(InstanceKey, u32), SizedTexture>,
+    instances: &'a mut HashMap<InstanceKey, Instance>,
+    view_options: &'a mut ViewOptions,
+}
+
+impl egui_dock::TabViewer for CanvasGui<'_> {
+    type Tab = InstanceKey;
+
+    fn allowed_in_windows(&self, _: &mut Self::Tab) -> bool {
+        false
+    }
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
+        let tex = self.canvases.get(tab);
+
+        let Some(instance) = self.instances.get_mut(tab) else {
+            return;
+        };
+
+        let mut overlay_ui_left = ui.new_child(UiBuilder::new());
+        let mut overlay_ui_right = ui.new_child(UiBuilder::new());
+
+        CanvasView::new(
+            *tab,
+            tex.copied().map(Image::from_texture),
+            &mut instance.rotation,
+        )
+        .show_extended_crosshair(self.view_options.extended_crosshair)
+        .show_grid(self.view_options.grid)
+        .show(ui);
+
+        PaneMenu::new("Actions", PaneButton::menu(), Align::LEFT).show(
+            &mut overlay_ui_left,
+            |ui| {
+                ControlsGui::layout_info(ui, instance);
+
+                ui.separator();
+
+                Grid::new("View Grid").show(ui, |ui| {
+                    ui.label("Grid View");
+                    ui.checkbox(&mut self.view_options.grid, "Enable");
+                    ui.end_row();
+                    ui.label("Extended Crosshair");
+                    ui.checkbox(&mut self.view_options.extended_crosshair, "Enable");
+                    ui.end_row();
+                    ui.label("Smooth Sampling");
+                    if ui
+                        .checkbox(&mut self.view_options.smooth, "Enable")
+                        .changed()
+                    {
+                        self.app.rebind_texture(*tab);
+                    }
+                    ui.end_row();
+                    ui.label("Rotation");
+                    ui.add(
+                        Slider::new(&mut instance.rotation, 0.0..=std::f32::consts::TAU)
+                            .custom_formatter(|v, _| {
+                                let degree = v.to_degrees();
+                                format!("{degree:.0}")
+                            })
+                            .suffix(" deg"),
+                    );
+                });
+
+                ControlsGui::layout_canvas_control(ui, instance);
+
+                ui.separator();
+
+                ControlsGui::layout_export_control(ui, self.app, instance);
+            },
         );
 
-        let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
+        PaneMenu::new("Layers", PaneButton::layers(), Align::RIGHT).show(
+            &mut overlay_ui_right,
+            |ui| {
+                let mut file = instance.file.write();
+                let mut changed = false;
 
-        let (tx, rx) = tokio::sync::mpsc::channel(2);
+                LayersHierarchy {
+                    instance: &instance,
+                    previews: self.previews,
+                    layers: &mut file.layers,
+                    addendum: &instance.addendum,
+                }
+                .ui(ui, *tab, &mut changed);
 
-        let app = Arc::new(App {
-            compositor: Arc::new(CompositorApp {
-                instances: RwLock::new(HashMap::new()),
-                pipeline: Pipeline::new(&dev.dispatch),
-                curr_id: AtomicUsize::new(0),
-            }),
-            rt,
-            dispatch: dev.dispatch,
-            toasts: Mutex::new(
-                egui_notify::Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
-            ),
-            new_instances: tx,
-            event_loop: event_loop_proxy,
+                BackgroundControl { file: &mut file }.ui(ui, &mut changed);
+
+                instance.tick_change(changed);
+            },
+        );
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+        self.app
+            .event_loop
+            .send_event(UserEvent::RemoveInstance(*tab))
+            .unwrap();
+        true
+    }
+
+    fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
+        self.app.rt.spawn({
+            let app = self.app.clone();
+            async move { app.load_dialog(surface, node).await }
         });
-
-        let editor = ViewerGui {
-            app: app.clone(),
-            canvases: HashMap::new(),
-            previews: HashMap::new(),
-            view_options: ViewOptions {
-                smooth: false,
-                grid: true,
-                extended_crosshair: false,
-            },
-            new_instances: rx,
-            active_canvas: InstanceKey(0),
-            canvas_tree: egui_dock::DockState::new(Vec::new()),
-        };
-
-        let app_instance = AppInstance {
-            app,
-            window: AppWin {
-                surface,
-                window,
-                integration,
-                screen_descriptor,
-                surface_config,
-                renderer,
-            },
-            editor,
-        };
-
-        app_instance
-            .app
-            .rt
-            .spawn(app_instance.app.compositor.clone().rendering_thread());
-
-        app_instance
     }
 
-    pub fn handle_event(
-        &mut self,
-        event: egui_winit::winit::event::WindowEvent,
-        eltarget: &ActiveEventLoop,
-    ) {
-        match event {
-            WindowEvent::RedrawRequested => {
-                let output_frame = match self.window.surface.get_current_texture() {
-                    Ok(frame) => frame,
-                    Err(wgpu::SurfaceError::Outdated) => {
-                        // This error occurs when the app is minimized on Windows.
-                        // Silently return here to prevent spamming the console with:
-                        // "The underlying surface has changed, and therefore the swap chain must be updated"
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Dropped frame with error: {}", e);
-                        return;
-                    }
-                };
+    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+        self.instances
+            .get(tab)
+            .and_then(|tab| tab.file.read().name.to_owned())
+            .unwrap_or("Untitled Artwork".to_string())
+            .into()
+    }
 
-                let output_view = output_frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
+    fn id(&mut self, tab: &mut Self::Tab) -> Id {
+        Id::new(*tab)
+    }
+}
 
-                let input = self.window.integration.take_egui_input(&self.window.window);
+pub struct ViewerGui {
+    pub app: Arc<App>,
 
-                self.window.integration.egui_ctx().begin_pass(input);
-                self.editor.layout_gui(&self.window.integration.egui_ctx());
-                self.app
-                    .toasts
-                    .lock()
-                    .show(&self.window.integration.egui_ctx());
-                let FullOutput {
-                    platform_output,
-                    textures_delta,
-                    shapes,
-                    pixels_per_point,
-                    viewport_output,
-                } = self.window.integration.egui_ctx().end_pass();
+    pub previews: HashMap<(InstanceKey, u32), SizedTexture>,
+    pub canvases: HashMap<InstanceKey, SizedTexture>,
+    pub active_canvas: InstanceKey,
+    pub view_options: ViewOptions,
+    pub canvas_tree: egui_dock::DockState<InstanceKey>,
+    pub(crate) new_instances: Receiver<(SurfaceIndex, NodeIndex, InstanceKey)>,
+}
 
-                let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
+impl ViewerGui {
+    pub fn remove_index(&mut self, index: InstanceKey) {
+        self.canvases.remove(&index);
+        self.app.compositor.instances.write().remove(&index);
+    }
 
-                if repaint_after.is_zero() {
-                    self.window.window.request_redraw();
-                    eltarget.set_control_flow(ControlFlow::Poll);
-                } else if let Some(repaint_after_instant) =
-                    Instant::now().checked_add(repaint_after)
-                {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(repaint_after_instant));
-                } else {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_secs(1),
-                    ));
-                }
+    fn layout_view(&mut self, ui: &mut Ui) {
+        ui.set_min_size(ui.available_size());
 
-                self.window
-                    .integration
-                    .handle_platform_output(&self.window.window, platform_output);
+        let mut instances = self.app.compositor.instances.write();
 
-                // Draw the GUI onto the output texture.
-                let paint_jobs = self
-                    .window
-                    .integration
-                    .egui_ctx()
-                    .tessellate(shapes, pixels_per_point);
-
-                // Upload all resources for the GPU.
-                for (id, image_delta) in textures_delta.set {
-                    self.window.renderer.update_texture(
-                        &self.app.dispatch.device(),
-                        &self.app.dispatch.queue(),
-                        id,
-                        &image_delta,
-                    );
-                }
-                for id in textures_delta.free {
-                    self.window.renderer.free_texture(&id);
-                }
-
-                self.app.dispatch.submit_queue(|encoder| {
-                    self.window.renderer.update_buffers(
-                        &self.app.dispatch.device(),
-                        &self.app.dispatch.queue(),
-                        encoder,
-                        &paint_jobs,
-                        &self.window.screen_descriptor,
-                    );
-
-                    self.window.renderer.render(
-                        &mut encoder
-                            .begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &output_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            })
-                            .forget_lifetime(),
-                        &paint_jobs,
-                        &self.window.screen_descriptor,
-                    );
-                });
-                output_frame.present();
-            }
-            WindowEvent::CloseRequested => {
-                eltarget.exit();
-                return;
-            }
-            WindowEvent::Resized(size) => {
-                // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-                // See: https://github.com/rust-windowing/winit/issues/208
-                // This solves an issue where the app would panic when minimizing on Windows.
-                if size.width > 0 && size.height > 0 {
-                    self.window.surface_config.width = size.width;
-                    self.window.surface_config.height = size.height;
-                    self.window.screen_descriptor.size_in_pixels = [size.width, size.height];
-                    self.window
-                        .surface
-                        .configure(&self.app.dispatch.device(), &self.window.surface_config);
-                }
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.window.screen_descriptor.pixels_per_point = scale_factor as f32;
-                self.window
-                    .surface
-                    .configure(&self.app.dispatch.device(), &self.window.surface_config);
-            }
-            WindowEvent::DroppedFile(file) => {
-                println!("File dropped: {:?}", file.as_path().display().to_string());
-                self.app.rt.spawn({
-                    let app = self.app.clone();
-                    async move {
-                        match app.load_file(file) {
-                            Err(err) => {
-                                app.toasts.lock().error(format!(
-                                    "File from drag/drop failed to load. Reason: {err}"
-                                ));
-                            }
-                            Ok(key) => {
-                                app.toasts.lock().success("Loaded file from drag/drop.");
-                                app.new_instances
-                                    .send((
-                                        egui_dock::SurfaceIndex::main(),
-                                        egui_dock::NodeIndex::root(),
-                                        key,
-                                    ))
-                                    .await
-                                    .unwrap();
-                            }
+        if instances.is_empty() {
+            ui.allocate_space(vec2(
+                0.0,
+                ui.available_height() / 2.0 - ui.text_style_height(&style::TextStyle::Button),
+            ));
+            ui.vertical_centered(|ui| {
+                ui.label("Drag and drop Procreate file to view it.");
+                if ui.button("Load Procreate File").clicked() {
+                    self.app.rt.spawn({
+                        let app = self.app.clone();
+                        async move {
+                            app.load_dialog(SurfaceIndex::main(), NodeIndex::root())
+                                .await
                         }
-                    }
-                });
-            }
-            _ => {
-                let response = self
-                    .window
-                    .integration
-                    .on_window_event(&self.window.window, &event);
-                if response.repaint {
-                    self.window.window.request_redraw();
-                    eltarget.set_control_flow(ControlFlow::Poll);
-                } else {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_secs(1),
-                    ))
+                    });
                 }
+            });
+        } else {
+            while let Ok((surface, node, id)) = self.new_instances.try_recv() {
+                self.canvas_tree
+                    .set_focused_node_and_surface((surface, node));
+                self.canvas_tree.push_to_focused_leaf(id);
             }
+
+            if let Some((_, &mut id)) = self.canvas_tree.find_active_focused() {
+                self.active_canvas = id;
+            }
+            egui_dock::DockArea::new(&mut self.canvas_tree)
+                .id(Id::new("view.dock"))
+                .style({
+                    let mut style = egui_dock::Style::from_egui(ui.style());
+                    style.tab.tab_body.inner_margin = Margin::ZERO;
+                    style.tab_bar.height = 50.0;
+                    style.tab_bar.hline_color = Color32::TRANSPARENT;
+                    style.tab_bar.inner_margin = Margin::same(10);
+
+                    style.tab.spacing = 10.0;
+
+                    style.tab.active.corner_radius = CornerRadius::same(10);
+                    style.tab.active.outline_color = Color32::TRANSPARENT;
+
+                    style.tab.inactive.corner_radius = CornerRadius::same(10);
+                    style.tab.inactive.outline_color = Color32::TRANSPARENT;
+
+                    style.tab.focused.corner_radius = CornerRadius::same(10);
+                    style.tab.focused.outline_color = Color32::TRANSPARENT;
+                    style.tab.focused.bg_fill = widgets::ACCENT_COLOR;
+
+                    style.tab.hovered.corner_radius = CornerRadius::same(10);
+                    style.tab.hovered.outline_color = Color32::TRANSPARENT;
+
+                    style.buttons.close_tab_color = Color32::WHITE;
+                    style.buttons.close_tab_bg_fill = Color32::TRANSPARENT;
+
+                    style
+                })
+                .show_add_buttons(true)
+                .show_leaf_close_all_buttons(false)
+                .show_leaf_collapse_buttons(false)
+                .show_inside(
+                    ui,
+                    &mut CanvasGui {
+                        app: &self.app,
+                        view_options: &mut self.view_options,
+                        canvases: &mut self.canvases,
+                        previews: &mut self.previews,
+                        instances: &mut instances,
+                    },
+                );
         }
     }
 
-    pub fn handle_user_event(&mut self, event: UserEvent) {
-        match event {
-            UserEvent::RemoveInstance(idx) => {
-                self.editor.remove_index(idx);
-                self.editor.canvases.remove(&idx);
-                self.editor.previews.retain(|&(k, _), _| k != idx);
-            }
-            UserEvent::RebindTexture(idx) => {
-                // Updates textures bound for EGUI rendering
-                // Do not block on any locks/rwlocks since we do not want to block
-                // the GUI thread when the renderer is potentially taking a long
-                // time to render a frame.
-                let texture_filter = if self.editor.view_options.smooth {
-                    wgpu::FilterMode::Linear
-                } else {
-                    wgpu::FilterMode::Nearest
-                };
-
-                let instances = self.app.compositor.instances.read();
-                let Some(instance) = instances.get(&idx) else {
-                    return;
-                };
-
-                let output = &instance.output_texture;
-                let texture_view = output.create_srgb_view();
-                let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
-
-                if let Some(tex) = self.editor.canvases.get_mut(&idx) {
-                    self.window.renderer.update_egui_texture_from_wgpu_texture(
-                        &self.app.dispatch.device(),
-                        &texture_view,
-                        texture_filter,
-                        tex.id,
-                    );
-                    tex.size = target_dim;
-                } else {
-                    let tex = self.window.renderer.register_native_texture(
-                        &self.app.dispatch.device(),
-                        &texture_view,
-                        texture_filter,
-                    );
-                    self.editor.canvases.insert(
-                        idx,
-                        SizedTexture {
-                            id: tex,
-                            size: target_dim,
-                        },
-                    );
-                }
-            }
-            UserEvent::RebindPreviews(idx) => {
-                let instances = self.app.compositor.instances.read();
-                let Some(instance) = instances.get(&idx) else {
-                    return;
-                };
-
-                let Some(preview_texture) = &instance.preview_textures else {
-                    return;
-                };
-
-                let texture_filter = wgpu::FilterMode::Linear;
-                let target_dim = Vec2::new(
-                    preview_texture.width() as f32,
-                    preview_texture.height() as f32,
-                );
-
-                for i in 0..preview_texture.layers() {
-                    let texture_view = preview_texture.create_srgb_view_layer(i);
-                    if let Some(tex) = self.editor.previews.get_mut(&(idx, i)) {
-                        self.window.renderer.update_egui_texture_from_wgpu_texture(
-                            &self.app.dispatch.device(),
-                            &texture_view,
-                            texture_filter,
-                            tex.id,
-                        );
-                        tex.size = target_dim;
-                    } else {
-                        let tex = self.window.renderer.register_native_texture(
-                            &self.app.dispatch.device(),
-                            &texture_view,
-                            texture_filter,
-                        );
-                        self.editor.previews.insert(
-                            (idx, i),
-                            SizedTexture {
-                                id: tex,
-                                size: target_dim,
-                            },
-                        );
-                    }
-                }
-            }
-        }
+    pub fn layout_gui(&mut self, context: &Context) {
+        CentralPanel::default()
+            .frame(Frame::NONE)
+            .show(context, |ui| {
+                self.layout_view(ui);
+            });
     }
 }
