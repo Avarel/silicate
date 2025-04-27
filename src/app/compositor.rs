@@ -10,9 +10,9 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 use tokio::sync::watch::{Receiver, Sender};
 
 pub struct CompositorApp {
-    pub target: Compositor,
-    pub needs_to_load_chunks: AtomicBool,
-    pub pipeline: Pipeline,
+    target: Compositor,
+    needs_to_load_chunks: AtomicBool,
+    pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
     alive: Arc<AtomicBool>,
 }

@@ -32,7 +32,7 @@ impl BackgroundControl<'_> {
         collapsible.show_body_unindented(ui, |ui| {
             let mut rgb = Rgba::from_rgb(r, g, b);
             ColorPickerHsv::new(&mut rgb).ui(ui);
-            self.file.background_color = rgb.to_rgba_unmultiplied();
+            self.file.background_color = rgb.to_array();
         });
     }
 }
