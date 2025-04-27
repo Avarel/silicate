@@ -32,6 +32,7 @@ pub struct App {
     pub toasts: Sender<Toast>,
     pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
+    curr_id: AtomicUsize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,13 +54,13 @@ impl App {
             compositor: Arc::new(CompositorApp {
                 instances: RwLock::new(HashMap::new()),
                 pipeline: Pipeline::new(&dispatch),
-                curr_id: AtomicUsize::new(0),
             }),
             rt,
             dispatch: dispatch,
             toasts,
             new_instances,
             event_loop,
+            curr_id: AtomicUsize::new(0),
         }
     }
 
@@ -109,7 +110,6 @@ impl App {
         let addendum = crate::addendum::build(&file.layers);
 
         let id = self
-            .compositor
             .curr_id
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let key = InstanceKey(id);

@@ -7,7 +7,6 @@ use silicate_compositor::ChunkTile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::CompositeLayer;
 use silicate_compositor::pipeline::Pipeline;
-use std::sync::atomic::AtomicUsize;
 use super::Instance;
 use super::InstanceKey;
 use std::collections::HashMap;
@@ -15,7 +14,6 @@ use parking_lot::RwLock;
 
 pub struct CompositorApp {
     pub instances: RwLock<HashMap<InstanceKey, Instance>>,
-    pub curr_id: AtomicUsize,
     pub pipeline: Pipeline,
 }
 
