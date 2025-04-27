@@ -27,8 +27,6 @@ impl BackgroundControl<'_> {
                 );
             });
 
-        collapsible.response.changed();
-
         collapsible.show_body_unindented(ui, |ui| {
             let mut rgb = Rgba::from_rgb(r, g, b);
             ColorPickerHsv::new(&mut rgb).ui(ui);

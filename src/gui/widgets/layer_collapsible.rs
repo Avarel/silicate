@@ -48,8 +48,6 @@ impl<'a> LayerCollapsible<'a> {
         let mut state =
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
-        let mut changed = false;
-
         let mut overlay_ui = ui.new_child(UiBuilder::new());
 
         const PREVIEW_WIDTH: f32 = 60.0;
@@ -94,7 +92,7 @@ impl<'a> LayerCollapsible<'a> {
             let response = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let mut shown = !*self.hidden;
-                    changed |= Checkbox::without_text(&mut shown).ui(ui).changed();
+                    Checkbox::without_text(&mut shown).ui(ui);
                     *self.hidden = !shown;
                     state.show_toggle_button(ui, Self::paint_icon);
                 })
@@ -112,7 +110,7 @@ impl<'a> LayerCollapsible<'a> {
             }
         }
 
-        let mut response = frame.allocate_space(ui);
+        let response = frame.allocate_space(ui);
         if response.hovered() {
             frame.frame.fill = Color32::from_gray(35)
         } else {
@@ -120,9 +118,6 @@ impl<'a> LayerCollapsible<'a> {
         }
         frame.paint(ui);
 
-        if changed {
-            response.mark_changed();
-        }
         Prepared { state, response }
     }
 }
