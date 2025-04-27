@@ -1,21 +1,24 @@
-use crate::app::{compositor::CompositorApp, instance::InstanceKey, App, UserEvent};
+use crate::winit;
+
+use crate::app::{instance::InstanceKey, App, UserEvent};
 use crate::gui::{ViewOptions, ViewerGui};
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
-use egui_winit::winit::{
-    event_loop::{ActiveEventLoop, EventLoopProxy},
-    window::Window,
-};
-use parking_lot::{Mutex, RwLock};
-use silicate_compositor::dev::GpuDispatch;
-use silicate_compositor::{dev::GpuHandle, pipeline::Pipeline};
+
+use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use tokio::runtime::Runtime;
 use wgpu::Surface;
 
-use crate::winit;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-use std::{sync::atomic::AtomicUsize, time::Duration};
-use winit::{event::WindowEvent, event_loop::ControlFlow};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use winit::{
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
+    window::Window,
+};
 
 struct WindowBundle {
     dispatch: GpuDispatch,
@@ -262,10 +265,10 @@ impl AppInstance {
                     let app = self.app.clone();
                     async move {
                         match app.load_file(file) {
-                            Err(err) => {
-                                app.toasts.lock().error(format!(
-                                    "File from drag/drop failed to load. Reason: {err}"
-                                ));
+                            Err(_) => {
+                                app.toasts
+                                    .lock()
+                                    .error("File from drag/drop failed to load.");
                             }
                             Ok(key) => {
                                 app.toasts.lock().success("Loaded file from drag/drop.");
