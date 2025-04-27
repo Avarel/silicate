@@ -24,7 +24,7 @@ struct ControlsGui;
 impl ControlsGui {
     fn layout_info(ui: &mut Ui, instance: &Instance) {
         Grid::new("File Grid").show(ui, |ui| {
-            let file = instance.compositor.file.read();
+            let file = &instance.file;
             ui.label("Name");
             ui.label(file.name.as_deref().unwrap_or("Not Specified"));
             ui.end_row();
@@ -53,32 +53,19 @@ impl ControlsGui {
         Grid::new("Canvas Grid").show(ui, |ui| {
             ui.label("Flip");
             ui.horizontal(|ui| {
-                let mut flip_reload = false;
-
                 if ui.button("Horizontal").clicked() {
                     if instance.is_upright() {
-                        instance.flipped.horizontally = !instance.flipped.horizontally;
+                        instance.file.flipped.horizontally = !instance.file.flipped.horizontally;
                     } else {
-                        instance.flipped.vertically = !instance.flipped.vertically;
+                        instance.file.flipped.vertically = !instance.file.flipped.vertically;
                     }
-                    instance.tick_change(true);
-                    flip_reload = true;
                 }
                 if ui.button("Vertical").clicked() {
                     if instance.is_upright() {
-                        instance.flipped.vertically = !instance.flipped.vertically;
+                        instance.file.flipped.vertically = !instance.file.flipped.vertically;
                     } else {
-                        instance.flipped.horizontally = !instance.flipped.horizontally;
+                        instance.file.flipped.horizontally = !instance.file.flipped.horizontally;
                     }
-                    instance.tick_change(true);
-                    flip_reload = true;
-                }
-
-                if flip_reload {
-                    instance
-                        .compositor.target
-                        .lock()
-                        .set_flipped(instance.flipped.horizontally, instance.flipped.vertically);
                 }
             });
             ui.end_row();
@@ -90,7 +77,7 @@ impl ControlsGui {
             ui.label("Actions");
             ui.vertical(|ui| {
                 if ui.button("Export View").clicked() {
-                    let texture = instance.compositor.output_texture.clone();
+                    let texture = instance.output_texture.clone();
                     app.rt.spawn({
                         let app = app.clone();
                         async move { app.save_dialog(texture).await }
@@ -185,22 +172,19 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         PaneMenu::new("Layers", PaneButton::layers(), Align::RIGHT).show(
             &mut overlay_ui_right,
             |ui| {
-                let mut file = instance.compositor.file.write();
-                let mut changed = false;
-
                 LayersHierarchy {
-                    instance: &instance,
+                    rotation: instance.rotation,
                     previews: self.previews,
-                    layers: &mut file.layers,
+                    layers: &mut instance.file.layers,
                     addendum: &instance.addendum,
                 }
-                .ui(ui, *tab, &mut changed);
+                .ui(ui, *tab, &mut false);
 
-                BackgroundControl { file: &mut file }.ui(ui, &mut changed);
-
-                instance.tick_change(changed);
+                BackgroundControl { file: &mut instance.file }.ui(ui, &mut false);
             },
         );
+
+        instance.submit();
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
@@ -221,7 +205,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         self.instances
             .get(tab)
-            .and_then(|tab| tab.compositor.file.read().name.to_owned())
+            .and_then(|tab| tab.file.name.to_owned())
             .unwrap_or("Untitled Artwork".to_string())
             .into()
     }

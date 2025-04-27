@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::{
     dev::GpuDispatch,
@@ -5,7 +8,8 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::sync::Arc;
+use tokio::sync::watch::Sender;
+use tokio::sync::Notify;
 
 use crate::addendum::SilicaHierarchyAddendum;
 use crate::app::compositor::CompositorApp;
@@ -14,25 +18,33 @@ use crate::app::compositor::CompositorApp;
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
+    pub file: ProcreateFile,
     pub addendum: Vec<SilicaHierarchyAddendum>,
-    pub compositor: Arc<CompositorApp>,
+    pub output_texture: GpuTexture,
     pub rotation: f32,
-    pub flipped: silica::data::Flipped,
     pub preview_textures: Option<GpuTexture>,
+
+    pub(crate) previously_sent_file: Arc<ProcreateFile>,
+    pub(crate) compositor_sender: Sender<Arc<ProcreateFile>>,
+    pub(crate) notify: Arc<Notify>,
 }
 
 impl Instance {
-    pub fn tick_change(&self, b: bool) {
-        self.compositor.changed.fetch_or(b, std::sync::atomic::Ordering::AcqRel);
-    }
-
     pub fn is_upright(&self) -> bool {
         !(45.0..135.0).contains(&self.rotation.to_degrees())
             && !(225.0..315.0).contains(&self.rotation.to_degrees())
     }
 
-    pub fn generate_previews(&mut self, dispatch: &GpuDispatch, pipeline: &Pipeline) {
-        let file = self.compositor.file.read();
+    pub fn submit(&mut self) {
+        if *self.previously_sent_file != self.file {
+            let file = Arc::new(self.file.clone());
+            self.compositor_sender.send_replace(Arc::clone(&file));
+            self.previously_sent_file = file;
+        }
+    }
+
+    pub fn generate_previews(&mut self, target: &mut Compositor, dispatch: &GpuDispatch, pipeline: &Pipeline) {
+        let file = &self.file;
         let aspect_ratio = file.size.width as f32 / file.size.height as f32;
         let scaled_height = (256.0 * aspect_ratio) as u32;
 
@@ -108,7 +120,7 @@ impl Instance {
 
             generate_silica_layers_preview(
                 pipeline,
-                &mut self.compositor.target.lock(),
+                target,
                 &preview_textures,
                 &file.layers,
                 &self.addendum,
@@ -123,6 +135,7 @@ impl Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        println!("Closing {:?}", self.compositor.file.read().name);
+        self.notify.notify_waiters();
+        println!("Closing {:?}", self.file.name);
     }
 }

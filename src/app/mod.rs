@@ -7,7 +7,7 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use silica::{
     error::SilicaError,
     file::{ProcreateFile, ProcreateFileMetadata},
@@ -20,16 +20,19 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
-use tokio::{runtime::Runtime, sync::mpsc::Sender};
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{Sender, UnboundedSender},
+};
 
 pub struct App {
     pub instances: RwLock<HashMap<InstanceKey, Instance>>,
     pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
-    pub toasts: Sender<Toast>,
+    pub toasts: UnboundedSender<Toast>,
     pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
     curr_id: AtomicUsize,
@@ -47,7 +50,7 @@ impl App {
     pub fn new(
         dispatch: GpuDispatch,
         rt: Arc<Runtime>,
-        toasts: Sender<Toast>,
+        toasts: UnboundedSender<Toast>,
         new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
@@ -104,28 +107,31 @@ impl App {
 
         let addendum = crate::addendum::build(&file.layers);
 
+        let initial_compositor_file = Arc::new(file.clone());
+        let (mut compositor, notify, compositor_sender) = CompositorApp::new(
+            self.pipeline.clone(),
+            initial_compositor_file.clone(),
+            composite_target,
+        );
+
         let id = self
             .curr_id
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let key = InstanceKey(id);
         let mut instance = Instance {
+            notify,
             addendum,
-            flipped: file.flipped,
-            compositor: Arc::new(CompositorApp {
-                file: RwLock::new(file),
-                target: Mutex::new(composite_target),
-                changed: AtomicBool::new(true),
-                needs_to_load_chunks: AtomicBool::new(true),
-                output_texture,
-                pipeline: self.pipeline.clone(),
-            }),
+            file: file.clone(),
+            output_texture: output_texture.clone(),
             preview_textures: None,
+            previously_sent_file: initial_compositor_file,
+            compositor_sender,
             rotation,
         };
-        instance.generate_previews(&self.dispatch, &self.pipeline);
+        instance.generate_previews(&mut compositor.target, &self.dispatch, &self.pipeline);
 
         self.rt
-            .spawn(instance.compositor.clone().rendering_thread());
+            .spawn(compositor.rendering_thread(output_texture.clone()));
 
         self.instances.write().insert(key, instance);
         self.rebind_texture(key);
@@ -140,10 +146,7 @@ impl App {
             .pick_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts
-                .send(Toast::info("Load cancelled."))
-                .await
-                .unwrap();
+            self.toasts.send(Toast::info("Load cancelled.")).unwrap();
             return;
         };
 
@@ -154,7 +157,6 @@ impl App {
                         "File {} failed to load. Reason: {err}",
                         handle.file_name()
                     )))
-                    .await
                     .unwrap();
             }
             Ok(key) => {
@@ -163,7 +165,6 @@ impl App {
                         "File {} successfully opened.",
                         handle.file_name()
                     )))
-                    .await
                     .unwrap();
                 self.new_instances
                     .send((surface_index, node_index, key))
@@ -184,10 +185,7 @@ impl App {
             .save_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts
-                .send(Toast::info("Export cancelled."))
-                .await
-                .unwrap();
+            self.toasts.send(Toast::info("Export cancelled.")).unwrap();
             return;
         };
 
@@ -199,7 +197,6 @@ impl App {
                     "File {} failed to export. Reason: {err}.",
                     handle.file_name()
                 )))
-                .await
                 .unwrap();
         } else {
             self.toasts
@@ -207,7 +204,6 @@ impl App {
                     "File {} successfully exported.",
                     handle.file_name()
                 )))
-                .await
                 .unwrap();
         }
     }

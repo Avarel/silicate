@@ -1,4 +1,3 @@
-use parking_lot::{Mutex, RwLock};
 use silica::{
     file::ProcreateFile,
     layers::{SilicaHierarchy, SilicaLayer},
@@ -6,19 +5,16 @@ use silica::{
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
 };
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::Arc};
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::MissedTickBehavior;
+use tokio::sync::{watch::{Receiver, Sender}, Notify};
 
 pub struct CompositorApp {
-    pub file: RwLock<ProcreateFile>,
-    pub target: Mutex<Compositor>,
-    pub output_texture: GpuTexture,
-    pub changed: AtomicBool,
+    pub target: Compositor,
     pub needs_to_load_chunks: AtomicBool,
     pub pipeline: Pipeline,
+    rx: Receiver<Arc<ProcreateFile>>,
+    notify: Arc<Notify>,
 }
 
 impl CompositorApp {
@@ -108,43 +104,42 @@ impl CompositorApp {
         inner(layers, composite_layers, &mut None, &mut layer_counter);
     }
 
-    fn change_untick(&self) -> bool {
-        self.changed
-            .swap(false, std::sync::atomic::Ordering::AcqRel)
+    pub fn new(
+        pipeline: Pipeline,
+        file: Arc<ProcreateFile>,
+        target: Compositor,
+    ) -> (Self, Arc<Notify>, Sender<Arc<ProcreateFile>>) {
+        let (tx, mut rx) = tokio::sync::watch::channel(file);
+
+        rx.mark_changed();
+
+        let notify = Arc::new(Notify::new());
+
+        let compositor = Self {
+            notify: notify.clone(),
+            rx,
+            target,
+            needs_to_load_chunks: AtomicBool::new(true),
+            pipeline,
+        };
+
+        (compositor, notify, tx)
     }
 
-    pub async fn rendering_thread(mut self: Arc<Self>) {
+    pub async fn rendering_thread(mut self, output_texture: GpuTexture) {
         let mut composite_layers = Vec::new();
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
 
-        let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
-        limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
         loop {
-            // Live until we are the last owner of ourselves.
-            match Arc::try_unwrap(self) {
-                Ok(_) => break,
-                Err(arc) => self = arc,
-            }
-
-            // Ensures that we are not generating frames faster than 60FPS
-            // to avoid putting unnecessary computational pressure on the GPU.
-            limiter.tick().await;
-
-            // If the file is contended then it might be edited by the GUI.
-            // Might as well not render a soon to be outdated result.
-            let Some(file) = self.file.try_read() else {
-                continue;
+            tokio::select! {
+                _ = self.notify.notified() => { break }
+                _ = self.rx.changed() => {}
             };
-            // Only force a recompute if we need to.
-            if !self.change_untick() {
-                continue;
-            }
+
+            let file = (*self.rx.borrow()).clone();
 
             let new_layer_config = file.layers.clone();
             let background = (!file.background_hidden).then_some(file.background_color);
-            // Drop the guard here, we no longer need it.
-            drop(file);
 
             let reload_chunks = self
                 .needs_to_load_chunks
@@ -157,19 +152,25 @@ impl CompositorApp {
 
             Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
 
-            let mut target = self.target.lock();
-            target.load_layer_buffer(composite_layers.as_slice());
+            self.target.load_layer_buffer(composite_layers.as_slice());
             if reload_chunks {
                 eprintln!("Reloading chunks");
-                target.load_chunk_buffer(composite_chunks.as_slice());
+                self.target.load_chunk_buffer(composite_chunks.as_slice());
             }
-            target.set_background(background);
-            target.render(&self.pipeline, self.output_texture.create_default_view());
+            self.target.set_background(background);
+            self.target
+                .set_flipped(file.flipped.horizontally, file.flipped.vertically);
+            self.target
+                .render(&self.pipeline, output_texture.create_default_view());
             // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-            // std::thread::sleep(std::time::Duration::from_secs(1));
+            // {
+            //     if !cfg!(debug_assertions) {
+            //         panic!("FORGOT TO DISABLE DEBUG CODE")
+            //     }
+            //     std::thread::sleep(std::time::Duration::from_secs(1));
+            // }
             // Debugging notes: if the GPU is highly contended, the main
             // GUI rendering can still be somewhat sluggish.
-            drop(target);
         }
 
         eprintln!("Done rendering")

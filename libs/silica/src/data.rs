@@ -1,6 +1,6 @@
 use crate::ns_archive::{NsKeyedArchive, error::NsArchiveError};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Flipped {
     pub horizontally: bool,
     pub vertically: bool,

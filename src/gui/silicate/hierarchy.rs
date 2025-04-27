@@ -1,6 +1,6 @@
 use crate::{
     addendum::SilicaHierarchyAddendum,
-    app::instance::{Instance, InstanceKey},
+    app::instance::InstanceKey,
     gui::widgets::layer_collapsible::LayerCollapsible,
 };
 use egui::{load::SizedTexture, *};
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use super::layer::LayerControl;
 
 pub struct LayersHierarchy<'a> {
-    pub instance: &'a Instance,
+    pub rotation: f32,
     pub previews: &'a HashMap<(InstanceKey, u32), SizedTexture>,
     pub layers: &'a mut [SilicaHierarchy],
     pub addendum: &'a [SilicaHierarchyAddendum],
@@ -66,7 +66,7 @@ impl LayersHierarchy<'_> {
                                 Rect::from_center_size(max_rect.center(), size)
                             }
 
-                            let rotation = round_to_nearest_quarter_turn(self.instance.rotation);
+                            let rotation = round_to_nearest_quarter_turn(self.rotation);
 
                             let original_image_size = image.size().expect("wgpu texture have size");
                             let mut image_size = original_image_size;
@@ -100,7 +100,7 @@ impl LayersHierarchy<'_> {
                     (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
                         collapsible.show_body_indented(ui, |ui| {
                             LayersHierarchy {
-                                instance: self.instance,
+                                rotation: self.rotation,
                                 previews: self.previews,
                                 layers: &mut layer.children,
                                 addendum: &addendum.children,

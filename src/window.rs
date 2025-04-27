@@ -8,7 +8,7 @@ use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 
 use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedReceiver;
 use wgpu::Surface;
 
 use std::{
@@ -87,7 +87,7 @@ pub struct AppInstance {
     window: WindowBundle,
     viewer: ViewerGui,
     pub toasts: Toasts,
-    rx_toasts: Receiver<Toast>,
+    rx_toasts: UnboundedReceiver<Toast>,
 }
 
 impl AppInstance {
@@ -100,7 +100,7 @@ impl AppInstance {
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let (tx_toasts, rx_toasts) = tokio::sync::mpsc::channel(2);
+        let (tx_toasts, rx_toasts) = tokio::sync::mpsc::unbounded_channel();
         let (tx_instances, rx_instances) = tokio::sync::mpsc::channel(2);
 
         let app = Arc::new(App::new(
@@ -282,13 +282,11 @@ impl AppInstance {
                             Err(_) => {
                                 app.toasts
                                     .send(Toast::error("File from drag/drop failed to load."))
-                                    .await
                                     .unwrap();
                             }
                             Ok(key) => {
                                 app.toasts
                                     .send(Toast::success("Loaded file from drag/drop."))
-                                    .await
                                     .unwrap();
                                 app.new_instances
                                     .send((
@@ -343,7 +341,7 @@ impl AppInstance {
                     return;
                 };
 
-                let output = &instance.compositor.output_texture;
+                let output = &instance.output_texture;
                 let texture_view = output.create_srgb_view();
                 let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
 

@@ -16,7 +16,7 @@ use zip::read::ZipArchive;
 
 pub(crate) type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcreateFile {
     pub author_name: Option<String>,
     pub background_hidden: bool,
