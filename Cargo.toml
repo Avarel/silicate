@@ -35,15 +35,13 @@ egui-winit = "0.31.0"
 # winit = "0.29"
 egui_dock = { path = "libs/egui_dock" }
 egui-notify = "0.19"
-# Async runtime
-rfd = { version = "0.15", default-features = false, features = ["tokio", "xdg-portal"] }
-tokio = { version = "1.21", features = [
-    "sync",
-    "rt",
-    "rt-multi-thread",
-    "time",
-    "macros"
+
+rfd = { version = "0.15", default-features = false, features = [
+    "tokio",
+    "xdg-portal",
 ] }
+# Async runtime
+tokio = { version = "1.21", features = ["sync", "rt-multi-thread"] }
 
 [profile.release]
 strip = true

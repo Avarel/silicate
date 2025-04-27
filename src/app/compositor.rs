@@ -6,7 +6,7 @@ use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
 };
 use std::sync::atomic::AtomicBool;
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc};
 use tokio::sync::watch::{Receiver, Sender};
 
 pub struct CompositorApp {
@@ -14,13 +14,11 @@ pub struct CompositorApp {
     needs_to_load_chunks: AtomicBool,
     pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
-    alive: Arc<AtomicBool>,
 }
 
 pub struct CompositorHandle {
     previously_sent_file: Arc<ProcreateFile>,
     compositor_sender: Sender<Arc<ProcreateFile>>,
-    alive: Arc<AtomicBool>,
 }
 
 impl CompositorHandle {
@@ -30,14 +28,6 @@ impl CompositorHandle {
             self.compositor_sender.send_replace(Arc::clone(&file));
             self.previously_sent_file = file;
         }
-    }
-}
-
-impl Drop for CompositorHandle {
-    fn drop(&mut self) {
-        eprintln!("Notifying compositor to die");
-        self.alive
-            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -137,10 +127,7 @@ impl CompositorApp {
 
         rx.mark_changed();
 
-        let alive = Arc::new(AtomicBool::new(true));
-
         let compositor = Self {
-            alive: alive.clone(),
             rx,
             target,
             needs_to_load_chunks: AtomicBool::new(true),
@@ -150,7 +137,6 @@ impl CompositorApp {
         let handle = CompositorHandle {
             previously_sent_file: file.clone(),
             compositor_sender: tx,
-            alive,
         };
 
         (compositor, handle)
@@ -161,22 +147,10 @@ impl CompositorApp {
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
 
         loop {
-            let alive = self.alive.load(std::sync::atomic::Ordering::Relaxed);
-
-            let file = tokio::select! {
-                _ = self.rx.changed() => (*self.rx.borrow()).clone(),
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    if alive {
-                        continue
-                    } else {
-                        break
-                    }
-                }
+            let file = match self.rx.changed().await {
+                Ok(_) => (*self.rx.borrow()).clone(),
+                Err(_) => break,
             };
-
-            if !alive {
-                break;
-            }
 
             let new_layer_config = file.layers.clone();
             let background = (!file.background_hidden).then_some(file.background_color);
