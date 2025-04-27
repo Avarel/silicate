@@ -1,9 +1,6 @@
 use crate::winit;
 
-use crate::app::{
-    instance::{Instance, InstanceKey},
-    App, UserEvent,
-};
+use crate::app::{App, UserEvent};
 use crate::gui::{ViewOptions, ViewerGui};
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_notify::{Toast, Toasts};
@@ -359,10 +356,7 @@ impl AppInstance {
                         &texture_view,
                         texture_filter,
                     );
-                    instance.canvas = Some(SizedTexture {
-                        id,
-                        size,
-                    });
+                    instance.canvas = Some(SizedTexture { id, size });
                 }
             }
             UserEvent::RebindPreviews(idx) => {
@@ -396,13 +390,7 @@ impl AppInstance {
                             &texture_view,
                             texture_filter,
                         );
-                        instance.previews.insert(
-                            i,
-                            SizedTexture {
-                                id,
-                                size,
-                            },
-                        );
+                        instance.previews.insert(i, SizedTexture { id, size });
                     }
                 }
             }
