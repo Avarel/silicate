@@ -1,19 +1,23 @@
-use tokio::time::MissedTickBehavior;
-use std::time::Duration;
-use std::sync::Arc;
+use parking_lot::{Mutex, RwLock};
+use silica::{
+    file::ProcreateFile,
+    layers::{SilicaHierarchy, SilicaLayer},
+};
+use silicate_compositor::{
+    pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
+};
 use std::num::NonZeroU32;
-use silica::layers::SilicaLayer;
-use silicate_compositor::ChunkTile;
-use silica::layers::SilicaHierarchy;
-use silicate_compositor::CompositeLayer;
-use silicate_compositor::pipeline::Pipeline;
-use super::Instance;
-use super::InstanceKey;
-use std::collections::HashMap;
-use parking_lot::RwLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::MissedTickBehavior;
 
 pub struct CompositorApp {
-    pub instances: RwLock<HashMap<InstanceKey, Instance>>,
+    pub file: RwLock<ProcreateFile>,
+    pub target: Mutex<Compositor>,
+    pub output_texture: GpuTexture,
+    pub changed: AtomicBool,
+    pub needs_to_load_chunks: AtomicBool,
     pub pipeline: Pipeline,
 }
 
@@ -55,7 +59,10 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    pub(crate) fn linearize_silica_chunks(composite_layers: &mut Vec<ChunkTile>, layers: &[SilicaHierarchy]) {
+    pub(crate) fn linearize_silica_chunks(
+        composite_layers: &mut Vec<ChunkTile>,
+        layers: &[SilicaHierarchy],
+    ) {
         composite_layers.clear();
 
         let mut layer_counter = 0;
@@ -101,61 +108,70 @@ impl CompositorApp {
         inner(layers, composite_layers, &mut None, &mut layer_counter);
     }
 
-    pub async fn rendering_thread(self: Arc<Self>) {
+    fn change_untick(&self) -> bool {
+        self.changed
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    pub async fn rendering_thread(mut self: Arc<Self>) {
         let mut composite_layers = Vec::new();
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
+
         let mut limiter = tokio::time::interval(Duration::from_secs(1).div_f64(f64::from(60)));
         limiter.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
+            // Live until we are the last owner of ourselves.
+            match Arc::try_unwrap(self) {
+                Ok(_) => break,
+                Err(arc) => self = arc,
+            }
+
             // Ensures that we are not generating frames faster than 60FPS
             // to avoid putting unnecessary computational pressure on the GPU.
             limiter.tick().await;
 
-            for instance in self.instances.read().values() {
-                // If the file is contended then it might be edited by the GUI.
-                // Might as well not render a soon to be outdated result.
-                let Some(file) = instance.file.try_read() else {
-                    continue;
-                };
-                // Only force a recompute if we need to.
-                if !instance.change_untick() {
-                    continue;
-                }
-
-                let new_layer_config = file.layers.clone();
-                let background = (!file.background_hidden).then_some(file.background_color);
-                // Drop the guard here, we no longer need it.
-                drop(file);
-
-                let reload_chunks = instance
-                    .needs_to_load_chunks
-                    .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
-
-                if reload_chunks {
-                    Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
-                    composite_chunks.sort_by_key(|v| (v.col, v.row));
-                }
-
-                Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
-
-                let mut target = instance.target.lock();
-                target.load_layer_buffer(composite_layers.as_slice());
-                if reload_chunks {
-                    eprintln!("Reloading chunks");
-                    target.load_chunk_buffer(composite_chunks.as_slice());
-                }
-                target.set_background(background);
-                target.render(
-                    &self.pipeline,
-                    instance.output_texture.create_default_view(),
-                );
-                // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-                // std::thread::sleep(std::time::Duration::from_secs(1));
-                // Debugging notes: if the GPU is highly contended, the main
-                // GUI rendering can still be somewhat sluggish.
-                drop(target);
+            // If the file is contended then it might be edited by the GUI.
+            // Might as well not render a soon to be outdated result.
+            let Some(file) = self.file.try_read() else {
+                continue;
+            };
+            // Only force a recompute if we need to.
+            if !self.change_untick() {
+                continue;
             }
+
+            let new_layer_config = file.layers.clone();
+            let background = (!file.background_hidden).then_some(file.background_color);
+            // Drop the guard here, we no longer need it.
+            drop(file);
+
+            let reload_chunks = self
+                .needs_to_load_chunks
+                .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
+
+            if reload_chunks {
+                Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
+                composite_chunks.sort_by_key(|v| (v.col, v.row));
+            }
+
+            Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
+
+            let mut target = self.target.lock();
+            target.load_layer_buffer(composite_layers.as_slice());
+            if reload_chunks {
+                eprintln!("Reloading chunks");
+                target.load_chunk_buffer(composite_chunks.as_slice());
+            }
+            target.set_background(background);
+            target.render(&self.pipeline, self.output_texture.create_default_view());
+            // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+            // std::thread::sleep(std::time::Duration::from_secs(1));
+            // Debugging notes: if the GPU is highly contended, the main
+            // GUI rendering can still be somewhat sluggish.
+            drop(target);
         }
+
+        eprintln!("Done rendering")
     }
 }

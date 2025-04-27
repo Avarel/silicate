@@ -98,7 +98,7 @@ impl AppInstance {
         window: Arc<Window>,
         event_loop_proxy: EventLoopProxy<UserEvent>,
     ) -> Self {
-        let window_bundle = WindowBundle::new(&dev, surface, window);
+        let window = WindowBundle::new(&dev, surface, window);
 
         let (tx_toasts, rx_toasts) = tokio::sync::mpsc::channel(2);
         let (tx_instances, rx_instances) = tokio::sync::mpsc::channel(2);
@@ -110,7 +110,6 @@ impl AppInstance {
             tx_instances,
             event_loop_proxy,
         ));
-        app.spawn_rendering_thread();
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -128,7 +127,7 @@ impl AppInstance {
 
         let app_instance = AppInstance {
             app,
-            window: window_bundle,
+            window,
             viewer,
             rx_toasts,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
@@ -339,12 +338,12 @@ impl AppInstance {
                     wgpu::FilterMode::Nearest
                 };
 
-                let instances = self.app.compositor.instances.read();
+                let instances = self.app.instances.read();
                 let Some(instance) = instances.get(&idx) else {
                     return;
                 };
 
-                let output = &instance.output_texture;
+                let output = &instance.compositor.output_texture;
                 let texture_view = output.create_srgb_view();
                 let target_dim = Vec2::new(output.width() as f32, output.height() as f32);
 
@@ -372,7 +371,7 @@ impl AppInstance {
                 }
             }
             UserEvent::RebindPreviews(idx) => {
-                let instances = self.app.compositor.instances.read();
+                let instances = self.app.instances.read();
                 let Some(instance) = instances.get(&idx) else {
                     return;
                 };

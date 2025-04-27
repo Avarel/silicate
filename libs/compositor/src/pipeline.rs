@@ -1,5 +1,6 @@
 use crate::{ChunkInstance, VertexInput, dev::GpuDispatch};
 
+#[derive(Clone)]
 pub struct Pipeline {
     pub sampler_bind_group: wgpu::BindGroup,
     pub blending_bind_group_layout: wgpu::BindGroupLayout,

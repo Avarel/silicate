@@ -1,5 +1,3 @@
-use parking_lot::{Mutex, RwLock};
-use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::{
     dev::GpuDispatch,
@@ -7,8 +5,7 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::sync::atomic::Ordering::{Acquire, Release};
-use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use crate::addendum::SilicaHierarchyAddendum;
 use crate::app::compositor::CompositorApp;
@@ -17,12 +14,8 @@ use crate::app::compositor::CompositorApp;
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
-    pub file: RwLock<ProcreateFile>,
     pub addendum: Vec<SilicaHierarchyAddendum>,
-    pub target: Mutex<Compositor>,
-    pub output_texture: GpuTexture,
-    pub changed: AtomicBool,
-    pub needs_to_load_chunks: AtomicBool,
+    pub compositor: Arc<CompositorApp>,
     pub rotation: f32,
     pub flipped: silica::data::Flipped,
     pub preview_textures: Option<GpuTexture>,
@@ -30,11 +23,7 @@ pub struct Instance {
 
 impl Instance {
     pub fn tick_change(&self, b: bool) {
-        self.changed.fetch_or(b, Release);
-    }
-
-    pub fn change_untick(&self) -> bool {
-        self.changed.swap(false, Acquire)
+        self.compositor.changed.fetch_or(b, std::sync::atomic::Ordering::AcqRel);
     }
 
     pub fn is_upright(&self) -> bool {
@@ -43,7 +32,7 @@ impl Instance {
     }
 
     pub fn generate_previews(&mut self, dispatch: &GpuDispatch, pipeline: &Pipeline) {
-        let file = self.file.read();
+        let file = self.compositor.file.read();
         let aspect_ratio = file.size.width as f32 / file.size.height as f32;
         let scaled_height = (256.0 * aspect_ratio) as u32;
 
@@ -119,7 +108,7 @@ impl Instance {
 
             generate_silica_layers_preview(
                 pipeline,
-                &mut self.target.lock(),
+                &mut self.compositor.target.lock(),
                 &preview_textures,
                 &file.layers,
                 &self.addendum,
@@ -134,6 +123,6 @@ impl Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        println!("Closing {:?}", self.file.get_mut().name);
+        println!("Closing {:?}", self.compositor.file.read().name);
     }
 }

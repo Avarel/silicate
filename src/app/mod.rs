@@ -26,13 +26,14 @@ use std::{collections::HashMap, path::PathBuf};
 use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
 pub struct App {
+    pub instances: RwLock<HashMap<InstanceKey, Instance>>,
     pub dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
-    pub compositor: Arc<CompositorApp>,
     pub toasts: Sender<Toast>,
     pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
     curr_id: AtomicUsize,
+    pipeline: Pipeline,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,10 +52,8 @@ impl App {
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
         Self {
-            compositor: Arc::new(CompositorApp {
-                instances: RwLock::new(HashMap::new()),
-                pipeline: Pipeline::new(&dispatch),
-            }),
+            instances: RwLock::new(HashMap::new()),
+            pipeline: Pipeline::new(&dispatch),
             rt,
             dispatch: dispatch,
             toasts,
@@ -62,10 +61,6 @@ impl App {
             event_loop,
             curr_id: AtomicUsize::new(0),
         }
-    }
-
-    pub fn spawn_rendering_thread(&self) {
-        self.rt.spawn(self.compositor.clone().rendering_thread());
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
@@ -115,17 +110,24 @@ impl App {
         let key = InstanceKey(id);
         let mut instance = Instance {
             addendum,
-            output_texture,
             flipped: file.flipped,
-            file: RwLock::new(file),
-            target: Mutex::new(composite_target),
-            changed: AtomicBool::new(true),
-            needs_to_load_chunks: AtomicBool::new(true),
+            compositor: Arc::new(CompositorApp {
+                file: RwLock::new(file),
+                target: Mutex::new(composite_target),
+                changed: AtomicBool::new(true),
+                needs_to_load_chunks: AtomicBool::new(true),
+                output_texture,
+                pipeline: self.pipeline.clone(),
+            }),
             preview_textures: None,
             rotation,
         };
-        instance.generate_previews(&self.dispatch, &self.compositor.pipeline);
-        self.compositor.instances.write().insert(key, instance);
+        instance.generate_previews(&self.dispatch, &self.pipeline);
+
+        self.rt
+            .spawn(instance.compositor.clone().rendering_thread());
+
+        self.instances.write().insert(key, instance);
         self.rebind_texture(key);
         self.rebind_previews(key);
         Ok(key)

@@ -24,7 +24,7 @@ struct ControlsGui;
 impl ControlsGui {
     fn layout_info(ui: &mut Ui, instance: &Instance) {
         Grid::new("File Grid").show(ui, |ui| {
-            let file = instance.file.read();
+            let file = instance.compositor.file.read();
             ui.label("Name");
             ui.label(file.name.as_deref().unwrap_or("Not Specified"));
             ui.end_row();
@@ -76,7 +76,7 @@ impl ControlsGui {
 
                 if flip_reload {
                     instance
-                        .target
+                        .compositor.target
                         .lock()
                         .set_flipped(instance.flipped.horizontally, instance.flipped.vertically);
                 }
@@ -90,7 +90,7 @@ impl ControlsGui {
             ui.label("Actions");
             ui.vertical(|ui| {
                 if ui.button("Export View").clicked() {
-                    let texture = instance.output_texture.clone();
+                    let texture = instance.compositor.output_texture.clone();
                     app.rt.spawn({
                         let app = app.clone();
                         async move { app.save_dialog(texture).await }
@@ -185,7 +185,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         PaneMenu::new("Layers", PaneButton::layers(), Align::RIGHT).show(
             &mut overlay_ui_right,
             |ui| {
-                let mut file = instance.file.write();
+                let mut file = instance.compositor.file.write();
                 let mut changed = false;
 
                 LayersHierarchy {
@@ -221,7 +221,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         self.instances
             .get(tab)
-            .and_then(|tab| tab.file.read().name.to_owned())
+            .and_then(|tab| tab.compositor.file.read().name.to_owned())
             .unwrap_or("Untitled Artwork".to_string())
             .into()
     }
@@ -245,13 +245,13 @@ pub struct ViewerGui {
 impl ViewerGui {
     pub fn remove_index(&mut self, index: InstanceKey) {
         self.canvases.remove(&index);
-        self.app.compositor.instances.write().remove(&index);
+        self.app.instances.write().remove(&index);
     }
 
     fn layout_view(&mut self, ui: &mut Ui) {
         ui.set_min_size(ui.available_size());
 
-        let mut instances = self.app.compositor.instances.write();
+        let mut instances = self.app.instances.write();
 
         if instances.is_empty() {
             ui.allocate_space(vec2(
