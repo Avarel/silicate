@@ -19,6 +19,31 @@ use std::sync::OnceLock;
 
 use super::IRData;
 
+impl<'a> NsDecode<'a> for BlendingMode {
+    fn fetch(
+        nka: &'a NsKeyedArchive,
+        world: &'a Dictionary,
+        key: &'a str,
+    ) -> Result<Self, NsArchiveError> {
+        assert!(key == "extendedBlend" || key == "blend");
+
+        let val = nka
+            .fetch_value_nullable(world, "extendedBlend")
+            .transpose()
+            .unwrap_or_else(|| nka.fetch_value(world, "blend"))?;
+        Self::decode(nka, "extendedBlend", val)
+    }
+
+    fn decode(
+        nka: &'a NsKeyedArchive,
+        key: &'a str,
+        val: &'a Value,
+    ) -> Result<Self, NsArchiveError> {
+        BlendingMode::from_u32(u32::decode(nka, key, val)?)
+            .ok_or_else(|| NsArchiveError::TypeMismatch(String::from(key)))
+    }
+}
+
 pub(crate) enum SilicaIRHierarchy<'a> {
     Layer(SilicaIRLayer<'a>),
     Group(SilicaIRGroup<'a>),
@@ -120,12 +145,9 @@ impl SilicaIRLayer<'_> {
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
         Ok(SilicaLayer {
-            blend: BlendingMode::from_u32(
-                nka.fetch::<Option<u32>>(world, "extendedBlend")
-                    .transpose()
-                    .unwrap_or_else(|| nka.fetch::<u32>(world, "blend"))?,
-            )
-            .ok_or_else(|| SilicaError::InvalidValue)?,
+            blend: nka
+                .fetch::<BlendingMode>(world, "extendedBlend")
+                .or_else(|_| nka.fetch::<BlendingMode>(world, "blend"))?,
             clipped: nka.fetch::<bool>(world, "clipped")?,
             hidden: nka.fetch::<bool>(world, "hidden")?,
             mask: None,
