@@ -1,6 +1,6 @@
 use crate::{
     addendum::SilicaHierarchyAddendum,
-    app::{Instance, InstanceKey},
+    app::instance::{Instance, InstanceKey},
     gui::widgets::layer_collapsible::LayerCollapsible,
 };
 use egui::{load::SizedTexture, *};

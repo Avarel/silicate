@@ -4,7 +4,7 @@ mod silicate;
 mod widgets;
 
 use self::layout::{ViewOptions, ViewerGui};
-use crate::app::{App, CompositorApp, InstanceKey, UserEvent};
+use crate::app::{compositor::CompositorApp, instance::InstanceKey, App, UserEvent};
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 use egui_winit::winit::{
@@ -47,6 +47,7 @@ impl AppInstance {
         let surface_caps = surface.get_capabilities(&dev.adapter);
         let surface_format = surface_caps.formats[0];
         let surface_alpha = surface_caps.alpha_modes[0];
+        let surface_present: wgpu::PresentMode = surface_caps.present_modes[0];
         let surface_config = {
             let window_size = window.inner_size();
             wgpu::SurfaceConfiguration {
@@ -54,12 +55,14 @@ impl AppInstance {
                 format: surface_format,
                 width: window_size.width,
                 height: window_size.height,
-                present_mode: wgpu::PresentMode::Fifo,
+                present_mode: surface_present,
                 view_formats: Vec::new(),
                 alpha_mode: surface_alpha,
                 desired_maximum_frame_latency: 0,
             }
         };
+        dbg!(&surface_caps, &surface_config);
+
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: window.scale_factor() as f32,

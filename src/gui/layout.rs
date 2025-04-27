@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
-use crate::app::{App, Instance, InstanceKey, UserEvent};
+use crate::app::{
+    instance::{Instance, InstanceKey},
+    App, UserEvent,
+};
 
 use super::canvas::CanvasView;
 use super::silicate::background::BackgroundControl;
