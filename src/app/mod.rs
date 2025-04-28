@@ -9,7 +9,7 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
 use silica::{
     error::SilicaError,
-    file::{ProcreateFile, ProcreateFileMetadata},
+    file::{ProcreateFile, ProcreateFileCanvas},
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
@@ -68,13 +68,13 @@ impl App {
         let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.dispatch)).unwrap();
 
-        let ProcreateFileMetadata {
+        let ProcreateFileCanvas {
             atlas_texture,
             canvas_tiling,
         } = metadata;
 
         let canvas = CompositorCanvasTiling::new(
-            (file.size.width, file.size.height),
+            (file.info.size.width, file.info.size.height),
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
@@ -87,12 +87,12 @@ impl App {
 
         let output_texture = GpuTexture::empty(
             &self.dispatch,
-            file.size.width,
-            file.size.height,
+            file.info.size.width,
+            file.info.size.height,
             GpuTexture::OUTPUT_USAGE,
         );
 
-        let rotation = match file.orientation {
+        let rotation = match file.info.orientation {
             silica::data::Orientation::NoRotation => 0.0,
             silica::data::Orientation::Clockwise180 => 180.0,
             silica::data::Orientation::Clockwise270 => 270.0,

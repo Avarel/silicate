@@ -1,10 +1,6 @@
-use crate::data::{Flipped, Orientation};
-use crate::ir::ProcreateUnloadedFile;
+use crate::info::ProcreateFileInfo;
 use crate::layers::{CanvasTiling, SilicaHierarchy, SilicaLayer};
-use crate::{
-    error::SilicaError,
-    ns_archive::{NsKeyedArchive, Size},
-};
+use crate::{error::SilicaError, ns_archive::NsKeyedArchive};
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 use std::{
@@ -18,20 +14,12 @@ pub(crate) type ZipArchiveMmap<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcreateFile {
-    pub author_name: Option<String>,
-    pub background_hidden: bool,
-    pub background_color: [f32; 4],
-    pub flipped: Flipped,
-    pub name: Option<String>,
-    pub orientation: Orientation,
-    pub stroke_count: usize,
-    pub tile_size: u32,
+    pub info: ProcreateFileInfo,
     pub composite: Option<SilicaLayer>,
     pub layers: Vec<SilicaHierarchy>,
-    pub size: Size<u32>,
 }
 
-pub struct ProcreateFileMetadata {
+pub struct ProcreateFileCanvas {
     pub atlas_texture: GpuTexture,
     pub canvas_tiling: CanvasTiling,
 }
@@ -41,7 +29,7 @@ impl ProcreateFile {
     pub fn open(
         path: &Path,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, ProcreateFileMetadata), SilicaError> {
+    ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
@@ -63,8 +51,9 @@ impl ProcreateFile {
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
         dispatch: &GpuDispatch,
-    ) -> Result<(Self, ProcreateFileMetadata), SilicaError> {
-        ProcreateUnloadedFile::from_ns(&archive, &nka)?.load(dispatch)
+    ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
+        let (unloaded_file, data) = ProcreateFileInfo::from_ns(&archive, &nka)?;
+        unloaded_file.load(data, dispatch)
     }
 
     pub fn layer_count(&self, include_groups: bool) -> u32 {

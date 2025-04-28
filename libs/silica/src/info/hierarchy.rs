@@ -46,12 +46,12 @@ impl<'a> NsDecode<'a> for BlendingMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SilicaIRHierarchy {
-    Layer(SilicaIRLayer),
-    Group(SilicaIRGroup),
+    Layer(SilicaLayerInfo),
+    Group(SilicaGroupInfo),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaIRLayer {
+pub struct SilicaLayerInfo {
     // animationHeldLength:Int?
     pub blend: BlendingMode,
     // bundledImagePath:String?
@@ -78,7 +78,7 @@ pub struct SilicaIRLayer {
     pub version: u64,
 }
 
-impl<'a> NsDecode<'a> for SilicaIRLayer {
+impl<'a> NsDecode<'a> for SilicaLayerInfo {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -102,7 +102,7 @@ impl<'a> NsDecode<'a> for SilicaIRLayer {
     }
 }
 
-impl SilicaIRLayer {
+impl SilicaLayerInfo {
     pub(crate) fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
@@ -176,20 +176,20 @@ impl SilicaIRLayer {
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
         Ok(SilicaLayer {
-            meta: self,
+            info: self,
             image: SilicaImageData { chunks },
         })
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaIRGroup {
+pub struct SilicaGroupInfo {
     pub name: Option<String>,
     pub hidden: bool,
     pub(crate) children: Vec<SilicaIRHierarchy>,
 }
 
-impl<'a> NsDecode<'a> for SilicaIRGroup {
+impl<'a> NsDecode<'a> for SilicaGroupInfo {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -216,14 +216,14 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy {
         let class = nka.fetch::<NsClass>(coder, "$class")?;
 
         match class.class_name.as_str() {
-            "SilicaGroup" => Ok(SilicaIRGroup::decode(nka, key, val).map(Self::Group)?),
-            "SilicaLayer" => Ok(SilicaIRLayer::decode(nka, key, val).map(Self::Layer)?),
+            "SilicaGroup" => Ok(SilicaGroupInfo::decode(nka, key, val).map(Self::Group)?),
+            "SilicaLayer" => Ok(SilicaLayerInfo::decode(nka, key, val).map(Self::Layer)?),
             _ => Err(NsArchiveError::TypeMismatch("$class".to_string())),
         }
     }
 }
 
-impl<'a> SilicaIRGroup {
+impl<'a> SilicaGroupInfo {
     pub(crate) fn load(
         mut self,
         dispatch: &GpuDispatch,
@@ -236,7 +236,7 @@ impl<'a> SilicaIRGroup {
                 .par_drain(..)
                 .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
-            meta: self,
+            info: self,
         })
     }
 }

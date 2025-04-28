@@ -51,15 +51,15 @@ impl CompositorApp {
                         inner(
                             &group.children,
                             composite_layers,
-                            group.meta.hidden | override_hidden,
+                            group.info.hidden | override_hidden,
                         );
                     }
                     SilicaHierarchy::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
-                            opacity: layer.meta.opacity,
-                            blend: layer.meta.blend,
-                            clipped: layer.meta.clipped,
-                            hidden: layer.meta.hidden | override_hidden,
+                            opacity: layer.info.opacity,
+                            blend: layer.info.blend,
+                            clipped: layer.info.clipped,
+                            hidden: layer.info.hidden | override_hidden,
                         });
                     }
                 }
@@ -153,7 +153,7 @@ impl CompositorApp {
             };
 
             let new_layer_config = file.layers.clone();
-            let background = (!file.background_hidden).then_some(file.background_color);
+            let background = (!file.info.background_hidden).then_some(file.info.background_color);
 
             let reload_chunks = self
                 .needs_to_load_chunks
@@ -173,7 +173,7 @@ impl CompositorApp {
             }
             self.target.set_background(background);
             self.target
-                .set_flipped(file.flipped.horizontally, file.flipped.vertically);
+                .set_flipped(file.info.flipped.horizontally, file.info.flipped.vertically);
             self.target
                 .render(&self.pipeline, output_texture.create_default_view());
             // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive

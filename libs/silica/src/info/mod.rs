@@ -3,25 +3,25 @@ pub mod hierarchy;
 use std::sync::atomic::AtomicU32;
 
 use crate::data::{Flipped, Orientation};
-use crate::file::{ProcreateFile, ProcreateFileMetadata};
+use crate::file::{ProcreateFile, ProcreateFileCanvas};
 use crate::layers::AtlasTextureTiling;
 use crate::ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError};
 use crate::{error::SilicaError, layers::CanvasTiling};
-use hierarchy::{SilicaIRHierarchy, SilicaIRLayer};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use hierarchy::{SilicaIRHierarchy, SilicaLayerInfo};
+use rayon::iter::ParallelDrainRange;
+use rayon::prelude::ParallelIterator;
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 
-pub struct IRData<'a> {
+pub(crate) struct IRData<'a> {
     archive: &'a crate::file::ZipArchiveMmap<'a>,
     file_names: Vec<&'a str>,
-
-    size: Size<u32>,
     tiling: CanvasTiling,
     chunk_id_counter: AtomicU32,
 }
 
-pub struct ProcreateUnloadedFile<'a> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProcreateFileInfo {
     pub author_name: Option<String>,
     pub background_hidden: bool,
     pub background_color: [f32; 4],
@@ -53,17 +53,17 @@ pub struct ProcreateUnloadedFile<'a> {
     //     videoDuration: String? = "Calculating..."
     pub tile_size: u32,
 
-    info: IRData<'a>,
+    pub size: Size<u32>,
 
     layers: Vec<SilicaIRHierarchy>,
-    composite: SilicaIRLayer,
+    composite: Option<SilicaLayerInfo>,
 }
 
-impl<'a> ProcreateUnloadedFile<'a> {
-    pub(super) fn from_ns(
+impl ProcreateFileInfo {
+    pub(super) fn from_ns<'a>(
         archive: &'a crate::file::ZipArchiveMmap<'a>,
         nka: &'a NsKeyedArchive,
-    ) -> Result<Self, SilicaError> {
+    ) -> Result<(Self, IRData<'a>), SilicaError> {
         let root = nka.root()?;
 
         let size = nka.fetch::<Size<u32>>(root, "size")?;
@@ -92,47 +92,50 @@ impl<'a> ProcreateUnloadedFile<'a> {
             atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
-        Ok(Self {
-            info: IRData {
+        Ok((
+            Self {
+                author_name: nka.fetch::<Option<String>>(root, "authorName")?,
+                background_hidden: nka.fetch::<bool>(root, "backgroundHidden")?,
+                stroke_count: nka.fetch::<usize>(root, "strokeCount")?,
+                background_color: <[f32; 4]>::try_from(
+                    nka.fetch::<&[u8]>(root, "backgroundColor")?
+                        .chunks_exact(4)
+                        .map(|bytes| {
+                            <[u8; 4]>::try_from(bytes)
+                                .map(f32::from_le_bytes)
+                                .map_err(|_| {
+                                    NsArchiveError::TypeMismatch("backgroundColor".to_string())
+                                })
+                        })
+                        .collect::<Result<Vec<f32>, _>>()?,
+                )
+                .unwrap(),
+                name: nka.fetch::<Option<String>>(root, "name")?,
+                orientation: nka.fetch::<Orientation>(root, "orientation")?,
+                flipped: Flipped {
+                    horizontally: nka.fetch::<bool>(root, "flippedHorizontally")?,
+                    vertically: nka.fetch::<bool>(root, "flippedVertically")?,
+                },
+                tile_size,
+                composite: Some(nka.fetch::<SilicaLayerInfo>(root, "composite")?),
+                layers,
+                size,
+            },
+            IRData {
                 archive,
                 file_names,
-                size,
                 tiling: canvas_tiling,
                 chunk_id_counter: AtomicU32::new(1),
             },
-            author_name: nka.fetch::<Option<String>>(root, "authorName")?,
-            background_hidden: nka.fetch::<bool>(root, "backgroundHidden")?,
-            stroke_count: nka.fetch::<usize>(root, "strokeCount")?,
-            background_color: <[f32; 4]>::try_from(
-                nka.fetch::<&[u8]>(root, "backgroundColor")?
-                    .chunks_exact(4)
-                    .map(|bytes| {
-                        <[u8; 4]>::try_from(bytes)
-                            .map(f32::from_le_bytes)
-                            .map_err(|_| {
-                                NsArchiveError::TypeMismatch("backgroundColor".to_string())
-                            })
-                    })
-                    .collect::<Result<Vec<f32>, _>>()?,
-            )
-            .unwrap(),
-            name: nka.fetch::<Option<String>>(root, "name")?,
-            orientation: nka.fetch::<Orientation>(root, "orientation")?,
-            flipped: Flipped {
-                horizontally: nka.fetch::<bool>(root, "flippedHorizontally")?,
-                vertically: nka.fetch::<bool>(root, "flippedVertically")?,
-            },
-            tile_size,
-            composite: nka.fetch::<SilicaIRLayer>(root, "composite")?,
-            layers,
-        })
+        ))
     }
 
     pub(super) fn load(
-        self,
+        mut self,
+        info: IRData<'_>,
         dispatch: &GpuDispatch,
-    ) -> Result<(ProcreateFile, ProcreateFileMetadata), SilicaError> {
-        let canvas_tiling = self.info.tiling;
+    ) -> Result<(ProcreateFile, ProcreateFileCanvas), SilicaError> {
+        let canvas_tiling = info.tiling;
         let atlas_texture = GpuTexture::empty_layers(
             &dispatch,
             canvas_tiling.size * canvas_tiling.atlas.cols,
@@ -145,24 +148,16 @@ impl<'a> ProcreateUnloadedFile<'a> {
             ProcreateFile {
                 composite: self
                     .composite
-                    .load(dispatch, &atlas_texture, &self.info)
-                    .ok(),
+                    .take()
+                    .and_then(|composite| composite.load(dispatch, &atlas_texture, &info).ok()),
                 layers: self
                     .layers
-                    .into_par_iter()
-                    .map(|ir| ir.load(dispatch, &atlas_texture, &self.info))
+                    .par_drain(..)
+                    .map(|ir| ir.load(dispatch, &atlas_texture, &info))
                     .collect::<Result<_, _>>()?,
-                author_name: self.author_name,
-                background_hidden: self.background_hidden,
-                stroke_count: self.stroke_count,
-                background_color: self.background_color,
-                name: self.name,
-                orientation: self.orientation,
-                flipped: self.flipped,
-                tile_size: self.tile_size,
-                size: self.info.size,
+                info: self,
             },
-            ProcreateFileMetadata {
+            ProcreateFileCanvas {
                 atlas_texture,
                 canvas_tiling,
             },

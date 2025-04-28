@@ -55,7 +55,7 @@ impl Instance {
         pipeline: &Pipeline,
     ) {
         let file = &self.file;
-        let aspect_ratio = file.size.width as f32 / file.size.height as f32;
+        let aspect_ratio = file.info.size.width as f32 / file.info.size.height as f32;
         let scaled_height = (256.0 * aspect_ratio) as u32;
 
         let preview_textures = {
@@ -145,6 +145,6 @@ impl Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        println!("Closing {:?}", self.file.name);
+        println!("Closing {:?}", self.file.info.name);
     }
 }

@@ -1,6 +1,9 @@
 use std::num::NonZeroU32;
 
-use crate::{ir::hierarchy::{SilicaIRGroup, SilicaIRLayer}, ns_archive::Size};
+use crate::{
+    info::hierarchy::{SilicaGroupInfo, SilicaLayerInfo},
+    ns_archive::Size,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasTextureTiling {
@@ -102,7 +105,7 @@ impl SilicaHierarchy {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroup {
-    pub meta: SilicaIRGroup,
+    pub info: SilicaGroupInfo,
     pub children: Vec<SilicaHierarchy>,
 }
 
@@ -130,6 +133,6 @@ pub struct SilicaImageData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
-    pub meta: SilicaIRLayer,
+    pub info: SilicaLayerInfo,
     pub image: SilicaImageData,
 }
