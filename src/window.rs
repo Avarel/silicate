@@ -11,11 +11,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 use wgpu::Surface;
 
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::{Duration, Instant}};
 use winit::{
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
@@ -83,10 +79,11 @@ impl WindowBundle {
 }
 
 pub struct AppInstance {
-    pub app: Arc<App>,
+    app: Arc<App>,
     window: WindowBundle,
     viewer: ViewerGui,
-    pub toasts: Toasts,
+    rt: Arc<Runtime>,
+    toasts: Toasts,
     rx_toasts: UnboundedReceiver<Toast>,
 }
 
@@ -105,7 +102,7 @@ impl AppInstance {
 
         let app = Arc::new(App::new(
             dev.dispatch,
-            rt,
+            rt.clone(),
             tx_toasts,
             tx_instances,
             event_loop_proxy,
@@ -126,12 +123,35 @@ impl AppInstance {
         let app_instance = AppInstance {
             app,
             window,
+            rt,
             viewer,
             rx_toasts,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
         };
 
         app_instance
+    }
+
+    pub fn load_files(&mut self, paths: Vec<PathBuf>) {
+        for path in paths {
+            match self.app.load_file(path) {
+                Err(err) => {
+                    self.toasts
+                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
+                }
+                Ok(key) => {
+                    self.toasts.success("Loaded file from command line.");
+                    self.app
+                        .new_instances
+                        .blocking_send((
+                            egui_dock::SurfaceIndex::main(),
+                            egui_dock::NodeIndex::root(),
+                            key,
+                        ))
+                        .unwrap();
+                }
+            }
+        }
     }
 
     pub fn handle_event(
@@ -275,7 +295,7 @@ impl AppInstance {
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
-                self.app.rt.spawn({
+                self.rt.spawn({
                     let app = self.app.clone();
                     async move {
                         match app.load_file(file) {

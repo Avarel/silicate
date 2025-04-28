@@ -26,7 +26,7 @@ const INITIAL_SIZE: LogicalSize<u32> = LogicalSize {
 
 struct AppMultiplexer {
     rt: Arc<Runtime>,
-    initial_file: Vec<PathBuf>,
+    initial_files: Vec<PathBuf>,
     running: Option<AppInstance>,
     proxy: EventLoopProxy<UserEvent>,
 }
@@ -40,7 +40,7 @@ impl AppMultiplexer {
                     .build()
                     .expect("tokio runtime creation successful"),
             ),
-            initial_file,
+            initial_files: initial_file,
             running: None,
             proxy,
         }
@@ -94,28 +94,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
 
         let mut instance =
             AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
-
-        for path in self.initial_file.drain(..) {
-            match instance.app.load_file(path) {
-                Err(err) => {
-                    instance
-                        .toasts
-                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
-                }
-                Ok(key) => {
-                    instance.toasts.success("Loaded file from command line.");
-                    instance
-                        .app
-                        .new_instances
-                        .blocking_send((
-                            egui_dock::SurfaceIndex::main(),
-                            egui_dock::NodeIndex::root(),
-                            key,
-                        ))
-                        .unwrap();
-                }
-            }
-        }
+        instance.load_files(std::mem::take(&mut self.initial_files));
 
         self.running = Some(instance);
     }

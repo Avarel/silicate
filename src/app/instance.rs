@@ -19,7 +19,7 @@ pub struct Instance {
     pub output_texture: GpuTexture,
     pub rotation: f32,
     pub preview_textures: Option<GpuTexture>,
-    pub(super) compositor: CompositorHandle,
+    pub compositor: CompositorHandle,
 
     pub previews: HashMap<u32, SizedTexture>,
     pub canvas: Option<SizedTexture>,
