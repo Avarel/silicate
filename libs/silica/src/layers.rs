@@ -1,7 +1,6 @@
 use std::num::NonZeroU32;
 
-use crate::ns_archive::Size;
-use silicate_compositor::blend::BlendingMode;
+use crate::{ir::hierarchy::{SilicaIRGroup, SilicaIRLayer}, ns_archive::Size};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasTextureTiling {
@@ -103,9 +102,8 @@ impl SilicaHierarchy {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroup {
-    pub hidden: bool,
+    pub meta: SilicaIRGroup,
     pub children: Vec<SilicaHierarchy>,
-    pub name: Option<String>,
 }
 
 impl SilicaGroup {
@@ -132,31 +130,6 @@ pub struct SilicaImageData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
-    // animationHeldLength:Int?
-    pub blend: BlendingMode,
-    // bundledImagePath:String?
-    // bundledMaskPath:String?
-    // bundledVideoPath:String?
-    pub clipped: bool,
-    // contentsRect:Data?
-    // contentsRectValid:Bool?
-    // document:SilicaDocument?
-    // extendedBlend:Int?
-    pub hidden: bool,
-    // locked:Bool?
-    pub mask: Option<usize>,
-    pub name: Option<String>,
-    pub opacity: f32,
-    // perspectiveAssisted:Bool?
-    // preserve:Bool?
-    // private:Bool?
-    // text:ValkyrieText?
-    // textPDF:Data?
-    // transform:Data?
-    // type:Int?
-    pub size: Size<u32>,
-    pub uuid: String,
-    pub version: u64,
-
+    pub meta: SilicaIRLayer,
     pub image: SilicaImageData,
 }

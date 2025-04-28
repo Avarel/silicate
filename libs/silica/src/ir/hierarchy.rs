@@ -7,8 +7,8 @@ use crate::{
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelDrainRange};
+use rayon::prelude::ParallelIterator;
 use silicate_compositor::blend::BlendingMode;
 use silicate_compositor::buffer::BufferDimensions;
 use silicate_compositor::dev::GpuDispatch;
@@ -44,30 +44,65 @@ impl<'a> NsDecode<'a> for BlendingMode {
     }
 }
 
-pub(crate) enum SilicaIRHierarchy<'a> {
-    Layer(SilicaIRLayer<'a>),
-    Group(SilicaIRGroup<'a>),
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SilicaIRHierarchy {
+    Layer(SilicaIRLayer),
+    Group(SilicaIRGroup),
 }
 
-pub(crate) struct SilicaIRLayer<'a> {
-    pub(crate) nka: &'a NsKeyedArchive,
-    pub(crate) coder: &'a Dictionary,
+#[derive(Debug, Clone, PartialEq)]
+pub struct SilicaIRLayer {
+    // animationHeldLength:Int?
+    pub blend: BlendingMode,
+    // bundledImagePath:String?
+    // bundledMaskPath:String?
+    // bundledVideoPath:String?
+    pub clipped: bool,
+    // contentsRect:Data?
+    // contentsRectValid:Bool?
+    // document:SilicaDocument?
+    // extendedBlend:Int?
+    pub hidden: bool,
+    // locked:Bool?
+    pub mask: Option<usize>,
+    pub name: Option<String>,
+    pub opacity: f32,
+    // perspectiveAssisted:Bool?
+    // preserve:Bool?
+    // private:Bool?
+    // text:ValkyrieText?
+    // textPDF:Data?
+    // transform:Data?
+    // type:Int?
+    pub uuid: String,
+    pub version: u64,
 }
 
-impl<'a> NsDecode<'a> for SilicaIRLayer<'a> {
+impl<'a> NsDecode<'a> for SilicaIRLayer {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
         val: &'a Value,
     ) -> Result<Self, NsArchiveError> {
+        let world = <&'a Dictionary>::decode(nka, key, val)?;
+        let uuid = nka.fetch::<String>(world, "UUID")?;
+
         Ok(Self {
-            nka,
-            coder: <&'a Dictionary>::decode(nka, key, val)?,
+            blend: nka
+                .fetch::<BlendingMode>(world, "extendedBlend")
+                .or_else(|_| nka.fetch::<BlendingMode>(world, "blend"))?,
+            clipped: nka.fetch::<bool>(world, "clipped")?,
+            hidden: nka.fetch::<bool>(world, "hidden")?,
+            mask: None,
+            name: nka.fetch::<Option<String>>(world, "name")?,
+            opacity: nka.fetch::<f32>(world, "opacity")?,
+            uuid,
+            version: nka.fetch::<u64>(world, "version")?,
         })
     }
 }
 
-impl SilicaIRLayer<'_> {
+impl SilicaIRLayer {
     pub(crate) fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
@@ -88,20 +123,16 @@ impl SilicaIRLayer<'_> {
         atlas_texture: &GpuTexture,
         meta: &IRData<'_>,
     ) -> Result<SilicaLayer, SilicaError> {
-        let nka = self.nka;
-        let world = self.coder;
-        let uuid = nka.fetch::<String>(world, "UUID")?;
-
         pub(crate) static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let chunks = meta
             .file_names
             .par_iter()
-            .filter(|path| path.starts_with(&uuid))
+            .filter(|path| path.starts_with(self.uuid.as_str()))
             .map(|path| -> Result<SilicaChunk, SilicaError> {
                 let mut archive = meta.archive.clone();
 
-                let chunk_str = &path[uuid.len() + 1..path.find('.').unwrap_or(path.len())];
+                let chunk_str = &path[self.uuid.len() + 1..path.find('.').unwrap_or(path.len())];
                 let (col, row) = Self::parse_chunk_str(chunk_str)?;
 
                 let tile_extent = meta.tiling.tile_extent(col, row);
@@ -145,29 +176,20 @@ impl SilicaIRLayer<'_> {
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
         Ok(SilicaLayer {
-            blend: nka
-                .fetch::<BlendingMode>(world, "extendedBlend")
-                .or_else(|_| nka.fetch::<BlendingMode>(world, "blend"))?,
-            clipped: nka.fetch::<bool>(world, "clipped")?,
-            hidden: nka.fetch::<bool>(world, "hidden")?,
-            mask: None,
-            name: nka.fetch::<Option<String>>(world, "name")?,
-            opacity: nka.fetch::<f32>(world, "opacity")?,
-            size: meta.size,
-            uuid,
-            version: nka.fetch::<u64>(world, "version")?,
+            meta: self,
             image: SilicaImageData { chunks },
         })
     }
 }
 
-pub(crate) struct SilicaIRGroup<'a> {
-    pub(crate) nka: &'a NsKeyedArchive,
-    pub(crate) coder: &'a Dictionary,
-    pub(crate) children: Vec<SilicaIRHierarchy<'a>>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct SilicaIRGroup {
+    pub name: Option<String>,
+    pub hidden: bool,
+    pub(crate) children: Vec<SilicaIRHierarchy>,
 }
 
-impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
+impl<'a> NsDecode<'a> for SilicaIRGroup {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -175,16 +197,16 @@ impl<'a> NsDecode<'a> for SilicaIRGroup<'a> {
     ) -> Result<Self, NsArchiveError> {
         let coder = <&'a Dictionary>::decode(nka, key, val)?;
         Ok(Self {
-            nka,
-            coder,
+            hidden: nka.fetch::<bool>(coder, "isHidden")?,
+            name: nka.fetch::<Option<String>>(coder, "name")?,
             children: nka
-                .fetch::<NsObjects<SilicaIRHierarchy<'a>>>(coder, "children")?
+                .fetch::<NsObjects<SilicaIRHierarchy>>(coder, "children")?
                 .objects,
         })
     }
 }
 
-impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
+impl<'a> NsDecode<'a> for SilicaIRHierarchy {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -194,35 +216,32 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy<'a> {
         let class = nka.fetch::<NsClass>(coder, "$class")?;
 
         match class.class_name.as_str() {
-            "SilicaGroup" => Ok(SilicaIRGroup::<'a>::decode(nka, key, val).map(Self::Group)?),
-            "SilicaLayer" => Ok(SilicaIRLayer::<'a>::decode(nka, key, val).map(Self::Layer)?),
+            "SilicaGroup" => Ok(SilicaIRGroup::decode(nka, key, val).map(Self::Group)?),
+            "SilicaLayer" => Ok(SilicaIRLayer::decode(nka, key, val).map(Self::Layer)?),
             _ => Err(NsArchiveError::TypeMismatch("$class".to_string())),
         }
     }
 }
 
-impl<'a> SilicaIRGroup<'a> {
+impl<'a> SilicaIRGroup {
     pub(crate) fn load(
-        self,
+        mut self,
         dispatch: &GpuDispatch,
         atlas_texture: &'a GpuTexture,
         meta: &'a IRData<'a>,
     ) -> Result<SilicaGroup, SilicaError> {
-        let nka = self.nka;
-        let coder = self.coder;
         Ok(SilicaGroup {
-            hidden: nka.fetch::<bool>(coder, "isHidden")?,
-            name: nka.fetch::<Option<String>>(coder, "name")?,
             children: self
                 .children
-                .into_par_iter()
+                .par_drain(..)
                 .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
+            meta: self,
         })
     }
 }
 
-impl<'a> SilicaIRHierarchy<'a> {
+impl<'a> SilicaIRHierarchy {
     pub(crate) fn load(
         self,
         dispatch: &GpuDispatch,

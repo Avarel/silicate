@@ -51,15 +51,15 @@ impl CompositorApp {
                         inner(
                             &group.children,
                             composite_layers,
-                            group.hidden | override_hidden,
+                            group.meta.hidden | override_hidden,
                         );
                     }
                     SilicaHierarchy::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
-                            opacity: layer.opacity,
-                            blend: layer.blend,
-                            clipped: layer.clipped,
-                            hidden: layer.hidden | override_hidden,
+                            opacity: layer.meta.opacity,
+                            blend: layer.meta.blend,
+                            clipped: layer.meta.clipped,
+                            hidden: layer.meta.hidden | override_hidden,
                         });
                     }
                 }

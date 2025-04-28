@@ -1,4 +1,4 @@
-mod hierarchy;
+pub mod hierarchy;
 
 use std::sync::atomic::AtomicU32;
 
@@ -12,7 +12,7 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 
-struct IRData<'a> {
+pub struct IRData<'a> {
     archive: &'a crate::file::ZipArchiveMmap<'a>,
     file_names: Vec<&'a str>,
 
@@ -55,8 +55,8 @@ pub struct ProcreateUnloadedFile<'a> {
 
     info: IRData<'a>,
 
-    layers: Vec<SilicaIRHierarchy<'a>>,
-    composite: SilicaIRLayer<'a>,
+    layers: Vec<SilicaIRHierarchy>,
+    composite: SilicaIRLayer,
 }
 
 impl<'a> ProcreateUnloadedFile<'a> {

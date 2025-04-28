@@ -24,19 +24,19 @@ impl LayersHierarchy<'_> {
                 let (id, layer_name, hidden, size_change) = match (&mut layer, addendum) {
                     (SilicaHierarchy::Layer(layer), SilicaHierarchyAddendum::Layer(addendum)) => {
                         let layer_name = layer
-                            .name
+                            .meta.name
                             .to_owned()
                             .unwrap_or_else(|| String::from("Unnamed Layer"));
 
-                        (addendum.id, layer_name, &mut layer.hidden, false)
+                        (addendum.id, layer_name, &mut layer.meta.hidden, false)
                     }
                     (SilicaHierarchy::Group(layer), SilicaHierarchyAddendum::Group(addendum)) => {
                         let layer_name = layer
-                            .name
+                            .meta.name
                             .to_owned()
                             .unwrap_or_else(|| String::from("Unnamed Group"));
 
-                        (addendum.id, layer_name, &mut layer.hidden, true)
+                        (addendum.id, layer_name, &mut layer.meta.hidden, true)
                     }
                     _ => unreachable!(),
                 };

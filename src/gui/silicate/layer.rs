@@ -14,14 +14,14 @@ pub(super) struct LayerControl<'a> {
 impl LayerControl<'_> {
     pub fn ui(self, ui: &mut Ui) {
         ui.push_id(self.addendum.id, |ui| {
-            OpacitySlider::new(&mut self.layer.opacity).ui(ui);
+            OpacitySlider::new(&mut self.layer.meta.opacity).ui(ui);
             ui.add_space(10.0);
-            BlendModeRadio::new(&mut self.layer.blend).ui(ui);
+            BlendModeRadio::new(&mut self.layer.meta.blend).ui(ui);
         });
 
         Grid::new(self.addendum.id).show(ui, |ui| {
             ui.label("Clipped");
-            Checkbox::without_text(&mut self.layer.clipped).ui(ui);
+            Checkbox::without_text(&mut self.layer.meta.clipped).ui(ui);
         });
         ui.add_space(10.0);
     }
