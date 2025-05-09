@@ -22,36 +22,47 @@ use silicate_compositor::{
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
-use tokio::{
-    runtime::Runtime,
-    sync::mpsc::Sender,
-};
+use tokio::runtime::Runtime;
 
 pub enum UserEvent {
     NewInstance(InstanceKey, Instance),
+    NewView(SurfaceIndex, NodeIndex, InstanceKey),
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
-    Toast(Toast)
+    LoadDialog(SurfaceIndex, NodeIndex),
+    SaveDialog(GpuTexture),
+    Toast(Toast),
 }
 
 impl std::fmt::Debug for UserEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NewInstance(arg0, arg1) => f.debug_tuple("NewInstance").field(arg0).field(arg1).finish(),
-            Self::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
-            Self::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
-            Self::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
-            Self::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
+            UserEvent::NewInstance(arg0, arg1) => f
+                .debug_tuple("NewInstance")
+                .field(arg0)
+                .field(arg1)
+                .finish(),
+            UserEvent::NewView(surface_index, node_index, instance_key) => f
+                .debug_tuple("NewView")
+                .field(surface_index)
+                .field(node_index)
+                .field(instance_key)
+                .finish(),
+            UserEvent::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
+            UserEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
+            UserEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
+            UserEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
+            UserEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
+            UserEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
         }
     }
 }
 
 pub struct App {
     dispatch: GpuDispatch,
-    pub rt: Arc<Runtime>,
+    rt: Arc<Runtime>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
-    pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pipeline: Pipeline,
     curr_id: AtomicUsize,
 }
@@ -60,14 +71,12 @@ impl App {
     pub fn new(
         dispatch: GpuDispatch,
         rt: Arc<Runtime>,
-        new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
         Self {
             pipeline: Pipeline::new(&dispatch),
             rt,
             dispatch,
-            new_instances,
             event_loop,
             curr_id: AtomicUsize::new(0),
         }
@@ -171,18 +180,17 @@ impl App {
         match self.load_file(handle.path().to_path_buf()) {
             Err(err) => {
                 self.send_toast(Toast::error(format!(
-                        "File {} failed to load. Reason: {err}",
-                        handle.file_name()
-                    )));
+                    "File {} failed to load. Reason: {err}",
+                    handle.file_name()
+                )));
             }
             Ok(key) => {
                 self.send_toast(Toast::success(format!(
-                        "File {} successfully opened.",
-                        handle.file_name()
-                    )));
-                self.new_instances
-                    .send((surface_index, node_index, key))
-                    .await
+                    "File {} successfully opened.",
+                    handle.file_name()
+                )));
+                self.event_loop
+                    .send_event(UserEvent::NewView(surface_index, node_index, key))
                     .unwrap();
             }
         }
@@ -207,14 +215,14 @@ impl App {
         let path = handle.path().to_path_buf();
         if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
             self.send_toast(Toast::error(format!(
-                    "File {} failed to export. Reason: {err}.",
-                    handle.file_name()
-                )));
+                "File {} failed to export. Reason: {err}.",
+                handle.file_name()
+            )));
         } else {
             self.send_toast(Toast::success(format!(
-                    "File {} successfully exported.",
-                    handle.file_name()
-                )));
+                "File {} successfully exported.",
+                handle.file_name()
+            )));
         }
     }
 

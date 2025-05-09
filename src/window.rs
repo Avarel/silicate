@@ -8,7 +8,6 @@ use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
 
 use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedReceiver;
 use wgpu::Surface;
 
 use std::{
@@ -101,14 +100,7 @@ impl AppInstance {
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let (tx_instances, rx_instances) = tokio::sync::mpsc::channel(2);
-
-        let app = Arc::new(App::new(
-            dev.dispatch,
-            rt.clone(),
-            tx_instances,
-            event_loop_proxy,
-        ));
+        let app = Arc::new(App::new(dev.dispatch, rt.clone(), event_loop_proxy));
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -118,7 +110,6 @@ impl AppInstance {
                 grid: true,
                 extended_crosshair: false,
             },
-            new_instances: rx_instances,
             canvas_tree: egui_dock::DockState::new(Vec::new()),
         };
 
@@ -143,8 +134,8 @@ impl AppInstance {
                 Ok(key) => {
                     self.toasts.success("Loaded file from command line.");
                     self.app
-                        .new_instances
-                        .blocking_send((
+                        .event_loop
+                        .send_event(UserEvent::NewView(
                             egui_dock::SurfaceIndex::main(),
                             egui_dock::NodeIndex::root(),
                             key,
@@ -302,13 +293,12 @@ impl AppInstance {
                             }
                             Ok(key) => {
                                 app.send_toast(Toast::success("Loaded file from drag/drop."));
-                                app.new_instances
-                                    .send((
+                                app.event_loop
+                                    .send_event(UserEvent::NewView(
                                         egui_dock::SurfaceIndex::main(),
                                         egui_dock::NodeIndex::root(),
                                         key,
                                     ))
-                                    .await
                                     .unwrap();
                             }
                         }
@@ -421,6 +411,24 @@ impl AppInstance {
             }
             UserEvent::Toast(toast) => {
                 self.toasts.add(toast);
+            }
+            UserEvent::LoadDialog(surface, node) => {
+                self.rt.spawn({
+                    let app = self.app.clone();
+                    async move { app.load_dialog(surface, node).await }
+                });
+            }
+            UserEvent::SaveDialog(texture) => {
+                self.rt.spawn({
+                    let app = self.app.clone();
+                    async move { app.save_dialog(texture).await }
+                });
+            }
+            UserEvent::NewView(surface, node, id) => {
+                self.viewer
+                    .canvas_tree
+                    .set_focused_node_and_surface((surface, node));
+                self.viewer.canvas_tree.push_to_focused_leaf(id);
             }
         }
     }

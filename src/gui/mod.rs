@@ -6,7 +6,6 @@ use egui::{Frame, *};
 use egui_dock::{NodeIndex, SurfaceIndex};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc::Receiver;
 
 use crate::app::{
     instance::{Instance, InstanceKey},
@@ -77,10 +76,9 @@ impl ControlsGui {
             ui.vertical(|ui| {
                 if ui.button("Export View").clicked() {
                     let texture = instance.output_texture.clone();
-                    app.rt.spawn({
-                        let app = app.clone();
-                        async move { app.save_dialog(texture).await }
-                    });
+                    app.event_loop
+                        .send_event(UserEvent::SaveDialog(texture))
+                        .ok();
                 }
             });
         });
@@ -194,10 +192,10 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
-        self.app.rt.spawn({
-            let app = self.app.clone();
-            async move { app.load_dialog(surface, node).await }
-        });
+        self.app
+            .event_loop
+            .send_event(UserEvent::LoadDialog(surface, node))
+            .ok();
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -220,7 +218,6 @@ pub struct ViewerGui {
 
     pub view_options: ViewOptions,
     pub canvas_tree: egui_dock::DockState<InstanceKey>,
-    pub(crate) new_instances: Receiver<(SurfaceIndex, NodeIndex, InstanceKey)>,
 }
 
 impl ViewerGui {
@@ -235,22 +232,16 @@ impl ViewerGui {
             ui.vertical_centered(|ui| {
                 ui.label("Drag and drop Procreate file to view it.");
                 if ui.button("Load Procreate File").clicked() {
-                    self.app.rt.spawn({
-                        let app = self.app.clone();
-                        async move {
-                            app.load_dialog(SurfaceIndex::main(), NodeIndex::root())
-                                .await
-                        }
-                    });
+                    self.app
+                        .event_loop
+                        .send_event(UserEvent::LoadDialog(
+                            SurfaceIndex::main(),
+                            NodeIndex::root(),
+                        ))
+                        .ok();
                 }
             });
         } else {
-            while let Ok((surface, node, id)) = self.new_instances.try_recv() {
-                self.canvas_tree
-                    .set_focused_node_and_surface((surface, node));
-                self.canvas_tree.push_to_focused_leaf(id);
-            }
-
             egui_dock::DockArea::new(&mut self.canvas_tree)
                 .id(Id::new("view.dock"))
                 .style({
