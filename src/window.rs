@@ -1,7 +1,10 @@
+mod dialog;
+
 use crate::winit;
 
 use crate::app::{App, UserEvent};
 use crate::gui::{ViewOptions, ViewerGui};
+use dialog::Dialog;
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_notify::{Toast, Toasts};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
@@ -96,11 +99,11 @@ impl AppInstance {
         rt: Arc<Runtime>,
         surface: Surface<'static>,
         window: Arc<Window>,
-        event_loop_proxy: EventLoopProxy<UserEvent>,
+        event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let app = Arc::new(App::new(dev.dispatch, rt.clone(), event_loop_proxy));
+        let app = Arc::new(App::new(dev.dispatch, event_loop));
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -398,7 +401,9 @@ impl AppInstance {
                     }
                 }
             }
-            UserEvent::NewInstance(instance_key, instance) => {
+            UserEvent::NewInstance(instance_key, instance, compositor) => {
+                self.rt
+                    .spawn(compositor.rendering_thread(instance.output_texture.clone()));
                 self.viewer.instances.insert(instance_key, instance);
                 self.app
                     .event_loop
@@ -413,16 +418,18 @@ impl AppInstance {
                 self.toasts.add(toast);
             }
             UserEvent::LoadDialog(surface, node) => {
-                self.rt.spawn({
-                    let app = self.app.clone();
-                    async move { app.load_dialog(surface, node).await }
-                });
+                self.rt
+                    .spawn(Dialog::new(self.app.event_loop.clone()).load_dialog(
+                        self.app.clone(),
+                        surface,
+                        node,
+                    ));
             }
             UserEvent::SaveDialog(texture) => {
-                self.rt.spawn({
-                    let app = self.app.clone();
-                    async move { app.save_dialog(texture).await }
-                });
+                self.rt.spawn(
+                    Dialog::new(self.app.event_loop.clone())
+                        .save_dialog(self.window.dispatch.clone(), texture),
+                );
             }
             UserEvent::NewView(surface, node, id) => {
                 self.viewer

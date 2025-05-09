@@ -22,10 +22,9 @@ use silicate_compositor::{
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
-use tokio::runtime::Runtime;
 
 pub enum UserEvent {
-    NewInstance(InstanceKey, Instance),
+    NewInstance(InstanceKey, Instance, CompositorApp),
     NewView(SurfaceIndex, NodeIndex, InstanceKey),
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
@@ -38,7 +37,7 @@ pub enum UserEvent {
 impl std::fmt::Debug for UserEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UserEvent::NewInstance(arg0, arg1) => f
+            UserEvent::NewInstance(arg0, arg1, _) => f
                 .debug_tuple("NewInstance")
                 .field(arg0)
                 .field(arg1)
@@ -61,7 +60,6 @@ impl std::fmt::Debug for UserEvent {
 
 pub struct App {
     dispatch: GpuDispatch,
-    rt: Arc<Runtime>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
     pipeline: Pipeline,
     curr_id: AtomicUsize,
@@ -70,12 +68,10 @@ pub struct App {
 impl App {
     pub fn new(
         dispatch: GpuDispatch,
-        rt: Arc<Runtime>,
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
         Self {
             pipeline: Pipeline::new(&dispatch),
-            rt,
             dispatch,
             event_loop,
             curr_id: AtomicUsize::new(0),
@@ -157,73 +153,10 @@ impl App {
             &self.pipeline,
         );
 
-        self.rt
-            .spawn(compositor.rendering_thread(output_texture.clone()));
-
         self.event_loop
-            .send_event(UserEvent::NewInstance(key, instance))
+            .send_event(UserEvent::NewInstance(key, instance, compositor))
             .unwrap();
         Ok(key)
-    }
-
-    pub async fn load_dialog(&self, surface_index: SurfaceIndex, node_index: NodeIndex) {
-        let dialog = rfd::AsyncFileDialog::new()
-            .add_filter("All Files", &["*"])
-            .add_filter("Procreate Files", &["procreate"])
-            .pick_file();
-
-        let Some(handle) = dialog.await else {
-            self.send_toast(Toast::info("Load cancelled."));
-            return;
-        };
-
-        match self.load_file(handle.path().to_path_buf()) {
-            Err(err) => {
-                self.send_toast(Toast::error(format!(
-                    "File {} failed to load. Reason: {err}",
-                    handle.file_name()
-                )));
-            }
-            Ok(key) => {
-                self.send_toast(Toast::success(format!(
-                    "File {} successfully opened.",
-                    handle.file_name()
-                )));
-                self.event_loop
-                    .send_event(UserEvent::NewView(surface_index, node_index, key))
-                    .unwrap();
-            }
-        }
-    }
-
-    pub async fn save_dialog(&self, copied_texture: GpuTexture) {
-        let dialog = rfd::AsyncFileDialog::new()
-            .add_filter("png", image::ImageFormat::Png.extensions_str())
-            .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())
-            .add_filter("tga", image::ImageFormat::Tga.extensions_str())
-            .add_filter("tiff", image::ImageFormat::Tiff.extensions_str())
-            .add_filter("webp", image::ImageFormat::WebP.extensions_str())
-            .add_filter("bmp", image::ImageFormat::Bmp.extensions_str())
-            .save_file();
-
-        let Some(handle) = dialog.await else {
-            self.send_toast(Toast::info("Export cancelled."));
-            return;
-        };
-
-        let dim = BufferDimensions::from_extent(copied_texture.size);
-        let path = handle.path().to_path_buf();
-        if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
-            self.send_toast(Toast::error(format!(
-                "File {} failed to export. Reason: {err}.",
-                handle.file_name()
-            )));
-        } else {
-            self.send_toast(Toast::success(format!(
-                "File {} successfully exported.",
-                handle.file_name()
-            )));
-        }
     }
 
     /// Export the texture to the given path.
