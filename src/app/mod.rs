@@ -24,21 +24,32 @@ use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{Sender, UnboundedSender},
+    sync::mpsc::Sender,
 };
 
-#[derive(Debug)]
 pub enum UserEvent {
     NewInstance(InstanceKey, Instance),
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
+    Toast(Toast)
+}
+
+impl std::fmt::Debug for UserEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NewInstance(arg0, arg1) => f.debug_tuple("NewInstance").field(arg0).field(arg1).finish(),
+            Self::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
+            Self::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
+            Self::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
+            Self::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
+        }
+    }
 }
 
 pub struct App {
     dispatch: GpuDispatch,
     pub rt: Arc<Runtime>,
-    pub toasts: UnboundedSender<Toast>,
     pub(crate) event_loop: EventLoopProxy<UserEvent>,
     pub new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
     pipeline: Pipeline,
@@ -49,7 +60,6 @@ impl App {
     pub fn new(
         dispatch: GpuDispatch,
         rt: Arc<Runtime>,
-        toasts: UnboundedSender<Toast>,
         new_instances: Sender<(SurfaceIndex, NodeIndex, InstanceKey)>,
         event_loop: EventLoopProxy<UserEvent>,
     ) -> Self {
@@ -57,11 +67,14 @@ impl App {
             pipeline: Pipeline::new(&dispatch),
             rt,
             dispatch,
-            toasts,
             new_instances,
             event_loop,
             curr_id: AtomicUsize::new(0),
         }
+    }
+
+    pub fn send_toast(&self, toast: Toast) {
+        self.event_loop.send_event(UserEvent::Toast(toast)).ok();
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
@@ -151,26 +164,22 @@ impl App {
             .pick_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts.send(Toast::info("Load cancelled.")).unwrap();
+            self.send_toast(Toast::info("Load cancelled."));
             return;
         };
 
         match self.load_file(handle.path().to_path_buf()) {
             Err(err) => {
-                self.toasts
-                    .send(Toast::error(format!(
+                self.send_toast(Toast::error(format!(
                         "File {} failed to load. Reason: {err}",
                         handle.file_name()
-                    )))
-                    .unwrap();
+                    )));
             }
             Ok(key) => {
-                self.toasts
-                    .send(Toast::success(format!(
+                self.send_toast(Toast::success(format!(
                         "File {} successfully opened.",
                         handle.file_name()
-                    )))
-                    .unwrap();
+                    )));
                 self.new_instances
                     .send((surface_index, node_index, key))
                     .await
@@ -190,26 +199,22 @@ impl App {
             .save_file();
 
         let Some(handle) = dialog.await else {
-            self.toasts.send(Toast::info("Export cancelled.")).unwrap();
+            self.send_toast(Toast::info("Export cancelled."));
             return;
         };
 
         let dim = BufferDimensions::from_extent(copied_texture.size);
         let path = handle.path().to_path_buf();
         if let Err(err) = Self::export(&copied_texture, &self.dispatch, dim, path).await {
-            self.toasts
-                .send(Toast::error(format!(
+            self.send_toast(Toast::error(format!(
                     "File {} failed to export. Reason: {err}.",
                     handle.file_name()
-                )))
-                .unwrap();
+                )));
         } else {
-            self.toasts
-                .send(Toast::success(format!(
+            self.send_toast(Toast::success(format!(
                     "File {} successfully exported.",
                     handle.file_name()
-                )))
-                .unwrap();
+                )));
         }
     }
 

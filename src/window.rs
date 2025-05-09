@@ -11,7 +11,12 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 use wgpu::Surface;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use winit::{
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
@@ -84,7 +89,6 @@ pub struct AppInstance {
     viewer: ViewerGui,
     rt: Arc<Runtime>,
     toasts: Toasts,
-    rx_toasts: UnboundedReceiver<Toast>,
 }
 
 impl AppInstance {
@@ -97,13 +101,11 @@ impl AppInstance {
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let (tx_toasts, rx_toasts) = tokio::sync::mpsc::unbounded_channel();
         let (tx_instances, rx_instances) = tokio::sync::mpsc::channel(2);
 
         let app = Arc::new(App::new(
             dev.dispatch,
             rt.clone(),
-            tx_toasts,
             tx_instances,
             event_loop_proxy,
         ));
@@ -125,7 +127,6 @@ impl AppInstance {
             window,
             rt,
             viewer,
-            rx_toasts,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
         };
 
@@ -184,9 +185,6 @@ impl AppInstance {
                 self.window.integration.egui_ctx().begin_pass(input);
                 self.viewer.layout_gui(&self.window.integration.egui_ctx());
 
-                while let Ok(toast) = self.rx_toasts.try_recv() {
-                    self.toasts.add(toast);
-                }
                 self.toasts.show(&self.window.integration.egui_ctx());
 
                 let FullOutput {
@@ -300,14 +298,10 @@ impl AppInstance {
                     async move {
                         match app.load_file(file) {
                             Err(_) => {
-                                app.toasts
-                                    .send(Toast::error("File from drag/drop failed to load."))
-                                    .unwrap();
+                                app.send_toast(Toast::error("File from drag/drop failed to load."));
                             }
                             Ok(key) => {
-                                app.toasts
-                                    .send(Toast::success("Loaded file from drag/drop."))
-                                    .unwrap();
+                                app.send_toast(Toast::success("Loaded file from drag/drop."));
                                 app.new_instances
                                     .send((
                                         egui_dock::SurfaceIndex::main(),
@@ -424,6 +418,9 @@ impl AppInstance {
                     .event_loop
                     .send_event(UserEvent::RebindTexture(instance_key))
                     .unwrap();
+            }
+            UserEvent::Toast(toast) => {
+                self.toasts.add(toast);
             }
         }
     }
