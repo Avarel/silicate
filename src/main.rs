@@ -25,7 +25,7 @@ const INITIAL_SIZE: LogicalSize<u32> = LogicalSize {
 };
 
 struct AppMultiplexer {
-    rt: Arc<Runtime>,
+    rt: Runtime,
     initial_files: Vec<PathBuf>,
     running: Option<AppInstance>,
     proxy: EventLoopProxy<UserEvent>,
@@ -34,12 +34,10 @@ struct AppMultiplexer {
 impl AppMultiplexer {
     fn new(initial_file: Vec<PathBuf>, proxy: EventLoopProxy<UserEvent>) -> Self {
         Self {
-            rt: Arc::new(
-                tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .expect("tokio runtime creation successful"),
-            ),
+            rt: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime creation successful"),
             initial_files: initial_file,
             running: None,
             proxy,
@@ -92,8 +90,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             .block_on(Self::handle_with_window(window.clone()))
             .unwrap();
 
-        let mut instance =
-            AppInstance::new(dev, self.rt.clone(), surface, window, self.proxy.clone());
+        let mut instance = AppInstance::new(dev, surface, window, self.proxy.clone());
         instance.load_files(std::mem::take(&mut self.initial_files));
 
         self.running = Some(instance);
@@ -108,14 +105,14 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
         let Some(app) = self.running.as_mut() else {
             return;
         };
-        app.handle_event(event, event_loop);
+        app.handle_event(event, event_loop, &self.rt);
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
         let Some(app) = self.running.as_mut() else {
             return;
         };
-        app.handle_user_event(event);
+        app.handle_user_event(event, &self.rt);
     }
 }
 

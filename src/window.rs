@@ -89,14 +89,12 @@ pub struct AppInstance {
     app: Arc<App>,
     window: WindowBundle,
     viewer: ViewerGui,
-    rt: Arc<Runtime>,
     toasts: Toasts,
 }
 
 impl AppInstance {
     pub fn new(
         dev: GpuHandle,
-        rt: Arc<Runtime>,
         surface: Surface<'static>,
         window: Arc<Window>,
         event_loop: EventLoopProxy<UserEvent>,
@@ -119,7 +117,6 @@ impl AppInstance {
         let app_instance = AppInstance {
             app,
             window,
-            rt,
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
         };
@@ -151,8 +148,9 @@ impl AppInstance {
 
     pub fn handle_event(
         &mut self,
-        event: egui_winit::winit::event::WindowEvent,
+        event: winit::event::WindowEvent,
         eltarget: &ActiveEventLoop,
+        rt: &Runtime,
     ) {
         match event {
             WindowEvent::RedrawRequested => {
@@ -170,24 +168,22 @@ impl AppInstance {
                     }
                 };
 
-                let output_view = output_frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                let input = self.window.integration.take_egui_input(&self.window.window);
-
-                self.window.integration.egui_ctx().begin_pass(input);
-                self.viewer.layout_gui(&self.window.integration.egui_ctx());
-
-                self.toasts.show(&self.window.integration.egui_ctx());
-
                 let FullOutput {
                     platform_output,
                     textures_delta,
                     shapes,
                     pixels_per_point,
                     viewport_output,
-                } = self.window.integration.egui_ctx().end_pass();
+                } = {
+                    let input = self.window.integration.take_egui_input(&self.window.window);
+                    let ctx = self.window.integration.egui_ctx();
+                    ctx.begin_pass(input);
+
+                    self.viewer.layout_gui(ctx);
+                    self.toasts.show(ctx);
+
+                    ctx.end_pass()
+                };
 
                 let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
 
@@ -230,6 +226,10 @@ impl AppInstance {
                     self.window.renderer.free_texture(&id);
                 }
 
+                let output_view = output_frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
                 self.window.dispatch.submit_queue(|encoder| {
                     self.window.renderer.update_buffers(
                         dispatch.device(),
@@ -263,8 +263,7 @@ impl AppInstance {
                 output_frame.present();
             }
             WindowEvent::CloseRequested => {
-                eltarget.exit();
-                return;
+                return eltarget.exit();
             }
             WindowEvent::Resized(size) => {
                 // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
@@ -287,7 +286,7 @@ impl AppInstance {
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
-                self.rt.spawn({
+                rt.spawn({
                     let app = self.app.clone();
                     async move {
                         match app.load_file(file) {
@@ -325,7 +324,7 @@ impl AppInstance {
         }
     }
 
-    pub fn handle_user_event(&mut self, event: UserEvent) {
+    pub fn handle_user_event(&mut self, event: UserEvent, rt: &Runtime) {
         match event {
             UserEvent::RemoveInstance(idx) => {
                 self.viewer.instances.remove(&idx);
@@ -402,8 +401,7 @@ impl AppInstance {
                 }
             }
             UserEvent::NewInstance(instance_key, instance, compositor) => {
-                self.rt
-                    .spawn(compositor.rendering_thread(instance.output_texture.clone()));
+                rt.spawn(compositor.rendering_thread(instance.output_texture.clone()));
                 self.viewer.instances.insert(instance_key, instance);
                 self.app
                     .event_loop
@@ -418,15 +416,14 @@ impl AppInstance {
                 self.toasts.add(toast);
             }
             UserEvent::LoadDialog(surface, node) => {
-                self.rt
-                    .spawn(Dialog::new(self.app.event_loop.clone()).load_dialog(
-                        self.app.clone(),
-                        surface,
-                        node,
-                    ));
+                rt.spawn(Dialog::new(self.app.event_loop.clone()).load_dialog(
+                    self.app.clone(),
+                    surface,
+                    node,
+                ));
             }
             UserEvent::SaveDialog(texture) => {
-                self.rt.spawn(
+                rt.spawn(
                     Dialog::new(self.app.event_loop.clone())
                         .save_dialog(self.window.dispatch.clone(), texture),
                 );
