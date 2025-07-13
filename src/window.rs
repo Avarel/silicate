@@ -348,7 +348,7 @@ impl AppInstance {
                 };
 
                 let output = &instance.output_texture;
-                let texture_view = output.create_srgb_view();
+                let texture_view = output.create_default_view();
                 let size = Vec2::new(output.width() as f32, output.height() as f32);
 
                 if let Some(tex) = &mut instance.canvas {
@@ -384,7 +384,7 @@ impl AppInstance {
                 );
 
                 for i in 0..preview_texture.layers() {
-                    let texture_view = preview_texture.create_srgb_view_layer(i);
+                    let texture_view = preview_texture.create_view_layer(i);
                     if let Some(tex) = instance.previews.get_mut(&i) {
                         self.window.renderer.update_egui_texture_from_wgpu_texture(
                             &self.window.dispatch.device(),

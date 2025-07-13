@@ -92,12 +92,12 @@ impl GpuTexture {
         })
     }
 
-    pub fn create_srgb_view(&self) -> wgpu::TextureView {
-        self.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-            ..Default::default()
-        })
-    }
+    // pub fn create_srgb_view(&self) -> wgpu::TextureView {
+    //     self.texture.create_view(&wgpu::TextureViewDescriptor {
+    //         format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+    //         ..Default::default()
+    //     })
+    // }
 
     pub fn create_view_layer(&self, layer: u32) -> wgpu::TextureView {
         self.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -109,15 +109,15 @@ impl GpuTexture {
         })
     }
 
-    pub fn create_srgb_view_layer(&self, layer: u32) -> wgpu::TextureView {
-        self.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-            base_array_layer: layer,
-            array_layer_count: Some(1),
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            ..Default::default()
-        })
-    }
+    // pub fn create_srgb_view_layer(&self, layer: u32) -> wgpu::TextureView {
+    //     self.texture.create_view(&wgpu::TextureViewDescriptor {
+    //         format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+    //         base_array_layer: layer,
+    //         array_layer_count: Some(1),
+    //         dimension: Some(wgpu::TextureViewDimension::D2),
+    //         ..Default::default()
+    //     })
+    // }
 
     pub fn width(&self) -> u32 {
         self.size.width
