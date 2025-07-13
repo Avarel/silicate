@@ -55,7 +55,7 @@ impl AppMultiplexer {
                 compatible_surface: Some(&surface),
                 ..GpuHandle::ADAPTER_OPTIONS
             })
-            .await?;
+            .await.ok()?;
         GpuHandle::from_adapter(instance, adapter)
             .await
             .map(|dev| (dev, surface))

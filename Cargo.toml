@@ -9,7 +9,7 @@ repository = "https://github.com/Avarel/procreate-rs"
 license = "MIT"
 
 [workspace]
-members = ["libs/compositor", "libs/lz4_flex", "libs/silica", "libs/egui_dock"]
+members = ["libs/compositor", "libs/lz4_flex", "libs/silica"]
 
 [features]
 default = []
@@ -29,12 +29,12 @@ image = { version = "0.25", default-features = false, features = [
     "bmp",
 ] }
 # Display GUI
-egui = "0.31"
-egui-wgpu = "0.31.0"
-egui-winit = "0.31.0"
+egui = "0.32"
+egui-wgpu = "0.32.0"
+egui-winit = "0.32.0"
 # winit = "0.29"
-egui_dock = { path = "libs/egui_dock" }
-egui-notify = "0.19"
+egui_dock = "0.17"
+egui-notify = { git = "https://github.com/UnknownSuperficialNight/egui-notify.git" }
 
 rfd = { version = "0.15", default-features = false, features = [
     "tokio",

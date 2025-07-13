@@ -3,7 +3,7 @@ mod silicate;
 mod widgets;
 
 use egui::{Frame, *};
-use egui_dock::{NodeIndex, SurfaceIndex};
+use egui_dock::{tab_viewer::OnCloseResponse, NodeIndex, SurfaceIndex};
 use egui_winit::winit::event_loop::EventLoopProxy;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -187,11 +187,11 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         instance.submit_to_compositor();
     }
 
-    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+    fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
         self.event_loop
             .send_event(UserEvent::RemoveInstance(*tab))
             .unwrap();
-        true
+        OnCloseResponse::Close
     }
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {

@@ -135,11 +135,9 @@ where
     }
 
     pub fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
-        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-            buffer: self.buffer(),
-            offset: 0,
-            size: std::num::NonZeroU64::new(self.data_len()),
-        })
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding::from(
+            self.buffer().slice(0..self.data_len()),
+        ))
     }
 
     /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.

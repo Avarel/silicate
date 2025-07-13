@@ -47,6 +47,7 @@ impl GpuHandle {
             backend_options: wgpu::BackendOptions {
                 dx12: wgpu::Dx12BackendOptions::default(),
                 gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
             backends: if !cfg!(target_os = "linux") {
                 // Prefer native APIs... they're generally faster.
@@ -68,7 +69,7 @@ impl GpuHandle {
     /// Create a bare GPU handle with no surface target.
     pub async fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(&Self::instance_descriptor());
-        let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await?;
+        let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await.ok()?;
         Self::from_adapter(instance, adapter).await
     }
 
@@ -79,14 +80,11 @@ impl GpuHandle {
         dbg!(adapter.limits());
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::default(),
-                    required_limits: wgpu::Limits::default(),
-                    ..Default::default()
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::default(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
             .await
             .ok()?;
 
