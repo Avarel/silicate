@@ -90,6 +90,7 @@ pub struct AppInstance {
     window: WindowBundle,
     viewer: ViewerGui,
     toasts: Toasts,
+    event_loop: EventLoopProxy<UserEvent>,
 }
 
 impl AppInstance {
@@ -101,7 +102,7 @@ impl AppInstance {
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let app = Arc::new(App::new(dev.dispatch, event_loop));
+        let app = Arc::new(App::new(dev.dispatch, event_loop.clone()));
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -112,6 +113,7 @@ impl AppInstance {
                 extended_crosshair: false,
             },
             canvas_tree: egui_dock::DockState::new(Vec::new()),
+            event_loop: event_loop.clone(),
         };
 
         let app_instance = AppInstance {
@@ -119,6 +121,7 @@ impl AppInstance {
             window,
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
+            event_loop,
         };
 
         app_instance
@@ -133,8 +136,7 @@ impl AppInstance {
                 }
                 Ok(key) => {
                     self.toasts.success("Loaded file from command line.");
-                    self.app
-                        .event_loop
+                    self.event_loop
                         .send_event(UserEvent::NewView(
                             egui_dock::SurfaceIndex::main(),
                             egui_dock::NodeIndex::root(),
@@ -288,6 +290,7 @@ impl AppInstance {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
                 rt.spawn({
                     let app = self.app.clone();
+                    let event_loop = self.event_loop.clone();
                     async move {
                         match app.load_file(file) {
                             Err(_) => {
@@ -295,7 +298,7 @@ impl AppInstance {
                             }
                             Ok(key) => {
                                 app.send_toast(Toast::success("Loaded file from drag/drop."));
-                                app.event_loop
+                                event_loop
                                     .send_event(UserEvent::NewView(
                                         egui_dock::SurfaceIndex::main(),
                                         egui_dock::NodeIndex::root(),
@@ -403,12 +406,10 @@ impl AppInstance {
             UserEvent::NewInstance(instance_key, instance, compositor) => {
                 rt.spawn(compositor.rendering_thread(instance.output_texture.clone()));
                 self.viewer.instances.insert(instance_key, instance);
-                self.app
-                    .event_loop
+                self.event_loop
                     .send_event(UserEvent::RebindPreviews(instance_key))
                     .unwrap();
-                self.app
-                    .event_loop
+                self.event_loop
                     .send_event(UserEvent::RebindTexture(instance_key))
                     .unwrap();
             }
@@ -416,7 +417,7 @@ impl AppInstance {
                 self.toasts.add(toast);
             }
             UserEvent::LoadDialog(surface, node) => {
-                rt.spawn(Dialog::new(self.app.event_loop.clone()).load_dialog(
+                rt.spawn(Dialog::new(self.event_loop.clone()).load_dialog(
                     self.app.clone(),
                     surface,
                     node,
@@ -424,7 +425,7 @@ impl AppInstance {
             }
             UserEvent::SaveDialog(texture) => {
                 rt.spawn(
-                    Dialog::new(self.app.event_loop.clone())
+                    Dialog::new(self.event_loop.clone())
                         .save_dialog(self.window.dispatch.clone(), texture),
                 );
             }

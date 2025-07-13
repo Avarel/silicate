@@ -60,16 +60,13 @@ impl std::fmt::Debug for UserEvent {
 
 pub struct App {
     dispatch: GpuDispatch,
-    pub(crate) event_loop: EventLoopProxy<UserEvent>,
+    event_loop: EventLoopProxy<UserEvent>,
     pipeline: Pipeline,
     curr_id: AtomicUsize,
 }
 
 impl App {
-    pub fn new(
-        dispatch: GpuDispatch,
-        event_loop: EventLoopProxy<UserEvent>,
-    ) -> Self {
+    pub fn new(dispatch: GpuDispatch, event_loop: EventLoopProxy<UserEvent>) -> Self {
         Self {
             pipeline: Pipeline::new(&dispatch),
             dispatch,
