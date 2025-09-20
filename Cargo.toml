@@ -34,7 +34,7 @@ egui-wgpu = "0.32.0"
 egui-winit = "0.32.0"
 # winit = "0.29"
 egui_dock = "0.17"
-egui-notify = { git = "https://github.com/UnknownSuperficialNight/egui-notify.git" }
+egui-notify = "0.20"
 
 rfd = { version = "0.15", default-features = false, features = [
     "tokio",
