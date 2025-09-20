@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 wgpu = "25.0"
-bytemuck = { version = "1.12", features = ["derive"] }
+bytemuck = { version = "1.23", features = ["derive"] }

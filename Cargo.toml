@@ -41,7 +41,7 @@ rfd = { version = "0.15", default-features = false, features = [
     "xdg-portal",
 ] }
 # Async runtime
-tokio = { version = "1.21", features = ["sync", "rt-multi-thread"] }
+tokio = { version = "1.47", features = ["sync", "rt-multi-thread"] }
 
 [profile.release]
 strip = true
