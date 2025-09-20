@@ -153,6 +153,9 @@ impl CompositorApp {
             };
 
             let new_layer_config = file.layers.clone();
+            // TODO: add render by composite mode
+            // let new_layer_config = [SilicaHierarchy::Layer(file.composite.clone().unwrap())];
+
             let background = (!file.info.background_hidden).then_some(file.info.background_color);
 
             let reload_chunks = self
