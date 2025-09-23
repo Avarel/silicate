@@ -116,8 +116,6 @@ impl App {
         }
         .to_radians();
 
-        let addendum = crate::addendum::build(&file.layers);
-
         let initial_compositor_file = Arc::new(file.clone());
         let (compositor, handle) = CompositorApp::new(
             self.pipeline.clone(),
@@ -130,7 +128,6 @@ impl App {
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let key = InstanceKey(id);
         let mut instance = Instance {
-            addendum,
             file: file.clone(),
             output_texture: output_texture.clone(),
             preview_textures: None,

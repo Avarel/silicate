@@ -107,6 +107,7 @@ impl SilicaHierarchy {
 pub struct SilicaGroup {
     pub info: SilicaGroupInfo,
     pub children: Vec<SilicaHierarchy>,
+    pub addendum: Addendum,
 }
 
 impl SilicaGroup {
@@ -135,4 +136,10 @@ pub struct SilicaImageData {
 pub struct SilicaLayer {
     pub info: SilicaLayerInfo,
     pub image: SilicaImageData,
+    pub addendum: Addendum,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Addendum {
+    pub id: u32,
 }

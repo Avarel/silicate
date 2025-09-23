@@ -1,4 +1,3 @@
-mod addendum;
 mod app;
 mod gui;
 mod window;
@@ -55,7 +54,8 @@ impl AppMultiplexer {
                 compatible_surface: Some(&surface),
                 ..GpuHandle::ADAPTER_OPTIONS
             })
-            .await.ok()?;
+            .await
+            .ok()?;
         GpuHandle::from_adapter(instance, adapter)
             .await
             .map(|dev| (dev, surface))

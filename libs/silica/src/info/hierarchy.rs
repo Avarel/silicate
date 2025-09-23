@@ -1,4 +1,4 @@
-use crate::layers::{SilicaChunk, SilicaHierarchy, SilicaImageData};
+use crate::layers::{Addendum, SilicaChunk, SilicaHierarchy, SilicaImageData};
 use crate::ns_archive::{NsClass, NsDecode};
 use crate::ns_archive::{NsKeyedArchive, NsObjects, error::NsArchiveError};
 use crate::{
@@ -16,6 +16,7 @@ use silicate_compositor::tex::GpuTexture;
 use std::io::Read;
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
+use std::sync::atomic::Ordering;
 
 use super::IRData;
 
@@ -160,7 +161,7 @@ impl SilicaLayerInfo {
 
                 let atlas_index = NonZeroU32::new(
                     meta.chunk_id_counter
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
                 )
                 .unwrap();
 
@@ -178,6 +179,9 @@ impl SilicaLayerInfo {
         Ok(SilicaLayer {
             info: self,
             image: SilicaImageData { chunks },
+            addendum: Addendum {
+                id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
+            },
         })
     }
 }
@@ -237,6 +241,9 @@ impl<'a> SilicaGroupInfo {
                 .map(|ir| ir.load(dispatch, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
             info: self,
+            addendum: Addendum {
+                id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
+            },
         })
     }
 }

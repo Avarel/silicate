@@ -5,7 +5,6 @@ use silica::file::ProcreateFile;
 use silica::layers::SilicaHierarchy;
 use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
 
-use crate::addendum::SilicaHierarchyAddendum;
 use crate::app::compositor::CompositorApp;
 
 use super::compositor::CompositorHandle;
@@ -15,7 +14,6 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: ProcreateFile,
-    pub addendum: Vec<SilicaHierarchyAddendum>,
     pub output_texture: GpuTexture,
     pub rotation: f32,
     pub preview_textures: Option<GpuTexture>,
@@ -29,7 +27,6 @@ impl std::fmt::Debug for Instance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Instance")
             .field("file", &self.file)
-            .field("addendum", &self.addendum)
             .field("output_texture", &self.output_texture)
             .field("rotation", &self.rotation)
             .field("preview_textures", &self.preview_textures)
@@ -64,16 +61,14 @@ impl Instance {
                 target: &mut Compositor,
                 preview_textures: &GpuTexture,
                 layers: &[SilicaHierarchy],
-                addendum: &[SilicaHierarchyAddendum],
             ) {
                 fn inner(
                     pipeline: &Pipeline,
                     target: &mut Compositor,
                     preview_textures: &GpuTexture,
                     layers: &[SilicaHierarchy],
-                    addendums: &[SilicaHierarchyAddendum],
                 ) {
-                    for (layer, addendum) in layers.iter().zip(addendums.iter()) {
+                    for layer in layers.iter() {
                         {
                             let layer = std::slice::from_ref(layer);
                             let mut composite_layers = Vec::new();
@@ -86,55 +81,37 @@ impl Instance {
                             composite_chunks.sort_by_key(|v| (v.col, v.row));
                             target.load_chunk_buffer(composite_chunks.as_slice());
                         }
-                        match (layer, addendum) {
-                            (
-                                SilicaHierarchy::Group(group),
-                                SilicaHierarchyAddendum::Group(addendum),
-                            ) => {
+                        match layer {
+                            SilicaHierarchy::Group(group) => {
                                 target.render(
                                     pipeline,
-                                    preview_textures.create_view_layer(addendum.id),
+                                    preview_textures.create_view_layer(group.addendum.id),
                                 );
-                                inner(
-                                    pipeline,
-                                    target,
-                                    preview_textures,
-                                    &group.children,
-                                    &addendum.children,
-                                );
+                                inner(pipeline, target, preview_textures, &group.children);
                             }
-                            (
-                                SilicaHierarchy::Layer(_),
-                                SilicaHierarchyAddendum::Layer(addendum),
-                            ) => {
+
+                            SilicaHierarchy::Layer(layer) => {
                                 target.render(
                                     pipeline,
-                                    preview_textures.create_view_layer(addendum.id),
+                                    preview_textures.create_view_layer(layer.addendum.id),
                                 );
                             }
-                            _ => unreachable!(),
                         }
                     }
                 }
 
-                inner(pipeline, target, preview_textures, layers, addendum);
+                inner(pipeline, target, preview_textures, layers);
             }
 
             let preview_textures = GpuTexture::empty_layers(
                 dispatch,
                 256,
                 scaled_height,
-                file.layer_count(true),
+                file.layer_count(true) + 1,
                 GpuTexture::OUTPUT_USAGE,
             );
 
-            generate_silica_layers_preview(
-                pipeline,
-                &mut target,
-                &preview_textures,
-                &file.layers,
-                &self.addendum,
-            );
+            generate_silica_layers_preview(pipeline, &mut target, &preview_textures, &file.layers);
 
             preview_textures
         };

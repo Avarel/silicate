@@ -69,7 +69,10 @@ impl GpuHandle {
     /// Create a bare GPU handle with no surface target.
     pub async fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(&Self::instance_descriptor());
-        let adapter = instance.request_adapter(&Self::ADAPTER_OPTIONS).await.ok()?;
+        let adapter = instance
+            .request_adapter(&Self::ADAPTER_OPTIONS)
+            .await
+            .ok()?;
         Self::from_adapter(instance, adapter).await
     }
 

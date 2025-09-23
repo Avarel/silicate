@@ -173,7 +173,6 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                     rotation: instance.rotation,
                     previews: &instance.previews,
                     layers: &mut instance.file.layers,
-                    addendum: &instance.addendum,
                 }
                 .ui(ui, *tab);
 

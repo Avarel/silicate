@@ -18,6 +18,7 @@ pub(crate) struct IRData<'a> {
     file_names: Vec<&'a str>,
     tiling: CanvasTiling,
     chunk_id_counter: AtomicU32,
+    addendum_id_counter: AtomicU32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,6 +127,7 @@ impl ProcreateFileInfo {
                 file_names,
                 tiling: canvas_tiling,
                 chunk_id_counter: AtomicU32::new(1),
+                addendum_id_counter: AtomicU32::new(0),
             },
         ))
     }
