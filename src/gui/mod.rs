@@ -253,6 +253,8 @@ impl ViewerGui {
 
                     style.tab.spacing = 10.0;
 
+                    style.tab_bar.bg_fill = Color32::TRANSPARENT;
+
                     style.tab.active.corner_radius = CornerRadius::same(10);
                     style.tab.active.outline_color = Color32::TRANSPARENT;
 

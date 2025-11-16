@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wgpu = "25.0"
-bytemuck = { version = "1.23", features = ["derive"] }
+wgpu = "27.0"
+bytemuck = { version = "1.24", features = ["derive"] }

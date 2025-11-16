@@ -45,7 +45,10 @@ impl GpuHandle {
     pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
         wgpu::InstanceDescriptor {
             backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions::default(),
+                dx12: wgpu::Dx12BackendOptions {
+                    presentation_system: wgpu::wgt::Dx12SwapchainKind::DxgiFromVisual,
+                    ..Default::default()
+                },
                 gl: wgpu::GlBackendOptions::default(),
                 noop: wgpu::NoopBackendOptions::default(),
             },
@@ -55,6 +58,7 @@ impl GpuHandle {
             } else {
                 wgpu::Backends::PRIMARY
             },
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             flags: wgpu::InstanceFlags::default(),
         }
     }

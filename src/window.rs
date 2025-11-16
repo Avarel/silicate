@@ -7,7 +7,7 @@ use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_notify::{Toast, Toasts};
-use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
+use egui_wgpu::{wgpu, Renderer, RendererOptions, ScreenDescriptor};
 
 use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use tokio::runtime::Runtime;
@@ -71,7 +71,17 @@ impl WindowBundle {
             None,
         );
 
-        let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
+        // let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
+        let renderer = Renderer::new(
+            &dev.dispatch.device(),
+            surface_format,
+            RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
+                dithering: true,
+                predictable_texture_filtering: false,
+            },
+        );
 
         Self {
             dispatch: dev.dispatch.clone(),
@@ -252,6 +262,7 @@ impl AppInstance {
                                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                         store: wgpu::StoreOp::Store,
                                     },
+                                    depth_slice: None,
                                 })],
                                 depth_stencil_attachment: None,
                                 timestamp_writes: None,

@@ -29,19 +29,19 @@ image = { version = "0.25", default-features = false, features = [
     "bmp",
 ] }
 # Display GUI
-egui = "0.32"
-egui-wgpu = "0.32.0"
-egui-winit = "0.32.0"
+egui = "0.33"
+egui-wgpu = "0.33"
+egui-winit = "0.33"
 # winit = "0.29"
-egui_dock = "0.17"
-egui-notify = "0.20"
+egui_dock = "0.18"
+egui-notify = "0.21"
 
 rfd = { version = "0.15", default-features = false, features = [
     "tokio",
     "xdg-portal",
 ] }
 # Async runtime
-tokio = { version = "1.47", features = ["sync", "rt-multi-thread"] }
+tokio = { version = "1.48", features = ["sync", "rt-multi-thread"] }
 
 [profile.release]
 strip = true
@@ -53,7 +53,7 @@ codegen-units = 1
 winres = "0.1"
 
 [build-dependencies]
-cc = "1.0"
+cc = "1.2"
 
 [package.metadata.bundle]
 name = "Silicate"

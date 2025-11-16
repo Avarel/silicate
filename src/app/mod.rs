@@ -19,7 +19,7 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::sync::atomic::AtomicUsize;
+use std::{sync::atomic::AtomicUsize, time::Duration};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -168,7 +168,10 @@ impl App {
         // the future. Otherwise the application will freeze.
         let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dispatch.device().poll(wgpu::PollType::Wait).unwrap();
+        dispatch.device().poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(10)),
+        }).unwrap();
         rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();
