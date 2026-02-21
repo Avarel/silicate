@@ -1,6 +1,6 @@
 [package]
 name = "silicate"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 authors = ["An Tran <antran@caltech.edu>"]
 description = "Cross-platform GPU-accelerated Procreate file viewer.s"
@@ -36,10 +36,7 @@ egui-winit = "0.33"
 egui_dock = "0.18"
 egui-notify = "0.21"
 
-rfd = { version = "0.15", default-features = false, features = [
-    "tokio",
-    "xdg-portal",
-] }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Async runtime
 tokio = { version = "1.48", features = ["sync", "rt-multi-thread"] }
 
