@@ -104,7 +104,7 @@ impl<'a> NsDecode<'a> for SilicaLayerInfo {
 }
 
 impl SilicaLayerInfo {
-    pub(crate) fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
+    fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
             .ok_or_else(|| SilicaError::CorruptedFormat)?;
@@ -124,7 +124,7 @@ impl SilicaLayerInfo {
         atlas_texture: &GpuTexture,
         meta: &IRData<'_>,
     ) -> Result<SilicaLayer, SilicaError> {
-        pub(crate) static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
+        static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let chunks = meta
             .file_names
@@ -144,17 +144,18 @@ impl SilicaLayerInfo {
                 let mut buf = Vec::new();
                 chunk.read_to_end(&mut buf)?;
 
+                let data_len = tile_extent.width as usize
+                    * tile_extent.height as usize
+                    * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
+
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data = if path.ends_with(".lz4") {
                     let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
-                    let mut dst = Vec::new();
+                    let mut dst = Vec::with_capacity(data_len);
                     decoder.read_to_end(&mut dst)?;
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
-                    let data_len = tile_extent.width as usize
-                        * tile_extent.height as usize
-                        * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
                     let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
                     lzo.decompress_safe(buf.as_slice(), data_len)?
                 };
