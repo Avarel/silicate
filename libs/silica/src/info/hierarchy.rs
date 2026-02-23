@@ -150,9 +150,9 @@ impl SilicaLayerInfo {
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data = if path.ends_with(".lz4") {
-                    let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice());
                     let mut dst = Vec::with_capacity(data_len);
-                    decoder.read_to_end(&mut dst)?;
+                    let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice(), &mut dst);
+                    decoder.read_to_end()?;
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
