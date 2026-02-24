@@ -40,7 +40,7 @@ fn vs_main(
     let canvas_grid = vec2f(f32(canvas.cols), f32(canvas.rows));
     let canvas_dim = vec2f(f32(canvas.width), f32(canvas.height));
 
-    let flipped_horizontally = (canvas.flipped >> 1 & 1) != 0;
+    let flipped_horizontally = ((canvas.flipped >> 1) & 1) != 0;
     let flipped_vertically = (canvas.flipped & 1) != 0;
 
     let scale = canvas_grid * f32(canvas.tile_size) / canvas_dim;
