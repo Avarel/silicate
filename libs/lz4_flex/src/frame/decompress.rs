@@ -9,53 +9,60 @@ use crate::sink::vec_sink_for_decompression;
 
 pub struct FrameDecoder<'a> {
     /// The underlying reader.
-    r: Cursor<&'a [u8]>,
+    src: &'a [u8],
     /// The decompressed bytes buffer. Bytes are decompressed from src to dst
     /// before being passed back to the caller.
     dst: &'a mut Vec<u8>,
-    /// Index into dst: ending point of bytes not yet read by caller.
-    dst_end: usize,
 }
 
 impl<'a> FrameDecoder<'a> {
     /// Creates a new Decoder for the specified reader.
-    pub fn new(rdr: &'a [u8], dst: &'a mut Vec<u8>) -> FrameDecoder<'a> {
-        FrameDecoder {
-            r: Cursor::new(rdr),
-            dst,
-            // dst_start: 0,
-            dst_end: 0,
-        }
+    pub fn new(src: &'a [u8], dst: &'a mut Vec<u8>) -> FrameDecoder<'a> {
+        FrameDecoder { src, dst }
     }
 
-    fn read_block(&mut self) -> io::Result<usize> {
+    fn read_block(&mut self) -> io::Result<bool> {
         // Read and decompress block
-        let block_info = BlockInfo::read(&mut self.r)?;
+        let block_info = BlockInfo::read(&self.src)?;
+        self.src = &self.src[block_info.encoding_bytes()..];
 
         match block_info {
             BlockInfo::Uncompressed(len) => {
                 let len = len as usize;
 
-                self.dst
-                    .extend_from_slice(&self.r.get_ref()[self.r.position() as usize..][..len]);
+                let Some((src, rest)) = self.src.split_at_checked(len) else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Unexpected end of file",
+                    ));
+                };
+                self.src = rest;
 
-                self.dst_end += len;
+                self.dst.extend_from_slice(src);
             }
             BlockInfo::Compressed(len, block_size) => {
-                if len > block_size {
-                    return Err(Error::BlockTooBig.into());
-                }
                 let len = len as usize;
                 let block_size = block_size as usize;
 
-                let src = &self.r.get_ref()[self.r.position() as usize..];
-                self.r.consume(len);
+                if len > block_size {
+                    return Err(Error::BlockTooBig.into());
+                }
+
+                let Some((src, rest)) = self.src.split_at_checked(len) else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Unexpected end of file",
+                    ));
+                };
+                self.src = rest;
 
                 // Independent blocks OR linked blocks with only prefix data
-                self.dst.resize(self.dst_end + block_size, 0);
-                let (prev, dst) = self.dst.split_at_mut(self.dst_end);
+                let dst_end = self.dst.len();
+                self.dst.resize(dst_end + block_size, 0);
+                // Safety: We just resized the vector to dst_end + block_size
+                let (prev, dst) = unsafe { self.dst.split_at_mut(dst_end) };
                 debug_assert_eq!(dst.len(), block_size);
-                let decomp_size = crate::block::decompress_into_with_dict(&src[..len], dst, prev)
+                let decomp_size = crate::block::decompress_into_with_dict(src, dst, prev)
                     .map_err(Error::DecompressionError)?;
 
                 if decomp_size != block_size {
@@ -67,36 +74,24 @@ impl<'a> FrameDecoder<'a> {
                 }
 
                 debug_assert_eq!(block_size, decomp_size);
-
-                self.dst_end += decomp_size;
             }
 
             BlockInfo::EndMark => {
-                return Ok(0);
+                return Ok(false);
             }
         }
 
-        debug_assert_eq!(self.dst.len(), self.dst_end);
-        Ok(self.dst_end)
+        Ok(true)
     }
 
     pub fn read_to_end(&mut self) -> io::Result<usize> {
         loop {
             match self.read_block() {
-                Ok(0) => return Ok(self.dst.len()),
-                Ok(_) => continue,
+                Ok(false) => return Ok(self.dst.len()),
+                Ok(true) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             }
         }
     }
-}
-
-/// Similar to `v.get_mut(start..end) but will adjust the len if needed.
-#[inline]
-fn vec_resize_and_get_mut(v: &mut Vec<u8>, start: usize, end: usize) -> &mut [u8] {
-    if end > v.len() {
-        v.resize(end, 0)
-    }
-    &mut v[start..end]
 }

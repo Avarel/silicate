@@ -13,15 +13,28 @@ pub(crate) enum BlockInfo {
 }
 
 impl BlockInfo {
-    fn read_len(r: &mut impl Read) -> io::Result<u32> {
+    fn read_bytes<'b>(r: &mut &'b [u8]) -> io::Result<&'b [u8; 4]> {
+        let len = r.len();
+        let Some((bytes, rest)) = r.split_first_chunk::<4>() else {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Unexpected end of file",
+            ));
+        };
+        *r = rest;
+        Ok(bytes)
+    }
+
+    fn read_len(r: &[u8; 4]) -> io::Result<u32> {
         let mut data = [0u8; 4];
-        r.read_exact(&mut data)?;
+        data.copy_from_slice(&r[..4]);
         Ok(u32::from_le_bytes(data))
     }
 
-    pub(crate) fn read(r: &mut impl Read) -> Result<Self, Error> {
+    pub(crate) fn read(mut r: &[u8]) -> Result<Self, Error> {
         let mut magic = [0u8; 4];
-        r.read_exact(&mut magic)?;
+
+        magic.copy_from_slice(Self::read_bytes(&mut r)?);
 
         match magic {
             BLOCK_MAGIC_COMPRESSED => {
@@ -29,9 +42,9 @@ impl BlockInfo {
                 // 0x62, 0x76, 0x34, and 0x31, followed by:
 
                 // the size in bytes of the decoded (plaintext) data
-                let decoded_len = Self::read_len(r)?;
+                let decoded_len = Self::read_len(Self::read_bytes(&mut r)?)?;
                 // the size (in bytes) of the encoded data stored
-                let encoded_len = Self::read_len(r)?;
+                let encoded_len = Self::read_len(Self::read_bytes(&mut r)?)?;
                 // both size fields as (possibly unaligned) 32-bit little-endian values
 
                 Ok(BlockInfo::Compressed(encoded_len, decoded_len))
@@ -41,9 +54,9 @@ impl BlockInfo {
                 // 0x62, 0x76, 0x34, and 0x2d, followed by:
 
                 // the size in bytes of the decoded (plaintext) data
-                let decoded_len = Self::read_len(r)?;
+                let decoded_len = Self::read_len(Self::read_bytes(&mut r)?)?;
                 // the size (in bytes) of the encoded data stored
-                let encoded_len = Self::read_len(r)?;
+                let encoded_len = Self::read_len(Self::read_bytes(&mut r)?)?;
 
                 if decoded_len != encoded_len {
                     return Err(Error::BlockTooBig);
@@ -53,6 +66,13 @@ impl BlockInfo {
             }
             BLOCK_MAGIC_END => Ok(BlockInfo::EndMark),
             _ => Err(Error::WrongMagicNumber),
+        }
+    }
+
+    pub(crate) fn encoding_bytes(&self) -> usize {
+        match self {
+            BlockInfo::Compressed(_, _) | BlockInfo::Uncompressed(_) => 12,
+            BlockInfo::EndMark => 4,
         }
     }
 }
