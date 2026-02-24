@@ -135,7 +135,7 @@ impl Compositor {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: self.buffers.segments.as_binding_resource(),
+                            resource: self.buffers.silos.as_binding_resource(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,

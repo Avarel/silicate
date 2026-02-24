@@ -3,7 +3,7 @@ use wgpu::util::DeviceExt;
 use crate::{
     ChunkTile, CompositeLayer,
     canvas::{
-        ChunkData, ChunkInstance, ChunkSegment, CompositorAtlasTiling, CompositorCanvasTiling,
+        ChunkData, ChunkInstance, ChunkSilo, CompositorAtlasTiling, CompositorCanvasTiling,
         LayerData, VertexInput,
     },
     dev::GpuDispatch,
@@ -204,7 +204,7 @@ pub(crate) struct CompositorBuffers {
     pub(crate) atlas: DataBuffer<CompositorAtlasTiling>,
 
     pub(crate) canvas: DataBuffer<CompositorCanvasTiling>,
-    pub(crate) segments: DataBuffer<Vec<ChunkSegment>>,
+    pub(crate) silos: DataBuffer<Vec<ChunkSilo>>,
     pub(crate) chunks: DataBuffer<Vec<ChunkData>>,
     pub(crate) layers: DataBuffer<Vec<LayerData>>,
     pub(crate) tiles: DataBuffer<Vec<ChunkInstance>>,
@@ -274,9 +274,9 @@ impl CompositorBuffers {
                 Vec::new(),
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             ),
-            segments: DataBuffer::init_vec(
+            silos: DataBuffer::init_vec(
                 dispatch.device(),
-                "segment_buffer",
+                "silo_buffer",
                 Vec::new(),
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             ),
@@ -331,17 +331,16 @@ impl CompositorBuffers {
         let chunks = self.chunks.data_mut();
         chunks.clear();
 
-        let segments = self.segments.data_mut();
-        segments.resize(
+        let silos = self.silos.data_mut();
+        silos.resize(
             (num_cols * num_rows) as usize,
-            ChunkSegment { start: 0, end: 0 },
+            ChunkSilo { start: 0, end: 0 },
         );
-        for segment in segments.iter_mut() {
-            segment.start = 0;
-            segment.end = 0;
+        for silo in silos.iter_mut() {
+            *silo = ChunkSilo { start: 0, end: 0 };
         }
 
-        // Create a mutable list of segment references by index for fast access
+        // Create a mutable list of silo references by index for fast access
         for chunk in chunks_data {
             let index = (chunk.row * num_cols + chunk.col) as usize;
             let start = chunks.len();
@@ -351,16 +350,16 @@ impl CompositorBuffers {
                 layer_index: chunk.layer_index,
             });
 
-            let segment = &mut segments[index];
+            let silo = &mut silos[index];
 
-            if segment.start == 0 && segment.end == 0 {
+            if silo.start == 0 && silo.end == 0 {
                 // First time seeing this (col, row)
-                segment.start = start as u32;
+                silo.start = start as u32;
             }
-            segment.end = chunks.len() as u32; // always update end to current
+            silo.end = chunks.len() as u32; // always update end to current
         }
 
         self.chunks.load_vec_buffer(&self.dispatch);
-        self.segments.load_vec_buffer(&self.dispatch);
+        self.silos.load_vec_buffer(&self.dispatch);
     }
 }

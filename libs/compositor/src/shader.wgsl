@@ -28,7 +28,7 @@ struct TileInstance {
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) coords: vec2f,
-    @location(1) chunk_index: u32,
+    @location(1) silo_index: u32,
 };
 
 @vertex
@@ -50,7 +50,7 @@ fn vs_main(
     var out: VertexOutput;
     out.position = vec4(normalized_pos, 0.0, 1.0);
     out.coords = model.coords;
-    out.chunk_index = tile.row * canvas.cols + tile.col;
+    out.silo_index = tile.row * canvas.cols + tile.col;
     return out;
 }
 
@@ -289,7 +289,7 @@ struct ChunkData {
     layer_index: u32,
 };
 
-struct SegmentData {
+struct SiloData {
     start: u32,
     end: u32,
 }
@@ -305,7 +305,7 @@ var<storage, read> chunks: array<ChunkData>;
 @group(2) @binding(3)
 var<storage, read> layers: array<LayerData>;
 @group(2) @binding(4)
-var<storage, read> segments: array<SegmentData>;
+var<storage, read> silos: array<SiloData>;
 @group(2) @binding(5)
 var<uniform> bg_in: vec4f;
 
@@ -340,9 +340,9 @@ fn to_premultiplied(c: vec4f) -> vec3f {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var bga = bg_in;
 
-    let segment = segments[in.chunk_index];
+    let silo_index = silos[in.silo_index];
 
-    for (var i: u32 = segment.start; i < segment.end; i++) {
+    for (var i: u32 = silo_index.start; i < silo_index.end; i++) {
         let chunk = chunks[i];
 
         let layer = layers[chunk.layer_index];

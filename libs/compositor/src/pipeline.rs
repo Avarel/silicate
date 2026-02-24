@@ -103,7 +103,7 @@ impl Pipeline {
                         },
                         count: None,
                     },
-                    // segments
+                    // silos
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,

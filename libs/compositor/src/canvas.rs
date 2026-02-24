@@ -122,7 +122,7 @@ pub(crate) struct LayerData {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
-pub(crate) struct ChunkSegment {
+pub(crate) struct ChunkSilo {
     pub start: u32,
     pub end: u32,
 }
