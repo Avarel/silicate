@@ -1,5 +1,6 @@
-use super::Error;
-use std::{fmt::Debug, io, io::Read};
+use std::{fmt::Debug, io};
+
+use lz4_flex::frame::Error;
 
 const BLOCK_MAGIC_COMPRESSED: [u8; 4] = [0x62, 0x76, 0x34, 0x31];
 const BLOCK_MAGIC_UNCOMPRESSED: [u8; 4] = [0x62, 0x76, 0x34, 0x2d];
@@ -14,7 +15,6 @@ pub(crate) enum BlockInfo {
 
 impl BlockInfo {
     fn read_bytes<'b>(r: &mut &'b [u8]) -> io::Result<&'b [u8; 4]> {
-        let len = r.len();
         let Some((bytes, rest)) = r.split_first_chunk::<4>() else {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -26,17 +26,11 @@ impl BlockInfo {
     }
 
     fn read_len(r: &[u8; 4]) -> io::Result<u32> {
-        let mut data = [0u8; 4];
-        data.copy_from_slice(&r[..4]);
-        Ok(u32::from_le_bytes(data))
+        Ok(u32::from_le_bytes(*r))
     }
 
     pub(crate) fn read(mut r: &[u8]) -> Result<Self, Error> {
-        let mut magic = [0u8; 4];
-
-        magic.copy_from_slice(Self::read_bytes(&mut r)?);
-
-        match magic {
+        match *Self::read_bytes(&mut r)? {
             BLOCK_MAGIC_COMPRESSED => {
                 // A compressed block header consists of the octets
                 // 0x62, 0x76, 0x34, and 0x31, followed by:

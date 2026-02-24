@@ -9,7 +9,7 @@ repository = "https://github.com/Avarel/procreate-rs"
 license = "MIT"
 
 [workspace]
-members = ["libs/compositor", "libs/lz4_flex", "libs/silica"]
+members = ["libs/compositor", "libs/silica"]
 
 [features]
 default = []

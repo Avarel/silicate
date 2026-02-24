@@ -1,4 +1,5 @@
 pub mod hierarchy;
+mod lz4;
 
 use std::sync::atomic::AtomicU32;
 

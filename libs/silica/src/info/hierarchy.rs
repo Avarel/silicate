@@ -141,7 +141,7 @@ impl SilicaLayerInfo {
                 // impossible
                 let mut chunk = archive.by_name(path).expect("path not inside zip");
 
-                let mut buf = Vec::new();
+                let mut buf = Vec::with_capacity(chunk.size() as usize);
                 chunk.read_to_end(&mut buf)?;
 
                 let data_len = tile_extent.width as usize
@@ -151,8 +151,7 @@ impl SilicaLayerInfo {
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data = if path.ends_with(".lz4") {
                     let mut dst = Vec::with_capacity(data_len);
-                    let mut decoder = lz4_flex::frame::FrameDecoder::new(buf.as_slice(), &mut dst);
-                    decoder.read_to_end()?;
+                    super::lz4::decompress(buf.as_slice(), &mut dst)?;
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
