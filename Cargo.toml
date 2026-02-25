@@ -11,6 +11,9 @@ license = "MIT"
 [workspace]
 members = ["libs/compositor", "libs/silica", "libs/silica-gpu"]
 
+[workspace.dependencies]
+wgpu = "27.0"
+
 [features]
 default = []
 
