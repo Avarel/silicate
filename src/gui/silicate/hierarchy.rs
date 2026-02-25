@@ -1,6 +1,6 @@
 use crate::{app::instance::InstanceKey, gui::widgets::layer_collapsible::LayerCollapsible};
 use egui::{load::SizedTexture, *};
-use silica::gpu::layers::SilicaHierarchyGpu;
+use silica::gpu::hierarchy::SilicaHierarchyGpu;
 use std::collections::HashMap;
 
 use super::layer::LayerControl;

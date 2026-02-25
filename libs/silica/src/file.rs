@@ -1,8 +1,9 @@
 use crate::gpu::{
-    layers::{SilicaHierarchyGpu, SilicaLayerGpu},
+    hierarchy::SilicaHierarchyGpu,
+    layer::SilicaLayerGpu,
     tiling::{AtlasTextureTiling, CanvasTiling},
 };
-use crate::info::ProcreateFile;
+use crate::info::file::ProcreateFile;
 use crate::ns_archive::Size;
 use crate::{error::SilicaError, ns_archive::NsKeyedArchive};
 use silicate_compositor::dev::GpuDispatch;

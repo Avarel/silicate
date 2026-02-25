@@ -1,6 +1,6 @@
 use silica::{
     file::ProcreateFileGpu,
-    gpu::layers::{SilicaHierarchyGpu, SilicaLayerGpu},
+    gpu::{hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu},
 };
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,

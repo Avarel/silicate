@@ -1,5 +1,5 @@
 use egui::*;
-use silica::gpu::layers::SilicaLayerGpu;
+use silica::gpu::layer::SilicaLayerGpu;
 
 use crate::gui::widgets::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider};
 
