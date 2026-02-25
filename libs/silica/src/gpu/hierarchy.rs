@@ -1,5 +1,11 @@
 use crate::gpu::{group::SilicaGroupGpu, layer::SilicaLayerGpu};
 
+use crate::error::SilicaError;
+use crate::gpu::ir::IRData;
+use crate::info::hierarchy::SilicaHierarchy;
+use silicate_compositor::dev::GpuDispatch;
+use silicate_compositor::tex::GpuTexture;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SilicaHierarchyGpu {
     Layer(SilicaLayerGpu),
@@ -12,5 +18,27 @@ impl SilicaHierarchyGpu {
             SilicaHierarchyGpu::Layer(_) => 1,
             SilicaHierarchyGpu::Group(silica_group) => silica_group.layer_count(include_groups),
         }
+    }
+
+    pub(crate) fn load<'a>(
+        info: SilicaHierarchy,
+        dispatch: &GpuDispatch,
+        atlas_texture: &'a GpuTexture,
+        meta: &'a IRData<'a>,
+    ) -> Result<SilicaHierarchyGpu, SilicaError> {
+        Ok(match info {
+            SilicaHierarchy::Layer(layer) => SilicaHierarchyGpu::Layer(SilicaLayerGpu::load(
+                layer,
+                dispatch,
+                atlas_texture,
+                meta,
+            )?),
+            SilicaHierarchy::Group(group) => SilicaHierarchyGpu::Group(SilicaGroupGpu::load(
+                group,
+                dispatch,
+                atlas_texture,
+                meta,
+            )?),
+        })
     }
 }

@@ -1,23 +1,6 @@
-use crate::gpu::ir::IRData;
-use crate::gpu::layer::{Addendum, SilicaChunk, SilicaImageData};
-use crate::ns_archive::NsDecode;
-use crate::ns_archive::{NsKeyedArchive, error::NsArchiveError};
-use crate::{
-    error::SilicaError,
-    gpu::layer::SilicaLayerGpu,
-};
-use minilzo_rs::LZO;
+use crate::ns_archive::{NsDecode, NsKeyedArchive, error::NsArchiveError};
 use plist::{Dictionary, Value};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::prelude::ParallelIterator;
 use silicate_compositor::blend::BlendingMode;
-use silicate_compositor::buffer::BufferDimensions;
-use silicate_compositor::dev::GpuDispatch;
-use silicate_compositor::tex::GpuTexture;
-use std::io::Read;
-use std::num::NonZeroU32;
-use std::sync::OnceLock;
-use std::sync::atomic::Ordering;
 
 impl<'a> NsDecode<'a> for BlendingMode {
     fn fetch(
@@ -92,89 +75,6 @@ impl<'a> NsDecode<'a> for SilicaLayer {
             opacity: nka.fetch::<f32>(world, "opacity")?,
             uuid,
             version: nka.fetch::<u64>(world, "version")?,
-        })
-    }
-}
-
-impl SilicaLayer {
-    fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
-        let tilde_index = chunk_str
-            .find('~')
-            .ok_or_else(|| SilicaError::CorruptedFormat)?;
-        let col = chunk_str[..tilde_index]
-            .parse::<u32>()
-            .map_err(|_| SilicaError::CorruptedFormat)?;
-        let row = chunk_str[tilde_index + 1..]
-            .parse::<u32>()
-            .map_err(|_| SilicaError::CorruptedFormat)?;
-
-        Ok((col, row))
-    }
-
-    pub(super) fn load(
-        self,
-        dispatch: &GpuDispatch,
-        atlas_texture: &GpuTexture,
-        meta: &IRData<'_>,
-    ) -> Result<SilicaLayerGpu, SilicaError> {
-        static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
-
-        let chunks = meta
-            .file_names
-            .par_iter()
-            .filter(|path| path.starts_with(self.uuid.as_str()))
-            .map(|path| -> Result<SilicaChunk, SilicaError> {
-                let mut archive = meta.archive.clone();
-
-                let chunk_str = &path[self.uuid.len() + 1..path.find('.').unwrap_or(path.len())];
-                let (col, row) = Self::parse_chunk_str(chunk_str)?;
-
-                let tile_extent = meta.tiling.tile_extent(col, row);
-
-                // impossible
-                let mut chunk = archive.by_name(path).expect("path not inside zip");
-
-                let mut buf = Vec::with_capacity(chunk.size() as usize);
-                chunk.read_to_end(&mut buf)?;
-
-                let data_len = tile_extent.width as usize
-                    * tile_extent.height as usize
-                    * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
-
-                // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
-                let data = if path.ends_with(".lz4") {
-                    let mut dst = Vec::with_capacity(data_len);
-                    super::lz4::decompress(buf.as_slice(), &mut dst)?;
-                    dst
-                } else {
-                    assert!(path.ends_with(".chunk"));
-                    let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
-                    lzo.decompress_safe(buf.as_slice(), data_len)?
-                };
-
-                let atlas_index = NonZeroU32::new(
-                    meta.chunk_id_counter
-                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
-                )
-                .unwrap();
-
-                let origin = meta.tiling.atlas_origin(atlas_index.get());
-
-                atlas_texture.replace_from_bytes(dispatch, &data, origin, tile_extent);
-                Ok(SilicaChunk {
-                    col,
-                    row,
-                    atlas_index,
-                })
-            })
-            .collect::<Result<Vec<SilicaChunk>, _>>()?;
-
-        Ok(SilicaLayerGpu {
-            info: self,
-            image: SilicaImageData { chunks },
-            addendum: Addendum {
-                id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
-            },
         })
     }
 }

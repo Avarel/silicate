@@ -1,7 +1,5 @@
 use crate::ns_archive::Size;
 
-
-
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasTextureTiling {
     pub cols: u32,

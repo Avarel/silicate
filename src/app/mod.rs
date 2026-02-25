@@ -9,7 +9,7 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
 use silica::{
     error::SilicaError,
-    file::{ProcreateFileGpu, ProcreateFileCanvas},
+    gpu::file::{ProcreateFileCanvas, ProcreateFileGpu},
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
@@ -19,9 +19,9 @@ use silicate_compositor::{
     tex::GpuTexture,
     Compositor,
 };
-use std::{sync::atomic::AtomicUsize, time::Duration};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
+use std::{sync::atomic::AtomicUsize, time::Duration};
 
 pub enum UserEvent {
     NewInstance(InstanceKey, Instance, CompositorApp),
@@ -168,10 +168,13 @@ impl App {
         // the future. Otherwise the application will freeze.
         let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dispatch.device().poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(Duration::from_secs(10)),
-        }).unwrap();
+        dispatch
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(10)),
+            })
+            .unwrap();
         rx.await.unwrap().expect("Buffer mapping failed");
 
         let data = buffer_slice.get_mapped_range().to_vec();

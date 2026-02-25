@@ -1,14 +1,9 @@
-use crate::data::{Flipped, Orientation};
-use crate::error::SilicaError;
-use crate::file::{ProcreateFileCanvas, ProcreateFileGpu};
-use crate::gpu::ir::IRData;
-use crate::info::hierarchy::SilicaHierarchy;
-use crate::info::layer::SilicaLayer;
-use crate::ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError};
-use rayon::iter::ParallelDrainRange;
-use rayon::prelude::ParallelIterator;
-use silicate_compositor::dev::GpuDispatch;
-use silicate_compositor::tex::GpuTexture;
+use crate::{
+    data::{Flipped, Orientation},
+    error::SilicaError,
+    info::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
+    ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcreateFile {
@@ -45,8 +40,8 @@ pub struct ProcreateFile {
 
     pub size: Size<u32>,
 
-    layers: Vec<SilicaHierarchy>,
-    composite: Option<SilicaLayer>,
+    pub layers: Vec<SilicaHierarchy>,
+    pub composite: Option<SilicaLayer>,
 }
 
 impl ProcreateFile {
@@ -88,39 +83,5 @@ impl ProcreateFile {
             layers,
             size,
         })
-    }
-
-    pub(crate) fn load(
-        mut self,
-        info: IRData<'_>,
-        dispatch: &GpuDispatch,
-    ) -> Result<(ProcreateFileGpu, ProcreateFileCanvas), SilicaError> {
-        let canvas_tiling = info.tiling;
-        let atlas_texture = GpuTexture::empty_layers(
-            &dispatch,
-            canvas_tiling.size * canvas_tiling.atlas.cols,
-            canvas_tiling.size * canvas_tiling.atlas.rows,
-            canvas_tiling.atlas.layers, // Make it an array
-            GpuTexture::ATLAS_USAGE,
-        );
-
-        Ok((
-            ProcreateFileGpu {
-                composite: self
-                    .composite
-                    .take()
-                    .and_then(|composite| composite.load(dispatch, &atlas_texture, &info).ok()),
-                layers: self
-                    .layers
-                    .par_drain(..)
-                    .map(|ir| ir.load(dispatch, &atlas_texture, &info))
-                    .collect::<Result<_, _>>()?,
-                info: self,
-            },
-            ProcreateFileCanvas {
-                atlas_texture,
-                canvas_tiling,
-            },
-        ))
     }
 }

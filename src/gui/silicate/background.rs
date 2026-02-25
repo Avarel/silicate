@@ -1,5 +1,5 @@
 use egui::*;
-use silica::file::ProcreateFileGpu;
+use silica::gpu::file::ProcreateFileGpu;
 
 use crate::gui::widgets::{color_picker::ColorPickerHsv, layer_collapsible::LayerCollapsible};
 

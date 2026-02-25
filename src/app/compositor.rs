@@ -1,7 +1,4 @@
-use silica::{
-    file::ProcreateFileGpu,
-    gpu::{hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu},
-};
+use silica::gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu};
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
 };
