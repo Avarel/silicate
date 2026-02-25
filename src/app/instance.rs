@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use egui::load::SizedTexture;
-use silica::file::ProcreateFile;
-use silica::layers::SilicaHierarchy;
+use silica::file::ProcreateFileGpu;
+use silica::gpu::layers::SilicaHierarchyGpu;
 use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
 
 use crate::app::compositor::CompositorApp;
@@ -13,7 +13,7 @@ use super::compositor::CompositorHandle;
 pub struct InstanceKey(pub usize);
 
 pub struct Instance {
-    pub file: ProcreateFile,
+    pub file: ProcreateFileGpu,
     pub output_texture: GpuTexture,
     pub rotation: f32,
     pub preview_textures: Option<GpuTexture>,
@@ -60,13 +60,13 @@ impl Instance {
                 pipeline: &Pipeline,
                 target: &mut Compositor,
                 preview_textures: &GpuTexture,
-                layers: &[SilicaHierarchy],
+                layers: &[SilicaHierarchyGpu],
             ) {
                 fn inner(
                     pipeline: &Pipeline,
                     target: &mut Compositor,
                     preview_textures: &GpuTexture,
-                    layers: &[SilicaHierarchy],
+                    layers: &[SilicaHierarchyGpu],
                 ) {
                     for layer in layers.iter() {
                         {
@@ -82,7 +82,7 @@ impl Instance {
                             target.load_chunk_buffer(composite_chunks.as_slice());
                         }
                         match layer {
-                            SilicaHierarchy::Group(group) => {
+                            SilicaHierarchyGpu::Group(group) => {
                                 target.render(
                                     pipeline,
                                     preview_textures.create_view_layer(group.addendum.id),
@@ -90,7 +90,7 @@ impl Instance {
                                 inner(pipeline, target, preview_textures, &group.children);
                             }
 
-                            SilicaHierarchy::Layer(layer) => {
+                            SilicaHierarchyGpu::Layer(layer) => {
                                 target.render(
                                     pipeline,
                                     preview_textures.create_view_layer(layer.addendum.id),

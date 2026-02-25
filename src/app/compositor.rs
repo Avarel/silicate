@@ -1,6 +1,6 @@
 use silica::{
-    file::ProcreateFile,
-    layers::{SilicaHierarchy, SilicaLayer},
+    file::ProcreateFileGpu,
+    gpu::layers::{SilicaHierarchyGpu, SilicaLayerGpu},
 };
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
@@ -13,16 +13,16 @@ pub struct CompositorApp {
     target: Compositor,
     needs_to_load_chunks: AtomicBool,
     pipeline: Pipeline,
-    rx: Receiver<Arc<ProcreateFile>>,
+    rx: Receiver<Arc<ProcreateFileGpu>>,
 }
 
 pub struct CompositorHandle {
-    previously_sent_file: Arc<ProcreateFile>,
-    compositor_sender: Sender<Arc<ProcreateFile>>,
+    previously_sent_file: Arc<ProcreateFileGpu>,
+    compositor_sender: Sender<Arc<ProcreateFileGpu>>,
 }
 
 impl CompositorHandle {
-    pub fn submit(&mut self, file: &ProcreateFile) {
+    pub fn submit(&mut self, file: &ProcreateFileGpu) {
         if *self.previously_sent_file != *file {
             let file = Arc::new(file.clone());
             self.compositor_sender.send_replace(Arc::clone(&file));
@@ -36,25 +36,25 @@ impl CompositorApp {
     /// layers for rendering.
     pub(crate) fn linearize_silica_layers(
         composite_layers: &mut Vec<CompositeLayer>,
-        layers: &[SilicaHierarchy],
+        layers: &[SilicaHierarchyGpu],
     ) {
         composite_layers.clear();
 
         pub(crate) fn inner(
-            layers: &[SilicaHierarchy],
+            layers: &[SilicaHierarchyGpu],
             composite_layers: &mut Vec<CompositeLayer>,
             override_hidden: bool,
         ) {
             for layer in layers.iter().rev() {
                 match layer {
-                    SilicaHierarchy::Group(group) => {
+                    SilicaHierarchyGpu::Group(group) => {
                         inner(
                             &group.children,
                             composite_layers,
                             group.info.hidden | override_hidden,
                         );
                     }
-                    SilicaHierarchy::Layer(layer) => {
+                    SilicaHierarchyGpu::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
                             opacity: layer.info.opacity,
                             blend: layer.info.blend,
@@ -71,24 +71,24 @@ impl CompositorApp {
 
     pub(crate) fn linearize_silica_chunks(
         composite_layers: &mut Vec<ChunkTile>,
-        layers: &[SilicaHierarchy],
+        layers: &[SilicaHierarchyGpu],
     ) {
         composite_layers.clear();
 
         let mut layer_counter = 0;
 
         pub(crate) fn inner<'a>(
-            layers: &'a [SilicaHierarchy],
+            layers: &'a [SilicaHierarchyGpu],
             chunks: &mut Vec<ChunkTile>,
-            clip_layer: &mut Option<&'a SilicaLayer>,
+            clip_layer: &mut Option<&'a SilicaLayerGpu>,
             layer_counter: &mut u32,
         ) {
             for layer in layers.iter().rev() {
                 match layer {
-                    SilicaHierarchy::Group(group) => {
+                    SilicaHierarchyGpu::Group(group) => {
                         inner(&group.children, chunks, clip_layer, layer_counter);
                     }
-                    SilicaHierarchy::Layer(layer) => {
+                    SilicaHierarchyGpu::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
                             let mut clip_atlas_index: Option<NonZeroU32> = None;
 
@@ -120,7 +120,7 @@ impl CompositorApp {
 
     pub fn new(
         pipeline: Pipeline,
-        file: Arc<ProcreateFile>,
+        file: Arc<ProcreateFileGpu>,
         target: Compositor,
     ) -> (Self, CompositorHandle) {
         let (tx, mut rx) = tokio::sync::watch::channel(file.clone());

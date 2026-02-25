@@ -9,7 +9,7 @@ use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
 use silica::{
     error::SilicaError,
-    file::{ProcreateFile, ProcreateFileCanvas},
+    file::{ProcreateFileGpu, ProcreateFileCanvas},
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
@@ -81,7 +81,7 @@ impl App {
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, metadata) =
-            tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.dispatch)).unwrap();
+            tokio::task::block_in_place(|| ProcreateFileGpu::open(&path, &self.dispatch)).unwrap();
 
         let ProcreateFileCanvas {
             atlas_texture,

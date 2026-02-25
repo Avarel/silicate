@@ -1,9 +1,6 @@
-use std::num::NonZeroU32;
+use crate::ns_archive::Size;
 
-use crate::{
-    info::hierarchy::{SilicaGroupInfo, SilicaLayerInfo},
-    ns_archive::Size,
-};
+
 
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasTextureTiling {
@@ -86,60 +83,4 @@ impl CanvasTiling {
             z,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SilicaHierarchy {
-    Layer(SilicaLayer),
-    Group(SilicaGroup),
-}
-
-impl SilicaHierarchy {
-    pub fn layer_count(&self, include_groups: bool) -> u32 {
-        match self {
-            SilicaHierarchy::Layer(_) => 1,
-            SilicaHierarchy::Group(silica_group) => silica_group.layer_count(include_groups),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaGroup {
-    pub info: SilicaGroupInfo,
-    pub children: Vec<SilicaHierarchy>,
-    pub addendum: Addendum,
-}
-
-impl SilicaGroup {
-    pub fn layer_count(&self, include_groups: bool) -> u32 {
-        self.children
-            .iter()
-            .map(|hier| hier.layer_count(include_groups))
-            .sum::<u32>()
-            + u32::from(include_groups)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaChunk {
-    pub col: u32,
-    pub row: u32,
-    pub atlas_index: NonZeroU32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaImageData {
-    pub chunks: Vec<SilicaChunk>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SilicaLayer {
-    pub info: SilicaLayerInfo,
-    pub image: SilicaImageData,
-    pub addendum: Addendum,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Addendum {
-    pub id: u32,
 }

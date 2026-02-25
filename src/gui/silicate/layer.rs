@@ -1,10 +1,10 @@
 use egui::*;
-use silica::layers::SilicaLayer;
+use silica::gpu::layers::SilicaLayerGpu;
 
 use crate::gui::widgets::{blend_radio::BlendModeRadio, opacity_slider::OpacitySlider};
 
 pub(super) struct LayerControl<'a> {
-    pub layer: &'a mut SilicaLayer,
+    pub layer: &'a mut SilicaLayerGpu,
 }
 
 impl LayerControl<'_> {

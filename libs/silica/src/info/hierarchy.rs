@@ -1,9 +1,10 @@
-use crate::layers::{Addendum, SilicaChunk, SilicaHierarchy, SilicaImageData};
+use crate::gpu::ir::IRData;
+use crate::gpu::layers::{Addendum, SilicaChunk, SilicaHierarchyGpu, SilicaImageData};
 use crate::ns_archive::{NsClass, NsDecode};
 use crate::ns_archive::{NsKeyedArchive, NsObjects, error::NsArchiveError};
 use crate::{
     error::SilicaError,
-    layers::{SilicaGroup, SilicaLayer},
+    gpu::layers::{SilicaGroupGpu, SilicaLayerGpu},
 };
 use minilzo_rs::LZO;
 use plist::{Dictionary, Value};
@@ -17,8 +18,6 @@ use std::io::Read;
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
-
-use super::IRData;
 
 impl<'a> NsDecode<'a> for BlendingMode {
     fn fetch(
@@ -46,13 +45,13 @@ impl<'a> NsDecode<'a> for BlendingMode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum SilicaIRHierarchy {
-    Layer(SilicaLayerInfo),
-    Group(SilicaGroupInfo),
+pub(crate) enum SilicaHierarchy {
+    Layer(SilicaLayer),
+    Group(SilicaGroup),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaLayerInfo {
+pub struct SilicaLayer {
     // animationHeldLength:Int?
     pub blend: BlendingMode,
     // bundledImagePath:String?
@@ -79,7 +78,7 @@ pub struct SilicaLayerInfo {
     pub version: u64,
 }
 
-impl<'a> NsDecode<'a> for SilicaLayerInfo {
+impl<'a> NsDecode<'a> for SilicaLayer {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -103,7 +102,7 @@ impl<'a> NsDecode<'a> for SilicaLayerInfo {
     }
 }
 
-impl SilicaLayerInfo {
+impl SilicaLayer {
     fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
@@ -123,7 +122,7 @@ impl SilicaLayerInfo {
         dispatch: &GpuDispatch,
         atlas_texture: &GpuTexture,
         meta: &IRData<'_>,
-    ) -> Result<SilicaLayer, SilicaError> {
+    ) -> Result<SilicaLayerGpu, SilicaError> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let chunks = meta
@@ -176,7 +175,7 @@ impl SilicaLayerInfo {
             })
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
-        Ok(SilicaLayer {
+        Ok(SilicaLayerGpu {
             info: self,
             image: SilicaImageData { chunks },
             addendum: Addendum {
@@ -187,13 +186,13 @@ impl SilicaLayerInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaGroupInfo {
+pub struct SilicaGroup {
     pub name: Option<String>,
     pub hidden: bool,
-    pub(crate) children: Vec<SilicaIRHierarchy>,
+    pub(crate) children: Vec<SilicaHierarchy>,
 }
 
-impl<'a> NsDecode<'a> for SilicaGroupInfo {
+impl<'a> NsDecode<'a> for SilicaGroup {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -204,13 +203,13 @@ impl<'a> NsDecode<'a> for SilicaGroupInfo {
             hidden: nka.fetch::<bool>(coder, "isHidden")?,
             name: nka.fetch::<Option<String>>(coder, "name")?,
             children: nka
-                .fetch::<NsObjects<SilicaIRHierarchy>>(coder, "children")?
+                .fetch::<NsObjects<SilicaHierarchy>>(coder, "children")?
                 .objects,
         })
     }
 }
 
-impl<'a> NsDecode<'a> for SilicaIRHierarchy {
+impl<'a> NsDecode<'a> for SilicaHierarchy {
     fn decode(
         nka: &'a NsKeyedArchive,
         key: &'a str,
@@ -220,21 +219,21 @@ impl<'a> NsDecode<'a> for SilicaIRHierarchy {
         let class = nka.fetch::<NsClass>(coder, "$class")?;
 
         match class.class_name.as_str() {
-            "SilicaGroup" => Ok(SilicaGroupInfo::decode(nka, key, val).map(Self::Group)?),
-            "SilicaLayer" => Ok(SilicaLayerInfo::decode(nka, key, val).map(Self::Layer)?),
+            "SilicaGroup" => Ok(SilicaGroup::decode(nka, key, val).map(Self::Group)?),
+            "SilicaLayer" => Ok(SilicaLayer::decode(nka, key, val).map(Self::Layer)?),
             _ => Err(NsArchiveError::TypeMismatch("$class".to_string())),
         }
     }
 }
 
-impl<'a> SilicaGroupInfo {
+impl<'a> SilicaGroup {
     pub(crate) fn load(
         mut self,
         dispatch: &GpuDispatch,
         atlas_texture: &'a GpuTexture,
         meta: &'a IRData<'a>,
-    ) -> Result<SilicaGroup, SilicaError> {
-        Ok(SilicaGroup {
+    ) -> Result<SilicaGroupGpu, SilicaError> {
+        Ok(SilicaGroupGpu {
             children: self
                 .children
                 .par_drain(..)
@@ -248,19 +247,19 @@ impl<'a> SilicaGroupInfo {
     }
 }
 
-impl<'a> SilicaIRHierarchy {
+impl<'a> SilicaHierarchy {
     pub(crate) fn load(
         self,
         dispatch: &GpuDispatch,
         atlas_texture: &'a GpuTexture,
         meta: &'a IRData<'a>,
-    ) -> Result<SilicaHierarchy, SilicaError> {
+    ) -> Result<SilicaHierarchyGpu, SilicaError> {
         Ok(match self {
-            SilicaIRHierarchy::Layer(layer) => {
-                SilicaHierarchy::Layer(layer.load(dispatch, atlas_texture, meta)?)
+            SilicaHierarchy::Layer(layer) => {
+                SilicaHierarchyGpu::Layer(layer.load(dispatch, atlas_texture, meta)?)
             }
-            SilicaIRHierarchy::Group(group) => {
-                SilicaHierarchy::Group(group.load(dispatch, atlas_texture, meta)?)
+            SilicaHierarchy::Group(group) => {
+                SilicaHierarchyGpu::Group(group.load(dispatch, atlas_texture, meta)?)
             }
         })
     }
