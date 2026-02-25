@@ -360,7 +360,7 @@ impl AppInstance {
 
                 let output = &instance.output_texture;
                 let texture_view = output.create_default_view();
-                let size = Vec2::new(output.width() as f32, output.height() as f32);
+                let size = Vec2::new(output.size().width as f32, output.size().height as f32);
 
                 if let Some(tex) = &mut instance.canvas {
                     self.window.renderer.update_egui_texture_from_wgpu_texture(
@@ -390,8 +390,8 @@ impl AppInstance {
 
                 let texture_filter = wgpu::FilterMode::Linear;
                 let size = Vec2::new(
-                    preview_texture.width() as f32,
-                    preview_texture.height() as f32,
+                    preview_texture.size().width as f32,
+                    preview_texture.size().height as f32,
                 );
 
                 for i in 0..preview_texture.layers() {

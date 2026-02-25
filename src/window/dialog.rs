@@ -70,7 +70,7 @@ impl Dialog {
             return;
         };
 
-        let dim = BufferDimensions::from_extent(copied_texture.size);
+        let dim = BufferDimensions::from_extent(copied_texture.size());
         let path = handle.path().to_path_buf();
         if let Err(err) = App::export(&copied_texture, &dispatch, dim, path).await {
             self.send_toast(Toast::error(format!(

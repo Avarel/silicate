@@ -11,7 +11,6 @@ pub use wgpu::Origin3d;
 /// GPU texture abstraction.
 #[derive(Debug, Clone)]
 pub struct GpuTexture {
-    pub size: wgpu::Extent3d,
     pub texture: wgpu::Texture,
 }
 
@@ -72,11 +71,11 @@ impl GpuTexture {
             label: None,
         });
 
-        Self { texture, size }
+        Self { texture }
     }
 
     pub fn layers(&self) -> u32 {
-        self.size.depth_or_array_layers
+        self.texture.size().depth_or_array_layers
     }
 
     /// Make a texture view of this GPU texture.
@@ -119,12 +118,8 @@ impl GpuTexture {
     //     })
     // }
 
-    pub fn width(&self) -> u32 {
-        self.size.width
-    }
-
-    pub fn height(&self) -> u32 {
-        self.size.height
+    pub fn size(&self) -> wgpu::Extent3d {
+        self.texture.size()
     }
 
     /// Replace a section of the texture with raw RGBA data.
@@ -201,7 +196,7 @@ impl GpuTexture {
     pub fn clone_buffer(&self, dispatch: &GpuDispatch) -> Self {
         let clone = Self::empty_with_extent(
             dispatch,
-            self.size,
+            self.texture.size(),
             Self::OUTPUT_USAGE | wgpu::TextureUsages::COPY_DST,
         );
         dispatch.submit_queue(|encoder| {
@@ -209,7 +204,7 @@ impl GpuTexture {
             encoder.copy_texture_to_texture(
                 self.texture.as_image_copy(),
                 clone.texture.as_image_copy(),
-                self.size,
+                self.texture.size(),
             );
         });
         clone
