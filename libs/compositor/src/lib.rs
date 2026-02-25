@@ -8,13 +8,14 @@ pub mod canvas;
 
 use std::num::NonZeroU32;
 
-use self::tex::GpuTexture;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, CompositorBuffers};
 use canvas::{ChunkInstance, CompositorAtlasTiling, CompositorCanvasTiling, VertexInput};
 use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::{CommandEncoder, TextureView};
+
+use crate::tex::TextureExt;
 
 #[derive(Debug)]
 pub struct ChunkTile {
@@ -42,7 +43,7 @@ pub struct CompositeLayer {
 pub struct Compositor {
     dispatch: GpuDispatch,
     buffers: CompositorBuffers,
-    atlas_texture: GpuTexture,
+    atlas_texture: wgpu::Texture,
 }
 
 impl Compositor {
@@ -51,7 +52,7 @@ impl Compositor {
         dispatch: GpuDispatch,
         canvas: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
-        atlas_texture: GpuTexture,
+        atlas_texture: wgpu::Texture,
     ) -> Self {
         Self {
             dispatch: dispatch.clone(),

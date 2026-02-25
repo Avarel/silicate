@@ -10,6 +10,7 @@ use egui_notify::{Toast, Toasts};
 use egui_wgpu::{wgpu, Renderer, RendererOptions, ScreenDescriptor};
 
 use silicate_compositor::dev::{GpuDispatch, GpuHandle};
+use silicate_compositor::tex::TextureExt;
 use tokio::runtime::Runtime;
 use wgpu::Surface;
 
@@ -402,7 +403,7 @@ impl AppInstance {
                     preview_texture.size().height as f32,
                 );
 
-                for i in 0..preview_texture.layers() {
+                for i in 0..preview_texture.size().depth_or_array_layers {
                     let texture_view = preview_texture.create_view_layer(i);
                     if let Some(tex) = instance.previews.get_mut(&i) {
                         self.window.renderer.update_egui_texture_from_wgpu_texture(

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use egui::load::SizedTexture;
 use silica_gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu};
-use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
+use silicate_compositor::{Compositor, dev::GpuDispatch, pipeline::Pipeline, tex::TextureExt};
 
 use crate::app::compositor::CompositorApp;
 
@@ -13,9 +13,9 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: ProcreateFileGpu,
-    pub output_texture: GpuTexture,
+    pub output_texture: crate::wgpu::Texture,
     pub rotation: f32,
-    pub preview_textures: Option<GpuTexture>,
+    pub preview_textures: Option<crate::wgpu::Texture>,
     pub compositor: CompositorHandle,
 
     pub previews: HashMap<u32, SizedTexture>,
@@ -58,13 +58,13 @@ impl Instance {
             fn generate_silica_layers_preview(
                 pipeline: &Pipeline,
                 target: &mut Compositor,
-                preview_textures: &GpuTexture,
+                preview_textures: &crate::wgpu::Texture,
                 layers: &[SilicaHierarchyGpu],
             ) {
                 fn inner(
                     pipeline: &Pipeline,
                     target: &mut Compositor,
-                    preview_textures: &GpuTexture,
+                    preview_textures: &crate::wgpu::Texture,
                     layers: &[SilicaHierarchyGpu],
                 ) {
                     for layer in layers.iter() {
@@ -102,12 +102,12 @@ impl Instance {
                 inner(pipeline, target, preview_textures, layers);
             }
 
-            let preview_textures = GpuTexture::empty_layers(
+            let preview_textures = crate::wgpu::Texture::empty_layers(
                 dispatch,
                 256,
                 scaled_height,
                 file.layer_count(true) + 1,
-                GpuTexture::OUTPUT_USAGE,
+                crate::wgpu::Texture::OUTPUT_USAGE,
             );
 
             generate_silica_layers_preview(pipeline, &mut target, &preview_textures, &file.layers);

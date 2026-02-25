@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
 use egui_winit::winit::event_loop::EventLoopProxy;
-use silicate_compositor::{buffer::BufferDimensions, dev::GpuDispatch, tex::GpuTexture};
+use silicate_compositor::{buffer::BufferDimensions, dev::GpuDispatch};
 
 use crate::app::{App, UserEvent};
 
@@ -55,7 +55,7 @@ impl Dialog {
         }
     }
 
-    pub async fn save_dialog(self, dispatch: GpuDispatch, copied_texture: GpuTexture) {
+    pub async fn save_dialog(self, dispatch: GpuDispatch, copied_texture: crate::wgpu::Texture) {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("png", image::ImageFormat::Png.extensions_str())
             .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())

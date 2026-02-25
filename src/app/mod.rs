@@ -17,7 +17,7 @@ use silicate_compositor::{
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
     dev::GpuDispatch,
     pipeline::Pipeline,
-    tex::GpuTexture,
+    tex::TextureExt,
     Compositor,
 };
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub enum UserEvent {
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
     LoadDialog(SurfaceIndex, NodeIndex),
-    SaveDialog(GpuTexture),
+    SaveDialog(crate::wgpu::Texture),
     Toast(Toast),
 }
 
@@ -100,14 +100,14 @@ impl App {
             self.dispatch.clone(),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
-            GpuTexture::from_texture(atlas_texture.clone()),
+            atlas_texture.clone(),
         );
 
-        let output_texture = GpuTexture::empty(
+        let output_texture = crate::wgpu::Texture::empty(
             &self.dispatch,
             file.info.size.width,
             file.info.size.height,
-            GpuTexture::OUTPUT_USAGE,
+            crate::wgpu::Texture::OUTPUT_USAGE,
         );
 
         let rotation = match file.info.orientation {
@@ -144,7 +144,7 @@ impl App {
                 self.dispatch.clone(),
                 canvas,
                 CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
-                GpuTexture::from_texture(atlas_texture),
+                atlas_texture,
             ),
             &self.dispatch,
             &self.pipeline,
@@ -158,7 +158,7 @@ impl App {
 
     /// Export the texture to the given path.
     pub async fn export(
-        texture: &GpuTexture,
+        texture: &crate::wgpu::Texture,
         dispatch: &GpuDispatch,
         dim: BufferDimensions,
         path: std::path::PathBuf,

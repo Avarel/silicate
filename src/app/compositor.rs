@@ -1,7 +1,6 @@
 use silica_gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu};
-use silicate_compositor::{
-    pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
-};
+use silicate_compositor::tex::TextureExt;
+use silicate_compositor::{pipeline::Pipeline, ChunkTile, CompositeLayer, Compositor};
 use std::sync::atomic::AtomicBool;
 use std::{num::NonZeroU32, sync::Arc};
 use tokio::sync::watch::{Receiver, Sender};
@@ -139,7 +138,7 @@ impl CompositorApp {
         (compositor, handle)
     }
 
-    pub async fn rendering_thread(mut self, output_texture: GpuTexture) {
+    pub async fn rendering_thread(mut self, output_texture: crate::wgpu::Texture) {
         let mut composite_layers = Vec::new();
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
 
