@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-silicate-compositor = { path = "../compositor" }
+wgpu = "27.0"
 silica = { path = "../silica" }
 
 # Procreate support

@@ -7,8 +7,6 @@ use rayon::prelude::ParallelIterator;
 use silica::info::file::ProcreateFile as ProcreateFileRaw;
 use silica::ns_archive::NsKeyedArchive;
 use silica::ns_archive::Size;
-use silicate_compositor::dev::GpuDispatch;
-use silicate_compositor::tex::GpuTexture;
 use std::sync::atomic::AtomicU32;
 use std::{
     fs::OpenOptions,
@@ -25,7 +23,7 @@ pub struct ProcreateFileGpu {
 }
 
 pub struct ProcreateFileCanvas {
-    pub atlas_texture: GpuTexture,
+    pub atlas_texture: wgpu::Texture,
     pub canvas_tiling: CanvasTiling,
 }
 
@@ -33,7 +31,8 @@ impl ProcreateFileGpu {
     // Load a Procreate file asynchronously.
     pub fn open(
         path: &Path,
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -49,17 +48,18 @@ impl ProcreateFileGpu {
             NsKeyedArchive::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, nka, dispatch)
+        Self::from_ns(archive, nka, device, queue)
     }
 
     fn from_ns(
         archive: ZipArchiveMmap<'_>,
         nka: NsKeyedArchive,
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
         let info = ProcreateFileRaw::from_ns(&nka)?;
 
-        Self::load(info, archive, dispatch)
+        Self::load(info, archive, device, queue)
     }
 
     pub fn layer_count(&self, include_groups: bool) -> u32 {
@@ -107,28 +107,28 @@ impl ProcreateFileGpu {
     pub(crate) fn load(
         mut info: ProcreateFileRaw,
         archive: ZipArchiveMmap<'_>,
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> Result<(ProcreateFileGpu, ProcreateFileCanvas), SilicaError> {
         let irinfo = Self::load_ir_data(&archive, &info)?;
 
         let canvas_tiling = irinfo.tiling;
-        let atlas_texture = GpuTexture::empty_layers(
-            &dispatch,
+        let atlas_texture = Self::empty_layers(
+            device,
             canvas_tiling.size * canvas_tiling.atlas.cols,
             canvas_tiling.size * canvas_tiling.atlas.rows,
             canvas_tiling.atlas.layers, // Make it an array
-            GpuTexture::ATLAS_USAGE,
         );
 
         Ok((
             ProcreateFileGpu {
                 composite: info.composite.take().and_then(|composite| {
-                    SilicaLayerGpu::load(composite, dispatch, &atlas_texture, &irinfo).ok()
+                    SilicaLayerGpu::load(composite, queue, &atlas_texture, &irinfo).ok()
                 }),
                 layers: info
                     .layers
                     .par_drain(..)
-                    .map(|ir| SilicaHierarchyGpu::load(ir, dispatch, &atlas_texture, &irinfo))
+                    .map(|ir| SilicaHierarchyGpu::load(ir, queue, &atlas_texture, &irinfo))
                     .collect::<Result<_, _>>()?,
                 info,
             },
@@ -137,5 +137,35 @@ impl ProcreateFileGpu {
                 canvas_tiling,
             },
         ))
+    }
+
+    pub fn empty_layers(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        layers: u32,
+    ) -> wgpu::Texture {
+        const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
+        const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+        device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: layers,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TEX_DIM,
+            format: TEX_FORMAT,
+            view_formats: &[
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            ],
+            usage: wgpu::TextureUsages::COPY_DST
+                .union(wgpu::TextureUsages::COPY_SRC)
+                .union(wgpu::TextureUsages::TEXTURE_BINDING),
+            label: None,
+        })
     }
 }

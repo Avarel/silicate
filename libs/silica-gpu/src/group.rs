@@ -1,5 +1,4 @@
 use silica::info::group::SilicaGroup as SilicaGroupRaw;
-use silicate_compositor::{dev::GpuDispatch, tex::GpuTexture};
 
 use crate::{
     error::SilicaError,
@@ -29,15 +28,15 @@ impl SilicaGroupGpu {
 
     pub(crate) fn load<'a>(
         mut info: SilicaGroupRaw,
-        dispatch: &GpuDispatch,
-        atlas_texture: &'a GpuTexture,
+        queue: &wgpu::Queue,
+        atlas_texture: &wgpu::Texture,
         meta: &'a IRData<'a>,
     ) -> Result<SilicaGroupGpu, SilicaError> {
         Ok(SilicaGroupGpu {
             children: info
                 .children
                 .par_drain(..)
-                .map(|ir| SilicaHierarchyGpu::load(ir, dispatch, atlas_texture, meta))
+                .map(|ir| SilicaHierarchyGpu::load(ir, queue, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
             info,
             addendum: Addendum {

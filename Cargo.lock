@@ -2271,8 +2271,8 @@ dependencies = [
  "minilzo-rs",
  "rayon",
  "silica",
- "silicate-compositor",
  "thiserror 2.0.18",
+ "wgpu",
  "zip",
 ]
 

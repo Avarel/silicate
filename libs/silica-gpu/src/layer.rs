@@ -2,7 +2,6 @@ use crate::{error::SilicaError, ir::IRData};
 use minilzo_rs::LZO;
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
 use silica::info::layer::SilicaLayer;
-use silicate_compositor::{buffer::BufferDimensions, dev::GpuDispatch, tex::GpuTexture};
 use std::{
     io::Read,
     num::NonZeroU32,
@@ -34,6 +33,8 @@ pub struct Addendum {
 }
 
 impl SilicaLayerGpu {
+    const RGBA_CHANNEL_COUNT: usize = 4;
+
     fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
         let tilde_index = chunk_str
             .find('~')
@@ -50,8 +51,8 @@ impl SilicaLayerGpu {
 
     pub(crate) fn load(
         info: SilicaLayer,
-        dispatch: &GpuDispatch,
-        atlas_texture: &GpuTexture,
+        queue: &wgpu::Queue,
+        atlas_texture: &wgpu::Texture,
         meta: &IRData<'_>,
     ) -> Result<SilicaLayerGpu, SilicaError> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
@@ -76,7 +77,7 @@ impl SilicaLayerGpu {
 
                 let data_len = tile_extent.width as usize
                     * tile_extent.height as usize
-                    * usize::from(BufferDimensions::RGBA_CHANNEL_COUNT);
+                    * Self::RGBA_CHANNEL_COUNT;
 
                 // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
                 let data = if path.ends_with(".lz4") {
@@ -97,7 +98,7 @@ impl SilicaLayerGpu {
 
                 let origin = meta.tiling.atlas_origin(atlas_index.get());
 
-                atlas_texture.replace_from_bytes(dispatch, &data, origin, tile_extent);
+                Self::replace_from_bytes(queue, atlas_texture, &data, origin, tile_extent);
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -113,6 +114,45 @@ impl SilicaLayerGpu {
                 id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
             },
         })
+    }
+
+    /// Replace a section of the texture with raw RGBA data.
+    ///
+    /// ### Note
+    /// The position `x` and `y` and size `width` and `height` data
+    /// should strictly fit within the texture boundaries.
+    pub fn replace_from_bytes(
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        data: &[u8],
+        origin: wgpu::Origin3d,
+        size: wgpu::Extent3d,
+    ) {
+        let layers = texture.size().depth_or_array_layers;
+        assert!(
+            origin.z < layers,
+            "index {} must be less than {}",
+            origin.z,
+            layers
+        );
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            data,
+            // The layout of the texture
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size.width),
+                rows_per_image: Some(size.height),
+            },
+            size,
+        );
     }
 }
 

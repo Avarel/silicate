@@ -1,6 +1,6 @@
+mod blend;
 pub mod compositor;
 pub mod instance;
-mod blend;
 
 use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
@@ -81,8 +81,10 @@ impl App {
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        let (file, metadata) =
-            tokio::task::block_in_place(|| ProcreateFileGpu::open(&path, &self.dispatch)).unwrap();
+        let (file, metadata) = tokio::task::block_in_place(|| {
+            ProcreateFileGpu::open(&path, self.dispatch.device(), self.dispatch.queue())
+        })
+        .unwrap();
 
         let ProcreateFileCanvas {
             atlas_texture,
@@ -98,7 +100,7 @@ impl App {
             self.dispatch.clone(),
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
-            atlas_texture.clone(),
+            GpuTexture::from_texture(atlas_texture.clone()),
         );
 
         let output_texture = GpuTexture::empty(
@@ -142,7 +144,7 @@ impl App {
                 self.dispatch.clone(),
                 canvas,
                 CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
-                atlas_texture.clone(),
+                GpuTexture::from_texture(atlas_texture),
             ),
             &self.dispatch,
             &self.pipeline,

@@ -57,8 +57,8 @@ pub struct CanvasTiling {
 }
 
 impl CanvasTiling {
-    pub fn tile_extent(&self, col: u32, row: u32) -> silicate_compositor::tex::Extent3d {
-        silicate_compositor::tex::Extent3d {
+    pub fn tile_extent(&self, col: u32, row: u32) -> wgpu::Extent3d {
+        wgpu::Extent3d {
             width: if col != self.cols - 1 {
                 self.size
             } else {
@@ -73,9 +73,9 @@ impl CanvasTiling {
         }
     }
 
-    pub fn atlas_origin(&self, index: u32) -> silicate_compositor::tex::Origin3d {
+    pub fn atlas_origin(&self, index: u32) -> wgpu::Origin3d {
         let (x, y, z) = self.atlas.index(index);
-        silicate_compositor::tex::Origin3d {
+        wgpu::Origin3d {
             x: x * self.size,
             y: y * self.size,
             z,

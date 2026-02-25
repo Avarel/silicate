@@ -15,14 +15,15 @@ pub struct GpuTexture {
 }
 
 impl GpuTexture {
-    pub const ATLAS_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_DST
-        .union(wgpu::TextureUsages::COPY_SRC)
-        .union(wgpu::TextureUsages::TEXTURE_BINDING);
     pub const LAYER_USAGE: wgpu::TextureUsages =
         wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::TEXTURE_BINDING);
     pub const OUTPUT_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_SRC
         .union(wgpu::TextureUsages::TEXTURE_BINDING)
         .union(wgpu::TextureUsages::RENDER_ATTACHMENT);
+
+    pub fn from_texture(texture: wgpu::Texture) -> Self {
+        Self { texture }
+    }
 
     pub fn empty(
         dispatch: &GpuDispatch,
@@ -120,44 +121,6 @@ impl GpuTexture {
 
     pub fn size(&self) -> wgpu::Extent3d {
         self.texture.size()
-    }
-
-    /// Replace a section of the texture with raw RGBA data.
-    ///
-    /// ### Note
-    /// The position `x` and `y` and size `width` and `height` data
-    /// should strictly fit within the texture boundaries.
-    pub fn replace_from_bytes(
-        &self,
-        dispatch: &GpuDispatch,
-        data: &[u8],
-        origin: wgpu::Origin3d,
-        size: wgpu::Extent3d,
-    ) {
-        assert!(
-            origin.z < self.layers(),
-            "index {} must be less than {}",
-            origin.z,
-            self.layers()
-        );
-        dispatch.queue().write_texture(
-            // Tells wgpu where to copy the pixel data
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin,
-                aspect: wgpu::TextureAspect::All,
-            },
-            // The actual pixel data
-            data,
-            // The layout of the texture
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * size.width),
-                rows_per_image: Some(size.height),
-            },
-            size,
-        );
     }
 
     pub fn copy_from_texture(
