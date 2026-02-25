@@ -242,11 +242,17 @@ impl AppInstance {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                self.window.dispatch.submit_queue(|encoder| {
+                self.window.dispatch.queue().submit([{
+                    let mut encoder = self
+                        .window
+                        .dispatch
+                        .device()
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
                     self.window.renderer.update_buffers(
                         dispatch.device(),
                         dispatch.queue(),
-                        encoder,
+                        &mut encoder,
                         &paint_jobs,
                         &self.window.screen_descriptor,
                     );
@@ -272,7 +278,9 @@ impl AppInstance {
                         &paint_jobs,
                         &self.window.screen_descriptor,
                     );
-                });
+
+                    encoder.finish()
+                }]);
                 output_frame.present();
             }
             WindowEvent::CloseRequested => {

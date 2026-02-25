@@ -28,7 +28,7 @@ impl GpuDispatch {
     }
 
     /// Create a command encoder, run the closure, finish the encoder and submit to the queue.
-    pub fn submit_queue(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
+    pub(crate) fn submit_queue(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
         self.queue.submit([{
             let mut encoder = self
                 .device
