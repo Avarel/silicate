@@ -9,14 +9,14 @@ repository = "https://github.com/Avarel/procreate-rs"
 license = "MIT"
 
 [workspace]
-members = ["libs/compositor", "libs/silica"]
+members = ["libs/compositor", "libs/silica", "libs/silica-gpu"]
 
 [features]
 default = []
 
 [dependencies]
 silicate-compositor = { path = "libs/compositor" }
-silica = { path = "libs/silica" }
+silica-gpu = { path = "libs/silica-gpu" }
 
 clap = { version = "4.5", features = ["cargo", "derive"] }
 

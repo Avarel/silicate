@@ -1,6 +1,7 @@
-use crate::{error::SilicaError, gpu::ir::IRData, info::layer::SilicaLayer};
+use crate::{error::SilicaError, ir::IRData};
 use minilzo_rs::LZO;
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
+use silica::info::layer::SilicaLayer;
 use silicate_compositor::{buffer::BufferDimensions, dev::GpuDispatch, tex::GpuTexture};
 use std::{
     io::Read,

@@ -1,4 +1,4 @@
-use silica::gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu};
+use silica_gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu};
 use silicate_compositor::{
     pipeline::Pipeline, tex::GpuTexture, ChunkTile, CompositeLayer, Compositor,
 };
@@ -31,13 +31,13 @@ impl CompositorHandle {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    pub(crate) fn linearize_silica_layers(
+    pub(super) fn linearize_silica_layers(
         composite_layers: &mut Vec<CompositeLayer>,
         layers: &[SilicaHierarchyGpu],
     ) {
         composite_layers.clear();
 
-        pub(crate) fn inner(
+        fn inner(
             layers: &[SilicaHierarchyGpu],
             composite_layers: &mut Vec<CompositeLayer>,
             override_hidden: bool,
@@ -54,7 +54,7 @@ impl CompositorApp {
                     SilicaHierarchyGpu::Layer(layer) => {
                         composite_layers.push(CompositeLayer {
                             opacity: layer.info.opacity,
-                            blend: layer.info.blend,
+                            blend: super::blend::convert_blend(layer.info.blend),
                             clipped: layer.info.clipped,
                             hidden: layer.info.hidden | override_hidden,
                         });
@@ -66,7 +66,7 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    pub(crate) fn linearize_silica_chunks(
+    pub(super) fn linearize_silica_chunks(
         composite_layers: &mut Vec<ChunkTile>,
         layers: &[SilicaHierarchyGpu],
     ) {

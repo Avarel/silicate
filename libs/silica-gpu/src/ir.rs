@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicU32;
 
-use crate::{ZipArchiveMmap, gpu::tiling::CanvasTiling};
+use crate::{ZipArchiveMmap, tiling::CanvasTiling};
 
 pub(crate) struct IRData<'a> {
     pub(crate) archive: &'a ZipArchiveMmap<'a>,

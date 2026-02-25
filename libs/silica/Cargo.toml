@@ -4,13 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-silicate-compositor = { path = "../compositor" }
 thiserror = "2.0"
 plist = "1.3"
-memmap2 = "0.9"
-
-# Procreate support
-zip = { version = "8.1", default-features = false, features = ["deflate"] }
-minilzo-rs = "0.6.0"
-lz4_flex = { version = "0.12" }
-rayon = "1"

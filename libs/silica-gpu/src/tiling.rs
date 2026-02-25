@@ -1,4 +1,4 @@
-use crate::ns_archive::Size;
+use silica::ns_archive::Size;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasTextureTiling {

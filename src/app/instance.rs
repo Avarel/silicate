@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use egui::load::SizedTexture;
-use silica::gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu};
+use silica_gpu::{file::ProcreateFileGpu, hierarchy::SilicaHierarchyGpu};
 use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::GpuTexture, Compositor};
 
 use crate::app::compositor::CompositorApp;

@@ -1,0 +1,16 @@
+[package]
+name = "silica-gpu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+silicate-compositor = { path = "../compositor" }
+silica = { path = "../silica" }
+
+# Procreate support
+zip = { version = "8.1", default-features = false, features = ["deflate"] }
+thiserror = "2.0"
+minilzo-rs = "0.6.0"
+lz4_flex = { version = "0.12" }
+rayon = "1"
+memmap2 = "0.9"

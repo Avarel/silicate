@@ -2258,11 +2258,19 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "silica"
 version = "0.1.0"
 dependencies = [
+ "plist",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "silica-gpu"
+version = "0.1.0"
+dependencies = [
  "lz4_flex",
  "memmap2",
  "minilzo-rs",
- "plist",
  "rayon",
+ "silica",
  "silicate-compositor",
  "thiserror 2.0.18",
  "zip",
@@ -2281,7 +2289,7 @@ dependencies = [
  "egui_dock",
  "image",
  "rfd",
- "silica",
+ "silica-gpu",
  "silicate-compositor",
  "tokio",
  "winres",

@@ -1,9 +1,9 @@
+use silica::info::group::SilicaGroup as SilicaGroupRaw;
 use silicate_compositor::{dev::GpuDispatch, tex::GpuTexture};
 
 use crate::{
     error::SilicaError,
-    gpu::{hierarchy::SilicaHierarchyGpu, ir::IRData, layer::Addendum},
-    info::group::SilicaGroup,
+    {hierarchy::SilicaHierarchyGpu, ir::IRData, layer::Addendum},
 };
 
 use std::sync::atomic::Ordering;
@@ -13,7 +13,7 @@ use rayon::prelude::ParallelIterator;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroupGpu {
-    pub info: SilicaGroup,
+    pub info: SilicaGroupRaw,
     pub children: Vec<SilicaHierarchyGpu>,
     pub addendum: Addendum,
 }
@@ -28,7 +28,7 @@ impl SilicaGroupGpu {
     }
 
     pub(crate) fn load<'a>(
-        mut info: SilicaGroup,
+        mut info: SilicaGroupRaw,
         dispatch: &GpuDispatch,
         atlas_texture: &'a GpuTexture,
         meta: &'a IRData<'a>,

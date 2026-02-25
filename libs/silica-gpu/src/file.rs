@@ -1,11 +1,12 @@
 use crate::ZipArchiveMmap;
-use crate::gpu::tiling::AtlasTextureTiling;
-use crate::gpu::{hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu, tiling::CanvasTiling};
-use crate::info::file::ProcreateFile;
-use crate::ns_archive::Size;
-use crate::{error::SilicaError, ns_archive::NsKeyedArchive};
+use crate::error::SilicaError;
+use crate::tiling::AtlasTextureTiling;
+use crate::{hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu, tiling::CanvasTiling};
 use rayon::iter::ParallelDrainRange;
 use rayon::prelude::ParallelIterator;
+use silica::info::file::ProcreateFile as ProcreateFileRaw;
+use silica::ns_archive::NsKeyedArchive;
+use silica::ns_archive::Size;
 use silicate_compositor::dev::GpuDispatch;
 use silicate_compositor::tex::GpuTexture;
 use std::sync::atomic::AtomicU32;
@@ -18,7 +19,7 @@ use zip::read::ZipArchive;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcreateFileGpu {
-    pub info: ProcreateFile,
+    pub info: ProcreateFileRaw,
     pub composite: Option<SilicaLayerGpu>,
     pub layers: Vec<SilicaHierarchyGpu>,
 }
@@ -56,7 +57,7 @@ impl ProcreateFileGpu {
         nka: NsKeyedArchive,
         dispatch: &GpuDispatch,
     ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
-        let info = ProcreateFile::from_ns(&nka)?;
+        let info = ProcreateFileRaw::from_ns(&nka)?;
 
         Self::load(info, archive, dispatch)
     }
@@ -70,8 +71,8 @@ impl ProcreateFileGpu {
 
     fn load_ir_data<'a>(
         archive: &'a ZipArchiveMmap<'_>,
-        unloaded_file: &ProcreateFile,
-    ) -> Result<crate::gpu::ir::IRData<'a>, SilicaError> {
+        unloaded_file: &ProcreateFileRaw,
+    ) -> Result<crate::ir::IRData<'a>, SilicaError> {
         let file_names = archive.file_names().collect::<Vec<_>>();
         let chunk_count = file_names.len() as u32;
 
@@ -94,7 +95,7 @@ impl ProcreateFileGpu {
             atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
-        Ok(crate::gpu::ir::IRData {
+        Ok(crate::ir::IRData {
             archive: &archive,
             file_names,
             tiling,
@@ -104,7 +105,7 @@ impl ProcreateFileGpu {
     }
 
     pub(crate) fn load(
-        mut info: ProcreateFile,
+        mut info: ProcreateFileRaw,
         archive: ZipArchiveMmap<'_>,
         dispatch: &GpuDispatch,
     ) -> Result<(ProcreateFileGpu, ProcreateFileCanvas), SilicaError> {

@@ -28,76 +28,7 @@ pub enum BlendingMode {
     Divide = 26,
 }
 
-impl std::fmt::Display for BlendingMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
 impl BlendingMode {
-    pub fn all() -> &'static [BlendingMode] {
-        use BlendingMode::*;
-        &[
-            Normal,
-            Multiply,
-            Screen,
-            Add,
-            Lighten,
-            Exclusion,
-            Difference,
-            Subtract,
-            LinearBurn,
-            ColorDodge,
-            ColorBurn,
-            Overlay,
-            HardLight,
-            Color,
-            Luminosity,
-            Hue,
-            Saturation,
-            SoftLight,
-            Darken,
-            HardMix,
-            VividLight,
-            LinearLight,
-            PinLight,
-            LighterColor,
-            DarkerColor,
-            Divide,
-        ]
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Normal => "Normal",
-            Self::Multiply => "Multiply",
-            Self::Screen => "Screen",
-            Self::Add => "Add",
-            Self::Lighten => "Lighten",
-            Self::Exclusion => "Exclusion",
-            Self::Difference => "Difference",
-            Self::Subtract => "Subtract",
-            Self::LinearBurn => "Linear Burn",
-            Self::ColorDodge => "Color Dodge",
-            Self::ColorBurn => "Color Burn",
-            Self::Overlay => "Overlay",
-            Self::HardLight => "Hard Light",
-            Self::Color => "Color",
-            Self::Luminosity => "Luminosity",
-            Self::Hue => "Hue",
-            Self::Saturation => "Saturation",
-            Self::SoftLight => "Soft Light",
-            Self::Darken => "Darken",
-            Self::HardMix => "Hard Mix",
-            Self::VividLight => "Vivid Light",
-            Self::LinearLight => "Linear Light",
-            Self::PinLight => "Pin Light",
-            Self::LighterColor => "Lighter Color",
-            Self::DarkerColor => "Darker Color",
-            Self::Divide => "Divide",
-        }
-    }
-
     pub fn from_u32(blend: u32) -> Option<Self> {
         Some(match blend {
             0 => Self::Normal,

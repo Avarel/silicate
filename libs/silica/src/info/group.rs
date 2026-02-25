@@ -9,7 +9,7 @@ use crate::{
 pub struct SilicaGroup {
     pub name: Option<String>,
     pub hidden: bool,
-    pub(crate) children: Vec<SilicaHierarchy>,
+    pub children: Vec<SilicaHierarchy>,
 }
 
 impl<'a> NsDecode<'a> for SilicaGroup {

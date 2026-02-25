@@ -1,5 +1,6 @@
 pub mod compositor;
 pub mod instance;
+mod blend;
 
 use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
@@ -7,9 +8,9 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use silica::{
+use silica_gpu::{
     error::SilicaError,
-    gpu::file::{ProcreateFileCanvas, ProcreateFileGpu},
+    file::{ProcreateFileCanvas, ProcreateFileGpu},
 };
 use silicate_compositor::{
     buffer::BufferDimensions,
@@ -108,10 +109,10 @@ impl App {
         );
 
         let rotation = match file.info.orientation {
-            silica::data::Orientation::NoRotation => 0.0,
-            silica::data::Orientation::Clockwise180 => 180.0,
-            silica::data::Orientation::Clockwise270 => 270.0,
-            silica::data::Orientation::Clockwise90 => 90.0,
+            silica_gpu::raw::data::Orientation::NoRotation => 0.0,
+            silica_gpu::raw::data::Orientation::Clockwise180 => 180.0,
+            silica_gpu::raw::data::Orientation::Clockwise270 => 270.0,
+            silica_gpu::raw::data::Orientation::Clockwise90 => 90.0,
             _ => 0f32,
         }
         .to_radians();
