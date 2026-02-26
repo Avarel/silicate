@@ -8,29 +8,29 @@ pub struct AtlasTextureTiling {
 }
 
 impl AtlasTextureTiling {
-    pub fn compute_atlas_size(chunk_count: u32, tile_size: u32) -> Self {
-        const TEX_MAX_DIM: u32 = 8192;
-        if chunk_count * tile_size <= TEX_MAX_DIM {
+    pub fn compute_atlas_size(chunk_count: u32, tile_size: u32, limits: &wgpu::Limits) -> Self {
+        if chunk_count * tile_size <= limits.max_texture_dimension_1d {
             AtlasTextureTiling {
                 cols: chunk_count,
                 rows: 1,
                 layers: 1,
             }
         } else {
-            let columns = TEX_MAX_DIM / tile_size;
-            let rows = chunk_count.div_ceil(columns);
+            let cols = limits.max_texture_dimension_1d / tile_size;
+            let rows = chunk_count.div_ceil(cols);
 
-            if rows * tile_size <= TEX_MAX_DIM {
+            if rows * tile_size <= limits.max_texture_dimension_2d {
                 AtlasTextureTiling {
-                    cols: columns,
+                    cols,
                     rows,
                     layers: 1,
                 }
             } else {
-                let rows = TEX_MAX_DIM / tile_size;
-                let layers = chunk_count.div_ceil(columns * rows);
+                let rows = limits.max_texture_dimension_2d / tile_size;
+                let layers = chunk_count.div_ceil(cols * rows);
+                assert!(layers <= limits.max_texture_array_layers);
                 AtlasTextureTiling {
-                    cols: columns,
+                    cols,
                     rows,
                     layers,
                 }

@@ -85,6 +85,7 @@ impl ProcreateFile {
     fn load_ir_data<'a>(
         archive: &'a ZipArchiveMmap<'_>,
         unloaded_file: &silica::ProcreateFile,
+        limits: &wgpu::Limits,
     ) -> Result<crate::params::LoadParams<'a>, SilicaError> {
         let file_names = archive.file_names().collect::<Vec<_>>();
         let chunk_count = file_names.len() as u32;
@@ -105,7 +106,7 @@ impl ProcreateFile {
                 height: rows * tile_size - size.height,
             },
             size: tile_size,
-            atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
+            atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size, limits),
         };
 
         Ok(crate::params::LoadParams {
@@ -123,7 +124,7 @@ impl ProcreateFile {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(ProcreateFile, ProcreateFileAtlas), SilicaError> {
-        let irinfo = Self::load_ir_data(&archive, &info)?;
+        let irinfo = Self::load_ir_data(&archive, &info, &device.limits())?;
 
         let canvas_tiling = irinfo.tiling;
         let atlas_texture = Self::empty_layers(
