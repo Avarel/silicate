@@ -2292,6 +2292,7 @@ dependencies = [
  "silica-gpu",
  "silicate-compositor",
  "tokio",
+ "wgpu",
  "winres",
 ]
 

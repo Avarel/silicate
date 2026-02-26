@@ -138,7 +138,7 @@ impl CompositorApp {
         (compositor, handle)
     }
 
-    pub async fn rendering_thread(mut self, output_texture: crate::wgpu::Texture) {
+    pub async fn rendering_thread(mut self, output_texture: wgpu::Texture) {
         let mut composite_layers = Vec::new();
         let mut composite_chunks: Vec<ChunkTile> = Vec::new();
 

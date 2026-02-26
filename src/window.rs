@@ -3,13 +3,12 @@ mod dialog;
 use crate::winit;
 
 use crate::app::{App, UserEvent};
+use crate::dev::GpuHandle;
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
 use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
 use egui_notify::{Toast, Toasts};
 use egui_wgpu::{wgpu, Renderer, RendererOptions, ScreenDescriptor};
-
-use silicate_compositor::dev::{GpuDispatch, GpuHandle};
 use silicate_compositor::tex::TextureExt;
 use tokio::runtime::Runtime;
 use wgpu::Surface;
@@ -27,7 +26,8 @@ use winit::{
 };
 
 struct WindowBundle {
-    dispatch: GpuDispatch,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     window: Arc<egui_winit::winit::window::Window>,
     integration: egui_winit::State,
@@ -61,7 +61,7 @@ impl WindowBundle {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: window.scale_factor() as f32,
         };
-        surface.configure(&dev.dispatch.device(), &surface_config);
+        surface.configure(&dev.device, &surface_config);
 
         let integration = egui_winit::State::new(
             egui::Context::default(),
@@ -74,7 +74,7 @@ impl WindowBundle {
 
         // let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
         let renderer = Renderer::new(
-            &dev.dispatch.device(),
+            &dev.device,
             surface_format,
             RendererOptions {
                 msaa_samples: 1,
@@ -85,7 +85,8 @@ impl WindowBundle {
         );
 
         Self {
-            dispatch: dev.dispatch.clone(),
+            device: dev.device.clone(),
+            queue: dev.queue.clone(),
             surface,
             window,
             integration,
@@ -113,7 +114,11 @@ impl AppInstance {
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
-        let app = Arc::new(App::new(dev.dispatch, event_loop.clone()));
+        let app = Arc::new(App::new(
+            window.device.clone(),
+            window.queue.clone(),
+            event_loop.clone(),
+        ));
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -217,8 +222,6 @@ impl AppInstance {
                     .integration
                     .handle_platform_output(&self.window.window, platform_output);
 
-                let dispatch = &self.window.dispatch;
-
                 // Draw the GUI onto the output texture.
                 let paint_jobs = self
                     .window
@@ -229,8 +232,8 @@ impl AppInstance {
                 // Upload all resources for the GPU.
                 for (id, image_delta) in textures_delta.set {
                     self.window.renderer.update_texture(
-                        dispatch.device(),
-                        dispatch.queue(),
+                        &self.window.device,
+                        &self.window.queue,
                         id,
                         &image_delta,
                     );
@@ -243,16 +246,15 @@ impl AppInstance {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                self.window.dispatch.queue().submit([{
+                self.window.queue.submit([{
                     let mut encoder = self
                         .window
-                        .dispatch
-                        .device()
+                        .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
                     self.window.renderer.update_buffers(
-                        dispatch.device(),
-                        dispatch.queue(),
+                        &self.window.device,
+                        &self.window.queue,
                         &mut encoder,
                         &paint_jobs,
                         &self.window.screen_descriptor,
@@ -297,14 +299,14 @@ impl AppInstance {
                     self.window.screen_descriptor.size_in_pixels = [size.width, size.height];
                     self.window
                         .surface
-                        .configure(&self.window.dispatch.device(), &self.window.surface_config);
+                        .configure(&self.window.device, &self.window.surface_config);
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.window.screen_descriptor.pixels_per_point = scale_factor as f32;
                 self.window
                     .surface
-                    .configure(&self.window.dispatch.device(), &self.window.surface_config);
+                    .configure(&self.window.device, &self.window.surface_config);
             }
             WindowEvent::DroppedFile(file) => {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
@@ -373,7 +375,7 @@ impl AppInstance {
 
                 if let Some(tex) = &mut instance.canvas {
                     self.window.renderer.update_egui_texture_from_wgpu_texture(
-                        &self.window.dispatch.device(),
+                        &self.window.device,
                         &texture_view,
                         texture_filter,
                         tex.id,
@@ -381,7 +383,7 @@ impl AppInstance {
                     tex.size = size;
                 } else {
                     let id = self.window.renderer.register_native_texture(
-                        &self.window.dispatch.device(),
+                        &self.window.device,
                         &texture_view,
                         texture_filter,
                     );
@@ -407,7 +409,7 @@ impl AppInstance {
                     let texture_view = preview_texture.create_view_layer(i);
                     if let Some(tex) = instance.previews.get_mut(&i) {
                         self.window.renderer.update_egui_texture_from_wgpu_texture(
-                            &self.window.dispatch.device(),
+                            &self.window.device,
                             &texture_view,
                             texture_filter,
                             tex.id,
@@ -415,7 +417,7 @@ impl AppInstance {
                         tex.size = size;
                     } else {
                         let id = self.window.renderer.register_native_texture(
-                            &self.window.dispatch.device(),
+                            &self.window.device,
                             &texture_view,
                             texture_filter,
                         );
@@ -444,10 +446,11 @@ impl AppInstance {
                 ));
             }
             UserEvent::SaveDialog(texture) => {
-                rt.spawn(
-                    Dialog::new(self.event_loop.clone())
-                        .save_dialog(self.window.dispatch.clone(), texture),
-                );
+                rt.spawn(Dialog::new(self.event_loop.clone()).save_dialog(
+                    self.window.device.clone(),
+                    self.window.queue.clone(),
+                    texture,
+                ));
             }
             UserEvent::NewView(surface, node, id) => {
                 self.viewer

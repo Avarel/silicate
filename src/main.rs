@@ -1,17 +1,17 @@
 mod app;
+mod dev;
 mod gui;
 mod window;
 
 use app::UserEvent;
 use clap::Parser;
-use egui_wgpu::wgpu;
+use dev::GpuHandle;
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::Window,
 };
-use silicate_compositor::dev::GpuHandle;
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;
 use window::AppInstance;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use egui::load::SizedTexture;
 use silica_gpu::{ProcreateFile, SilicaHierarchy};
-use silicate_compositor::{dev::GpuDispatch, pipeline::Pipeline, tex::TextureExt, Compositor};
+use silicate_compositor::{pipeline::Pipeline, tex::TextureExt, Compositor};
 
 use crate::app::compositor::CompositorApp;
 
@@ -13,9 +13,9 @@ pub struct InstanceKey(pub usize);
 
 pub struct Instance {
     pub file: ProcreateFile,
-    pub output_texture: crate::wgpu::Texture,
+    pub output_texture: wgpu::Texture,
     pub rotation: f32,
-    pub preview_textures: Option<crate::wgpu::Texture>,
+    pub preview_textures: Option<wgpu::Texture>,
     pub compositor: CompositorHandle,
 
     pub previews: HashMap<u32, SizedTexture>,
@@ -47,7 +47,7 @@ impl Instance {
     pub fn generate_previews(
         &mut self,
         mut target: Compositor,
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
         pipeline: &Pipeline,
     ) {
         let file = &self.file;
@@ -58,13 +58,13 @@ impl Instance {
             fn generate_silica_layers_preview(
                 pipeline: &Pipeline,
                 target: &mut Compositor,
-                preview_textures: &crate::wgpu::Texture,
+                preview_textures: &wgpu::Texture,
                 layers: &[SilicaHierarchy],
             ) {
                 fn inner(
                     pipeline: &Pipeline,
                     target: &mut Compositor,
-                    preview_textures: &crate::wgpu::Texture,
+                    preview_textures: &wgpu::Texture,
                     layers: &[SilicaHierarchy],
                 ) {
                     for layer in layers.iter() {
@@ -102,12 +102,12 @@ impl Instance {
                 inner(pipeline, target, preview_textures, layers);
             }
 
-            let preview_textures = crate::wgpu::Texture::empty_layers(
-                dispatch,
+            let preview_textures = wgpu::Texture::empty_layers(
+                device,
                 256,
                 scaled_height,
                 file.layer_count(true) + 1,
-                crate::wgpu::Texture::OUTPUT_USAGE,
+                wgpu::Texture::OUTPUT_USAGE,
             );
 
             generate_silica_layers_preview(pipeline, &mut target, &preview_textures, &file.layers);

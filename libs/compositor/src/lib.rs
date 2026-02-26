@@ -1,6 +1,5 @@
 pub mod blend;
 pub mod buffer;
-pub mod dev;
 pub mod pipeline;
 pub mod tex;
 
@@ -11,7 +10,6 @@ use std::num::NonZeroU32;
 use blend::BlendingMode;
 use buffer::{BufferDimensions, CompositorBuffers};
 use canvas::{ChunkInstance, CompositorAtlasTiling, CompositorCanvasTiling, VertexInput};
-use dev::GpuDispatch;
 use pipeline::Pipeline;
 use wgpu::{CommandEncoder, TextureView};
 
@@ -41,7 +39,8 @@ pub struct CompositeLayer {
 
 /// Output target of a compositor pipeline.
 pub struct Compositor {
-    dispatch: GpuDispatch,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     buffers: CompositorBuffers,
     atlas_texture: wgpu::Texture,
 }
@@ -49,14 +48,16 @@ pub struct Compositor {
 impl Compositor {
     /// Create a new compositor target.
     pub fn new(
-        dispatch: GpuDispatch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         canvas: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
         atlas_texture: wgpu::Texture,
     ) -> Self {
         Self {
-            dispatch: dispatch.clone(),
-            buffers: CompositorBuffers::new(dispatch, canvas, atlas_data),
+            device: device.clone(),
+            queue: queue.clone(),
+            buffers: CompositorBuffers::new(device, queue, canvas, atlas_data),
             atlas_texture,
         }
     }
@@ -74,22 +75,28 @@ impl Compositor {
             .canvas
             .data_mut()
             .set_flipped(horizontally, vertically);
-        self.buffers.canvas.load_buffer(self.dispatch.queue());
+        self.buffers.canvas.load_buffer(&self.queue);
     }
 
     pub fn set_background(&mut self, bg: Option<[f32; 4]>) {
         let bg = bg.unwrap_or([0.0; 4]);
         if self.buffers.background.data() != &bg {
             *self.buffers.background.data_mut() = bg;
-            self.buffers.background.load_buffer(self.dispatch.queue());
+            self.buffers.background.load_buffer(&self.queue);
         }
     }
 
     /// Render composite layers using the compositor pipeline.
     pub fn render(&self, pipeline: &Pipeline, output_view: TextureView) {
-        self.dispatch.submit_queue(|encoder| {
-            self.render_command(pipeline, encoder, output_view);
-        });
+        self.queue.submit([{
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+            self.render_command(pipeline, &mut encoder, output_view);
+
+            encoder.finish()
+        }]);
     }
 
     fn render_command(
@@ -98,53 +105,47 @@ impl Compositor {
         encoder: &mut CommandEncoder,
         output_view: TextureView,
     ) {
-        let canvas_bind_group =
-            self.dispatch
-                .device()
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &pipeline.canvas_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.buffers.canvas.buffer().as_entire_binding(),
-                    }],
-                    label: Some("canvas_bind_group"),
-                });
+        let canvas_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &pipeline.canvas_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.buffers.canvas.buffer().as_entire_binding(),
+            }],
+            label: Some("canvas_bind_group"),
+        });
 
-        let blending_bind_group =
-            self.dispatch
-                .device()
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &pipeline.blending_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.buffers.atlas.buffer().as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.atlas_texture.create_array_view(),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: self.buffers.chunks.as_binding_resource(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: self.buffers.layers.as_binding_resource(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: self.buffers.silos.as_binding_resource(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: self.buffers.background.buffer().as_entire_binding(),
-                        },
-                    ],
-                    label: Some("mixing_bind_group"),
-                });
+        let blending_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &pipeline.blending_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.buffers.atlas.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.atlas_texture.create_array_view(),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.buffers.chunks.as_binding_resource(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.buffers.layers.as_binding_resource(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.buffers.silos.as_binding_resource(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.buffers.background.buffer().as_entire_binding(),
+                },
+            ],
+            label: Some("mixing_bind_group"),
+        });
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,

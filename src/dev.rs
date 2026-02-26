@@ -6,39 +6,10 @@ pub struct GpuHandle {
     pub instance: wgpu::Instance,
     /// Physical compute device.
     pub adapter: wgpu::Adapter,
-    pub dispatch: GpuDispatch,
-}
-
-/// Device handle and command queue.
-#[derive(Debug, Clone)]
-pub struct GpuDispatch {
     /// Logical compute device.
-    device: wgpu::Device,
+    pub device: wgpu::Device,
     /// Device command queue.
-    queue: wgpu::Queue,
-}
-
-impl GpuDispatch {
-    pub fn device(&self) -> &wgpu::Device {
-        &self.device
-    }
-
-    pub fn queue(&self) -> &wgpu::Queue {
-        &self.queue
-    }
-
-    /// Create a command encoder, run the closure, finish the encoder and submit to the queue.
-    pub(crate) fn submit_queue(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
-        self.queue.submit([{
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-            f(&mut encoder);
-
-            encoder.finish()
-        }]);
-    }
+    pub queue: wgpu::Queue,
 }
 
 impl GpuHandle {
@@ -98,7 +69,8 @@ impl GpuHandle {
         Some(Self {
             instance,
             adapter,
-            dispatch: GpuDispatch { queue, device },
+            queue,
+            device
         })
     }
 }

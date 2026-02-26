@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
 use egui_winit::winit::event_loop::EventLoopProxy;
-use silicate_compositor::{buffer::BufferDimensions, dev::GpuDispatch};
+use silicate_compositor::buffer::BufferDimensions;
 
 use crate::app::{App, UserEvent};
 
@@ -55,7 +55,12 @@ impl Dialog {
         }
     }
 
-    pub async fn save_dialog(self, dispatch: GpuDispatch, copied_texture: crate::wgpu::Texture) {
+    pub async fn save_dialog(
+        self,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        copied_texture: wgpu::Texture,
+    ) {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("png", image::ImageFormat::Png.extensions_str())
             .add_filter("jpeg", image::ImageFormat::Jpeg.extensions_str())
@@ -72,7 +77,7 @@ impl Dialog {
 
         let dim = BufferDimensions::from_extent(copied_texture.size());
         let path = handle.path().to_path_buf();
-        if let Err(err) = App::export(&copied_texture, &dispatch, dim, path).await {
+        if let Err(err) = App::export(&copied_texture, &device, &queue, dim, path).await {
             self.send_toast(Toast::error(format!(
                 "File {} failed to export. Reason: {err}.",
                 handle.file_name()

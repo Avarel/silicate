@@ -21,6 +21,8 @@ default = []
 silicate-compositor = { path = "libs/compositor" }
 silica-gpu = { path = "libs/silica-gpu" }
 
+wgpu = { workspace = true }
+
 clap = { version = "4.5", features = ["cargo", "derive"] }
 
 image = { version = "0.25", default-features = false, features = [

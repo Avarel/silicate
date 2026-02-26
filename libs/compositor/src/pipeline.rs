@@ -1,4 +1,4 @@
-use crate::{ChunkInstance, VertexInput, dev::GpuDispatch};
+use crate::{ChunkInstance, VertexInput};
 
 #[derive(Clone)]
 pub struct Pipeline {
@@ -10,9 +10,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     /// Create a new compositor pipeline.
-    pub fn new(dispatch: &GpuDispatch) -> Self {
-        let device = dispatch.device();
-
+    pub fn new(device: &wgpu::Device) -> Self {
         let canvas_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("canvas_bind_group_layout"),

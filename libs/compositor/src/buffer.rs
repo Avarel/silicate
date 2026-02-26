@@ -6,7 +6,6 @@ use crate::{
         ChunkData, ChunkInstance, ChunkSilo, CompositorAtlasTiling, CompositorCanvasTiling,
         LayerData, VertexInput,
     },
-    dev::GpuDispatch,
 };
 
 /// Associates the texture's actual dimensions and its buffer dimensions on the GPU.
@@ -143,21 +142,15 @@ where
     }
 
     /// Load the GPU vertex buffer with updated data. Expanding the GPU buffer if needed.
-    pub fn load_vec_buffer(&mut self, dispatch: &GpuDispatch) {
+    pub fn load_vec_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.buffer.size() < self.data_len() {
-            self.buffer = dispatch
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(self.label),
-                    contents: bytemuck::cast_slice(self.data.as_slice()),
-                    usage: self.buffer.usage(),
-                });
+            self.buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(self.label),
+                contents: bytemuck::cast_slice(self.data.as_slice()),
+                usage: self.buffer.usage(),
+            });
         } else {
-            dispatch.queue().write_buffer(
-                &self.buffer,
-                0,
-                bytemuck::cast_slice(self.data.as_slice()),
-            );
+            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(self.data.as_slice()));
         }
     }
 
@@ -195,7 +188,8 @@ where
 }
 
 pub(crate) struct CompositorBuffers {
-    dispatch: GpuDispatch,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
 
     pub(crate) vertices: DataBuffer<[VertexInput; 4]>,
     pub(crate) indices: DataBuffer<[u16; 4]>,
@@ -239,61 +233,62 @@ impl CompositorBuffers {
     const INDICES: [u16; 4] = [0, 2, 1, 3];
 
     pub(super) fn new(
-        dispatch: GpuDispatch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         canvas_data: CompositorCanvasTiling,
         atlas_data: CompositorAtlasTiling,
     ) -> Self {
         Self {
             vertices: DataBuffer::init(
-                dispatch.device(),
+                device,
                 "vertex_buffer",
                 Self::SQUARE_VERTICES,
                 wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             ),
             indices: DataBuffer::init(
-                dispatch.device(),
+                device,
                 "index_buffer",
                 Self::INDICES,
                 wgpu::BufferUsages::INDEX,
             ),
             background: DataBuffer::init(
-                dispatch.device(),
+                device,
                 "background",
                 [0.0; 4],
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ),
             atlas: DataBuffer::init(
-                dispatch.device(),
+                device,
                 "atlas_buffer",
                 atlas_data,
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ),
             layers: DataBuffer::init_vec(
-                dispatch.device(),
+                device,
                 "layer_buffer",
                 Vec::new(),
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             ),
             silos: DataBuffer::init_vec(
-                dispatch.device(),
+                device,
                 "silo_buffer",
                 Vec::new(),
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             ),
             chunks: DataBuffer::init_vec(
-                dispatch.device(),
+                device,
                 "chunk_buffer",
                 Vec::new(),
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             ),
             canvas: DataBuffer::init(
-                dispatch.device(),
+                device,
                 "canvas_buffer",
                 canvas_data,
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ),
             tiles: DataBuffer::init_vec(
-                dispatch.device(),
+                device,
                 "tile_buffer",
                 (0..canvas_data.rows())
                     .flat_map(|row| {
@@ -302,7 +297,8 @@ impl CompositorBuffers {
                     .collect::<Vec<_>>(),
                 wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             ),
-            dispatch,
+            device: device.clone(),
+            queue: queue.clone(),
         }
     }
 
@@ -319,7 +315,7 @@ impl CompositorBuffers {
             });
         }
 
-        self.layers.load_vec_buffer(&self.dispatch);
+        self.layers.load_vec_buffer(&self.device, &self.queue);
     }
 
     pub(super) fn load_chunk_buffer(&mut self, chunks_data: &[ChunkTile]) {
@@ -359,7 +355,7 @@ impl CompositorBuffers {
             silo.end = chunks.len() as u32; // always update end to current
         }
 
-        self.chunks.load_vec_buffer(&self.dispatch);
-        self.silos.load_vec_buffer(&self.dispatch);
+        self.chunks.load_vec_buffer(&self.device, &self.queue);
+        self.silos.load_vec_buffer(&self.device, &self.queue);
     }
 }

@@ -1,28 +1,31 @@
-use crate::dev::GpuDispatch;
-
 use super::BufferDimensions;
 
 const TEX_DIM: wgpu::TextureDimension = wgpu::TextureDimension::D2;
 pub(super) const TEX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub trait TextureExt {
-    fn empty(dispatch: &GpuDispatch, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self;
+    fn empty(dispatch: &wgpu::Device, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self;
     fn empty_layers(
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
         width: u32,
         height: u32,
         layers: u32,
         usage: wgpu::TextureUsages,
     ) -> Self;
     fn empty_with_extent(
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
         size: wgpu::Extent3d,
         usage: wgpu::TextureUsages,
     ) -> Self;
     fn create_default_view(&self) -> wgpu::TextureView;
     fn create_array_view(&self) -> wgpu::TextureView;
     fn create_view_layer(&self, layer: u32) -> wgpu::TextureView;
-    fn export_buffer(&self, dispatch: &GpuDispatch, dim: BufferDimensions) -> wgpu::Buffer;
+    fn export_buffer(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        dim: BufferDimensions,
+    ) -> wgpu::Buffer;
 
     const LAYER_USAGE: wgpu::TextureUsages =
         wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::TEXTURE_BINDING);
@@ -32,13 +35,13 @@ pub trait TextureExt {
 }
 
 impl TextureExt for wgpu::Texture {
-    fn empty(dispatch: &GpuDispatch, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
-        Self::empty_layers(dispatch, width, height, 1, usage)
+    fn empty(device: &wgpu::Device, width: u32, height: u32, usage: wgpu::TextureUsages) -> Self {
+        Self::empty_layers(device, width, height, 1, usage)
     }
 
     /// Create an empty texture.
     fn empty_layers(
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
         width: u32,
         height: u32,
         layers: u32,
@@ -50,17 +53,17 @@ impl TextureExt for wgpu::Texture {
             depth_or_array_layers: layers,
         };
 
-        Self::empty_with_extent(dispatch, size, usage)
+        Self::empty_with_extent(device, size, usage)
     }
 
     /// Create an empty texture from an extent.
     fn empty_with_extent(
-        dispatch: &GpuDispatch,
+        device: &wgpu::Device,
         size: wgpu::Extent3d,
         usage: wgpu::TextureUsages,
     ) -> Self {
         // Canvas texture
-        dispatch.device().create_texture(&wgpu::TextureDescriptor {
+        device.create_texture(&wgpu::TextureDescriptor {
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -97,8 +100,13 @@ impl TextureExt for wgpu::Texture {
         })
     }
 
-    fn export_buffer(&self, dispatch: &GpuDispatch, dim: BufferDimensions) -> wgpu::Buffer {
-        let output_buffer = dispatch.device().create_buffer(&wgpu::BufferDescriptor {
+    fn export_buffer(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        dim: BufferDimensions,
+    ) -> wgpu::Buffer {
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (dim.padded_bytes_per_row() * dim.height()) as u64,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
@@ -106,8 +114,10 @@ impl TextureExt for wgpu::Texture {
             mapped_at_creation: false,
         });
 
-        dispatch.submit_queue(|encoder| {
-            // Copy the data from the texture to the buffer
+        queue.submit([{
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
             encoder.copy_texture_to_buffer(
                 self.as_image_copy(),
                 wgpu::TexelCopyBufferInfo {
@@ -120,7 +130,9 @@ impl TextureExt for wgpu::Texture {
                 },
                 dim.extent(),
             );
-        });
+
+            encoder.finish()
+        }]);
 
         output_buffer
     }

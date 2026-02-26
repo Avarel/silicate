@@ -12,7 +12,6 @@ use silica_gpu::{error::SilicaError, ProcreateFile, ProcreateFileAtlas};
 use silicate_compositor::{
     buffer::BufferDimensions,
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
-    dev::GpuDispatch,
     pipeline::Pipeline,
     tex::TextureExt,
     Compositor,
@@ -28,7 +27,7 @@ pub enum UserEvent {
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
     LoadDialog(SurfaceIndex, NodeIndex),
-    SaveDialog(crate::wgpu::Texture),
+    SaveDialog(wgpu::Texture),
     Toast(Toast),
 }
 
@@ -57,17 +56,23 @@ impl std::fmt::Debug for UserEvent {
 }
 
 pub struct App {
-    dispatch: GpuDispatch,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     event_loop: EventLoopProxy<UserEvent>,
     pipeline: Pipeline,
     curr_id: AtomicUsize,
 }
 
 impl App {
-    pub fn new(dispatch: GpuDispatch, event_loop: EventLoopProxy<UserEvent>) -> Self {
+    pub fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        event_loop: EventLoopProxy<UserEvent>,
+    ) -> Self {
         Self {
-            pipeline: Pipeline::new(&dispatch),
-            dispatch,
+            pipeline: Pipeline::new(&device),
+            device,
+            queue,
             event_loop,
             curr_id: AtomicUsize::new(0),
         }
@@ -78,10 +83,9 @@ impl App {
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        let (file, metadata) = tokio::task::block_in_place(|| {
-            ProcreateFile::open(&path, self.dispatch.device(), self.dispatch.queue())
-        })
-        .unwrap();
+        let (file, metadata) =
+            tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.device, &self.queue))
+                .unwrap();
 
         let ProcreateFileAtlas {
             atlas_texture,
@@ -94,17 +98,18 @@ impl App {
             canvas_tiling.size,
         );
         let composite_target = Compositor::new(
-            self.dispatch.clone(),
+            &self.device,
+            &self.queue,
             canvas,
             CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
             atlas_texture.clone(),
         );
 
-        let output_texture = crate::wgpu::Texture::empty(
-            &self.dispatch,
+        let output_texture = wgpu::Texture::empty(
+            &self.device,
             file.size.width,
             file.size.height,
-            crate::wgpu::Texture::OUTPUT_USAGE,
+            wgpu::Texture::OUTPUT_USAGE,
         );
 
         let rotation = match file.orientation {
@@ -138,12 +143,13 @@ impl App {
         };
         instance.generate_previews(
             Compositor::new(
-                self.dispatch.clone(),
+                &self.device,
+                &self.queue,
                 canvas,
                 CompositorAtlasTiling::new(canvas_tiling.atlas.cols, canvas_tiling.atlas.rows),
                 atlas_texture,
             ),
-            &self.dispatch,
+            &self.device,
             &self.pipeline,
         );
 
@@ -155,12 +161,13 @@ impl App {
 
     /// Export the texture to the given path.
     pub async fn export(
-        texture: &crate::wgpu::Texture,
-        dispatch: &GpuDispatch,
+        texture: &wgpu::Texture,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         dim: BufferDimensions,
         path: std::path::PathBuf,
     ) -> image::ImageResult<()> {
-        let output_buffer = texture.export_buffer(dispatch, dim);
+        let output_buffer = texture.export_buffer(device, queue, dim);
 
         let buffer_slice = output_buffer.slice(..);
 
@@ -168,8 +175,7 @@ impl App {
         // the future. Otherwise the application will freeze.
         let (tx, rx) = tokio::sync::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        dispatch
-            .device()
+        device
             .poll(wgpu::PollType::Wait {
                 submission_index: None,
                 timeout: Some(Duration::from_secs(10)),
