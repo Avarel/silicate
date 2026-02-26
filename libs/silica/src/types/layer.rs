@@ -41,7 +41,7 @@ pub struct SilicaLayer {
     // extendedBlend:Int?
     pub hidden: bool,
     // locked:Bool?
-    pub mask: Option<usize>,
+    pub mask: Option<Box<SilicaLayer>>,
     pub name: Option<String>,
     pub opacity: f32,
     // perspectiveAssisted:Bool?
@@ -70,7 +70,7 @@ impl<'a> NsDecode<'a> for SilicaLayer {
                 .or_else(|_| nka.fetch::<BlendingMode>(world, "blend"))?,
             clipped: nka.fetch::<bool>(world, "clipped")?,
             hidden: nka.fetch::<bool>(world, "hidden")?,
-            mask: None,
+            mask: nka.fetch::<Option<Box<SilicaLayer>>>(world, "mask")?,
             name: nka.fetch::<Option<String>>(world, "name")?,
             opacity: nka.fetch::<f32>(world, "opacity")?,
             uuid,

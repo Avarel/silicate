@@ -105,6 +105,7 @@ impl Compositor {
         encoder: &mut CommandEncoder,
         output_view: TextureView,
     ) {
+        // TODO: recreate bind groups only if necessary
         let canvas_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &pipeline.canvas_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
