@@ -25,21 +25,21 @@ impl ControlsGui {
         Grid::new("File Grid").show(ui, |ui| {
             let file = &instance.file;
             ui.label("Name");
-            ui.label(file.info.name.as_deref().unwrap_or("Not Specified"));
+            ui.label(file.name.as_deref().unwrap_or("Not Specified"));
             ui.end_row();
             ui.label("Author");
-            ui.label(file.info.author_name.as_deref().unwrap_or("Not Specified"));
+            ui.label(file.author_name.as_deref().unwrap_or("Not Specified"));
             ui.end_row();
             ui.label("Stroke Count");
-            ui.label(file.info.stroke_count.to_string());
+            ui.label(file.stroke_count.to_string());
             ui.end_row();
             ui.label("Layer Count");
             ui.label(file.layer_count(false).to_string());
             ui.end_row();
             ui.label("Canvas Size");
 
-            let mut dim1 = file.info.size.width;
-            let mut dim2 = file.info.size.height;
+            let mut dim1 = file.size.width;
+            let mut dim2 = file.size.height;
 
             if !instance.is_upright() {
                 std::mem::swap(&mut dim1, &mut dim2);
@@ -53,19 +53,26 @@ impl ControlsGui {
             ui.label("Flip");
             ui.horizontal(|ui| {
                 let is_upright = instance.is_upright();
-                let mut horz_var = &mut instance.file.info.flipped.horizontally;
-                let mut vert_var = &mut instance.file.info.flipped.vertically;
+                let mut horz_var = instance.file.flipped.horizontally;
+                let mut vert_var = instance.file.flipped.vertically;
 
                 if !is_upright {
                     std::mem::swap(&mut horz_var, &mut vert_var);
                 }
 
                 if ui.button("Horizontal").clicked() {
-                    *horz_var = !*horz_var;
+                    horz_var = !horz_var;
                 }
                 if ui.button("Vertical").clicked() {
-                    *vert_var = !*vert_var;
+                    vert_var = !vert_var;
                 }
+
+                if !is_upright {
+                    std::mem::swap(&mut horz_var, &mut vert_var);
+                }
+
+                instance.file.flipped.horizontally = horz_var;
+                instance.file.flipped.vertically = vert_var;
             });
             ui.end_row();
         });
@@ -202,7 +209,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         self.instances
             .get(tab)
-            .and_then(|tab| tab.file.info.name.to_owned())
+            .and_then(|tab| tab.file.name.to_owned())
             .unwrap_or("Untitled Artwork".to_string())
             .into()
     }

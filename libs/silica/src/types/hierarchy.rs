@@ -1,6 +1,6 @@
 use crate::{
-    types::{group::SilicaGroup, layer::SilicaLayer},
     ns_archive::{NsClass, NsDecode, NsKeyedArchive, error::NsArchiveError},
+    types::{group::SilicaGroup, layer::SilicaLayer},
 };
 use plist::{Dictionary, Value};
 

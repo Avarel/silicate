@@ -9,12 +9,12 @@ pub struct BackgroundControl<'a> {
 
 impl BackgroundControl<'_> {
     pub fn ui(self, ui: &mut Ui) {
-        let [r, g, b, _] = self.file.info.background_color;
+        let [r, g, b, _] = self.file.background_color;
 
         let collapsible = LayerCollapsible::new(
             u32::MAX,
             "Background Color",
-            &mut self.file.info.background_hidden,
+            &mut self.file.background_hidden,
         )
         .ui(ui, |ui| {
             ui.painter().rect(
@@ -34,7 +34,7 @@ impl BackgroundControl<'_> {
         collapsible.show_body_unindented(ui, |ui| {
             let mut rgb = Rgba::from_rgb(r, g, b);
             ColorPickerHsv::new(&mut rgb).ui(ui);
-            self.file.info.background_color = rgb.to_array();
+            self.file.background_color = rgb.to_array();
         });
     }
 }

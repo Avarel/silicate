@@ -7,8 +7,8 @@ mod types;
 type ZipArchiveMmap<'a> = zip::ZipArchive<std::io::Cursor<&'a [u8]>>;
 
 pub use types::{
-    file::ProcreateFileAtlas, file::ProcreateFile, group::SilicaGroup,
-    hierarchy::SilicaHierarchy, layer::SilicaLayer,
+    file::ProcreateFile, file::ProcreateFileAtlas, group::SilicaGroup, hierarchy::SilicaHierarchy,
+    layer::SilicaLayer,
 };
 
 pub use silica::{BlendingMode, Flipped, Orientation};

@@ -137,7 +137,6 @@ impl BlendingMode {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Flipped {
     pub horizontally: bool,

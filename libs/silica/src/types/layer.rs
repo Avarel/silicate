@@ -1,5 +1,5 @@
-use crate::ns_archive::{NsDecode, NsKeyedArchive, error::NsArchiveError};
 use crate::data::BlendingMode;
+use crate::ns_archive::{NsDecode, NsKeyedArchive, error::NsArchiveError};
 use plist::{Dictionary, Value};
 
 impl<'a> NsDecode<'a> for BlendingMode {

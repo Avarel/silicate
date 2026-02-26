@@ -1,8 +1,8 @@
 use crate::{
     data::{Flipped, Orientation},
     error::SilicaError,
-    types::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
     ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError},
+    types::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
 };
 
 #[derive(Debug, Clone, PartialEq)]

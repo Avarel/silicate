@@ -16,9 +16,23 @@ use zip::read::ZipArchive;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcreateFile {
-    pub info: silica::ProcreateFile,
+    info: silica::ProcreateFile,
     pub composite: Option<SilicaLayer>,
     pub layers: Vec<SilicaHierarchy>,
+}
+
+impl std::ops::Deref for ProcreateFile {
+    type Target = silica::ProcreateFile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
+
+impl std::ops::DerefMut for ProcreateFile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.info
+    }
 }
 
 pub struct ProcreateFileAtlas {

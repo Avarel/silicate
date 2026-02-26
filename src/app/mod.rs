@@ -8,7 +8,7 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use silica_gpu::{error::SilicaError, ProcreateFileAtlas, ProcreateFile};
+use silica_gpu::{error::SilicaError, ProcreateFile, ProcreateFileAtlas};
 use silicate_compositor::{
     buffer::BufferDimensions,
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
@@ -89,7 +89,7 @@ impl App {
         } = metadata;
 
         let canvas = CompositorCanvasTiling::new(
-            (file.info.size.width, file.info.size.height),
+            (file.size.width, file.size.height),
             (canvas_tiling.cols, canvas_tiling.rows),
             canvas_tiling.size,
         );
@@ -102,12 +102,12 @@ impl App {
 
         let output_texture = crate::wgpu::Texture::empty(
             &self.dispatch,
-            file.info.size.width,
-            file.info.size.height,
+            file.size.width,
+            file.size.height,
             crate::wgpu::Texture::OUTPUT_USAGE,
         );
 
-        let rotation = match file.info.orientation {
+        let rotation = match file.orientation {
             silica_gpu::Orientation::NoRotation => 0.0,
             silica_gpu::Orientation::Clockwise180 => 180.0,
             silica_gpu::Orientation::Clockwise270 => 270.0,

@@ -21,9 +21,23 @@ pub struct SilicaImageData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaLayer {
-    pub info: silica::SilicaLayer,
+    info: silica::SilicaLayer,
     pub image: SilicaImageData,
     pub addendum: Addendum,
+}
+
+impl std::ops::Deref for SilicaLayer {
+    type Target = silica::SilicaLayer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
+
+impl std::ops::DerefMut for SilicaLayer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.info
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,21 +66,21 @@ impl SilicaLayer {
         info: silica::SilicaLayer,
         queue: &wgpu::Queue,
         atlas_texture: &wgpu::Texture,
-        meta: &LoadParams<'_>,
+        params: &LoadParams<'_>,
     ) -> Result<SilicaLayer, SilicaError> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
-        let chunks = meta
+        let chunks = params
             .file_names
             .par_iter()
             .filter(|path| path.starts_with(info.uuid.as_str()))
             .map(|path| -> Result<SilicaChunk, SilicaError> {
-                let mut archive = meta.archive.clone();
+                let mut archive = params.archive.clone();
 
                 let chunk_str = &path[info.uuid.len() + 1..path.find('.').unwrap_or(path.len())];
                 let (col, row) = Self::parse_chunk_str(chunk_str)?;
 
-                let tile_extent = meta.tiling.tile_extent(col, row);
+                let tile_extent = params.tiling.tile_extent(col, row);
 
                 // impossible
                 let mut chunk = archive.by_name(path).expect("path not inside zip");
@@ -90,12 +104,12 @@ impl SilicaLayer {
                 };
 
                 let atlas_index = NonZeroU32::new(
-                    meta.chunk_id_counter
+                    params.chunk_id_counter
                         .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
                 )
                 .unwrap();
 
-                let origin = meta.tiling.atlas_origin(atlas_index.get());
+                let origin = params.tiling.atlas_origin(atlas_index.get());
 
                 Self::replace_from_bytes(queue, atlas_texture, &data, origin, tile_extent);
                 Ok(SilicaChunk {
@@ -110,7 +124,7 @@ impl SilicaLayer {
             info,
             image: SilicaImageData { chunks },
             addendum: Addendum {
-                id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
+                id: params.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
             },
         })
     }

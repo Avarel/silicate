@@ -1,8 +1,8 @@
 use plist::{Dictionary, Value};
 
 use crate::{
-    types::hierarchy::SilicaHierarchy,
     ns_archive::{NsDecode, NsKeyedArchive, NsObjects, error::NsArchiveError},
+    types::hierarchy::SilicaHierarchy,
 };
 
 #[derive(Debug, Clone, PartialEq)]

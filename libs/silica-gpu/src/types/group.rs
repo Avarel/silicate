@@ -11,9 +11,23 @@ use rayon::prelude::ParallelIterator;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaGroup {
-    pub info: silica::SilicaGroup,
+    info: silica::SilicaGroup,
     pub children: Vec<SilicaHierarchy>,
     pub addendum: Addendum,
+}
+
+impl std::ops::Deref for SilicaGroup {
+    type Target = silica::SilicaGroup;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
+
+impl std::ops::DerefMut for SilicaGroup {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.info
+    }
 }
 
 impl SilicaGroup {
@@ -29,17 +43,17 @@ impl SilicaGroup {
         mut info: silica::SilicaGroup,
         queue: &wgpu::Queue,
         atlas_texture: &wgpu::Texture,
-        meta: &'a LoadParams<'a>,
+        params: &'a LoadParams<'a>,
     ) -> Result<SilicaGroup, SilicaError> {
         Ok(SilicaGroup {
             children: info
                 .children
                 .par_drain(..)
-                .map(|ir| SilicaHierarchy::load(ir, queue, atlas_texture, meta))
+                .map(|ir| SilicaHierarchy::load(ir, queue, atlas_texture, params))
                 .collect::<Result<Vec<_>, _>>()?,
             info,
             addendum: Addendum {
-                id: meta.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
+                id: params.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
             },
         })
     }
