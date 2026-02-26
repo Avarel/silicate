@@ -1,10 +1,9 @@
 use crate::ZipArchiveMmap;
 use crate::error::SilicaError;
-use crate::tiling::AtlasTextureTiling;
-use crate::{hierarchy::SilicaHierarchyGpu, layer::SilicaLayerGpu, tiling::CanvasTiling};
+use crate::tiling::{AtlasTextureTiling, CanvasTiling};
+use crate::types::{hierarchy::SilicaHierarchy, layer::SilicaLayer};
 use rayon::iter::ParallelDrainRange;
 use rayon::prelude::ParallelIterator;
-use silica::info::file::ProcreateFile as ProcreateFileRaw;
 use silica::ns_archive::NsKeyedArchive;
 use silica::ns_archive::Size;
 use std::sync::atomic::AtomicU32;
@@ -16,24 +15,24 @@ use std::{
 use zip::read::ZipArchive;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProcreateFileGpu {
-    pub info: ProcreateFileRaw,
-    pub composite: Option<SilicaLayerGpu>,
-    pub layers: Vec<SilicaHierarchyGpu>,
+pub struct ProcreateFile {
+    pub info: silica::ProcreateFile,
+    pub composite: Option<SilicaLayer>,
+    pub layers: Vec<SilicaHierarchy>,
 }
 
-pub struct ProcreateFileCanvas {
+pub struct ProcreateFileAtlas {
     pub atlas_texture: wgpu::Texture,
     pub canvas_tiling: CanvasTiling,
 }
 
-impl ProcreateFileGpu {
+impl ProcreateFile {
     // Load a Procreate file asynchronously.
     pub fn open(
         path: &Path,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
+    ) -> Result<(Self, ProcreateFileAtlas), SilicaError> {
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
@@ -56,8 +55,8 @@ impl ProcreateFileGpu {
         nka: NsKeyedArchive,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<(Self, ProcreateFileCanvas), SilicaError> {
-        let info = ProcreateFileRaw::from_ns(&nka)?;
+    ) -> Result<(Self, ProcreateFileAtlas), SilicaError> {
+        let info = silica::ProcreateFile::from_ns(&nka)?;
 
         Self::load(info, archive, device, queue)
     }
@@ -71,8 +70,8 @@ impl ProcreateFileGpu {
 
     fn load_ir_data<'a>(
         archive: &'a ZipArchiveMmap<'_>,
-        unloaded_file: &ProcreateFileRaw,
-    ) -> Result<crate::ir::IRData<'a>, SilicaError> {
+        unloaded_file: &silica::ProcreateFile,
+    ) -> Result<crate::params::LoadParams<'a>, SilicaError> {
         let file_names = archive.file_names().collect::<Vec<_>>();
         let chunk_count = file_names.len() as u32;
 
@@ -95,7 +94,7 @@ impl ProcreateFileGpu {
             atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size),
         };
 
-        Ok(crate::ir::IRData {
+        Ok(crate::params::LoadParams {
             archive: &archive,
             file_names,
             tiling,
@@ -105,11 +104,11 @@ impl ProcreateFileGpu {
     }
 
     pub(crate) fn load(
-        mut info: ProcreateFileRaw,
+        mut info: silica::ProcreateFile,
         archive: ZipArchiveMmap<'_>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<(ProcreateFileGpu, ProcreateFileCanvas), SilicaError> {
+    ) -> Result<(ProcreateFile, ProcreateFileAtlas), SilicaError> {
         let irinfo = Self::load_ir_data(&archive, &info)?;
 
         let canvas_tiling = irinfo.tiling;
@@ -121,18 +120,18 @@ impl ProcreateFileGpu {
         );
 
         Ok((
-            ProcreateFileGpu {
+            ProcreateFile {
                 composite: info.composite.take().and_then(|composite| {
-                    SilicaLayerGpu::load(composite, queue, &atlas_texture, &irinfo).ok()
+                    SilicaLayer::load(composite, queue, &atlas_texture, &irinfo).ok()
                 }),
                 layers: info
                     .layers
                     .par_drain(..)
-                    .map(|ir| SilicaHierarchyGpu::load(ir, queue, &atlas_texture, &irinfo))
+                    .map(|ir| SilicaHierarchy::load(ir, queue, &atlas_texture, &irinfo))
                     .collect::<Result<_, _>>()?,
                 info,
             },
-            ProcreateFileCanvas {
+            ProcreateFileAtlas {
                 atlas_texture,
                 canvas_tiling,
             },

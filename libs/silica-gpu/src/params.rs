@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicU32;
 
 use crate::{ZipArchiveMmap, tiling::CanvasTiling};
 
-pub(crate) struct IRData<'a> {
+pub(crate) struct LoadParams<'a> {
     pub(crate) archive: &'a ZipArchiveMmap<'a>,
     pub(crate) file_names: Vec<&'a str>,
     pub(crate) tiling: CanvasTiling,

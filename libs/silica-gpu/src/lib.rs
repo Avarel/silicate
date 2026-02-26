@@ -1,12 +1,14 @@
 pub mod error;
-pub mod file;
-pub mod group;
-pub mod hierarchy;
-pub mod layer;
-pub mod tiling;
 
-pub(crate) mod ir;
+mod params;
+mod tiling;
+mod types;
 
-pub type ZipArchiveMmap<'a> = zip::ZipArchive<std::io::Cursor<&'a [u8]>>;
+type ZipArchiveMmap<'a> = zip::ZipArchive<std::io::Cursor<&'a [u8]>>;
 
-pub use silica as raw;
+pub use types::{
+    file::ProcreateFileAtlas, file::ProcreateFile, group::SilicaGroup,
+    hierarchy::SilicaHierarchy, layer::SilicaLayer,
+};
+
+pub use silica::{BlendingMode, Flipped, Orientation};

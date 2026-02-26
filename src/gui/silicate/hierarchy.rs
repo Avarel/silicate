@@ -1,6 +1,6 @@
 use crate::{app::instance::InstanceKey, gui::widgets::layer_collapsible::LayerCollapsible};
 use egui::{load::SizedTexture, *};
-use silica_gpu::hierarchy::SilicaHierarchyGpu;
+use silica_gpu::SilicaHierarchy;
 use std::collections::HashMap;
 
 use super::layer::LayerControl;
@@ -8,14 +8,14 @@ use super::layer::LayerControl;
 pub struct LayersHierarchy<'a> {
     pub rotation: f32,
     pub previews: &'a HashMap<u32, SizedTexture>,
-    pub layers: &'a mut [SilicaHierarchyGpu],
+    pub layers: &'a mut [SilicaHierarchy],
 }
 
 impl LayersHierarchy<'_> {
     pub fn ui(self, ui: &mut Ui, idx: InstanceKey) {
         self.layers.iter_mut().for_each(|mut layer| {
             let (id, layer_name, hidden, size_change) = match &mut layer {
-                SilicaHierarchyGpu::Layer(layer) => {
+                SilicaHierarchy::Layer(layer) => {
                     let layer_name = layer
                         .info
                         .name
@@ -24,7 +24,7 @@ impl LayersHierarchy<'_> {
 
                     (layer.addendum.id, layer_name, &mut layer.info.hidden, false)
                 }
-                SilicaHierarchyGpu::Group(layer) => {
+                SilicaHierarchy::Group(layer) => {
                     let layer_name = layer
                         .info
                         .name
@@ -83,11 +83,11 @@ impl LayersHierarchy<'_> {
                 });
 
             match layer {
-                SilicaHierarchyGpu::Layer(layer) => {
+                SilicaHierarchy::Layer(layer) => {
                     collapsible
                         .show_body_unindented(ui, |ui| -> _ { LayerControl { layer }.ui(ui) });
                 }
-                SilicaHierarchyGpu::Group(layer) => {
+                SilicaHierarchy::Group(layer) => {
                     collapsible.show_body_indented(ui, |ui| {
                         LayersHierarchy {
                             rotation: self.rotation,

@@ -1,6 +1,6 @@
 use crate::ns_archive::{NsDecode, NsKeyedArchive, error::NsArchiveError};
+use crate::data::BlendingMode;
 use plist::{Dictionary, Value};
-use crate::info::blend::BlendingMode;
 
 impl<'a> NsDecode<'a> for BlendingMode {
     fn fetch(

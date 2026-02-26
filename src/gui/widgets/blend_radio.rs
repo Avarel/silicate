@@ -1,5 +1,5 @@
 use egui::*;
-use silica_gpu::raw::info::blend::BlendingMode;
+use silica_gpu::BlendingMode;
 
 pub struct BlendModeRadio<'a> {
     value: &'a mut BlendingMode,

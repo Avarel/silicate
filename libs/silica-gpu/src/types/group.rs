@@ -1,8 +1,7 @@
-use silica::info::group::SilicaGroup as SilicaGroupRaw;
-
 use crate::{
     error::SilicaError,
-    {hierarchy::SilicaHierarchyGpu, ir::IRData, layer::Addendum},
+    params::LoadParams,
+    types::{hierarchy::SilicaHierarchy, layer::Addendum},
 };
 
 use std::sync::atomic::Ordering;
@@ -11,13 +10,13 @@ use rayon::iter::ParallelDrainRange;
 use rayon::prelude::ParallelIterator;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaGroupGpu {
-    pub info: SilicaGroupRaw,
-    pub children: Vec<SilicaHierarchyGpu>,
+pub struct SilicaGroup {
+    pub info: silica::SilicaGroup,
+    pub children: Vec<SilicaHierarchy>,
     pub addendum: Addendum,
 }
 
-impl SilicaGroupGpu {
+impl SilicaGroup {
     pub fn layer_count(&self, include_groups: bool) -> u32 {
         self.children
             .iter()
@@ -27,16 +26,16 @@ impl SilicaGroupGpu {
     }
 
     pub(crate) fn load<'a>(
-        mut info: SilicaGroupRaw,
+        mut info: silica::SilicaGroup,
         queue: &wgpu::Queue,
         atlas_texture: &wgpu::Texture,
-        meta: &'a IRData<'a>,
-    ) -> Result<SilicaGroupGpu, SilicaError> {
-        Ok(SilicaGroupGpu {
+        meta: &'a LoadParams<'a>,
+    ) -> Result<SilicaGroup, SilicaError> {
+        Ok(SilicaGroup {
             children: info
                 .children
                 .par_drain(..)
-                .map(|ir| SilicaHierarchyGpu::load(ir, queue, atlas_texture, meta))
+                .map(|ir| SilicaHierarchy::load(ir, queue, atlas_texture, meta))
                 .collect::<Result<Vec<_>, _>>()?,
             info,
             addendum: Addendum {

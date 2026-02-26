@@ -8,10 +8,7 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use silica_gpu::{
-    error::SilicaError,
-    file::{ProcreateFileCanvas, ProcreateFileGpu},
-};
+use silica_gpu::{error::SilicaError, ProcreateFileAtlas, ProcreateFile};
 use silicate_compositor::{
     buffer::BufferDimensions,
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
@@ -82,11 +79,11 @@ impl App {
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
         let (file, metadata) = tokio::task::block_in_place(|| {
-            ProcreateFileGpu::open(&path, self.dispatch.device(), self.dispatch.queue())
+            ProcreateFile::open(&path, self.dispatch.device(), self.dispatch.queue())
         })
         .unwrap();
 
-        let ProcreateFileCanvas {
+        let ProcreateFileAtlas {
             atlas_texture,
             canvas_tiling,
         } = metadata;
@@ -111,10 +108,10 @@ impl App {
         );
 
         let rotation = match file.info.orientation {
-            silica_gpu::raw::data::Orientation::NoRotation => 0.0,
-            silica_gpu::raw::data::Orientation::Clockwise180 => 180.0,
-            silica_gpu::raw::data::Orientation::Clockwise270 => 270.0,
-            silica_gpu::raw::data::Orientation::Clockwise90 => 90.0,
+            silica_gpu::Orientation::NoRotation => 0.0,
+            silica_gpu::Orientation::Clockwise180 => 180.0,
+            silica_gpu::Orientation::Clockwise270 => 270.0,
+            silica_gpu::Orientation::Clockwise90 => 90.0,
             _ => 0f32,
         }
         .to_radians();

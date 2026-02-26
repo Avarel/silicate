@@ -1,7 +1,7 @@
 use crate::{
     data::{Flipped, Orientation},
     error::SilicaError,
-    info::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
+    types::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
     ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError},
 };
 

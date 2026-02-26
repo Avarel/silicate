@@ -1,4 +1,4 @@
-use silica_gpu::raw::info::blend as data;
+use silica_gpu as data;
 use silicate_compositor::blend as comp;
 
 pub fn convert_blend(blend: data::BlendingMode) -> comp::BlendingMode {

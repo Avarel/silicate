@@ -1,7 +1,7 @@
 use plist::{Dictionary, Value};
 
 use crate::{
-    info::hierarchy::SilicaHierarchy,
+    types::hierarchy::SilicaHierarchy,
     ns_archive::{NsDecode, NsKeyedArchive, NsObjects, error::NsArchiveError},
 };
 

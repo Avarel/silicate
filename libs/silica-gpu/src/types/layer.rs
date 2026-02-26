@@ -1,7 +1,6 @@
-use crate::{error::SilicaError, ir::IRData};
+use crate::{error::SilicaError, params::LoadParams};
 use minilzo_rs::LZO;
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
-use silica::info::layer::SilicaLayer;
 use std::{
     io::Read,
     num::NonZeroU32,
@@ -21,8 +20,8 @@ pub struct SilicaImageData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SilicaLayerGpu {
-    pub info: SilicaLayer,
+pub struct SilicaLayer {
+    pub info: silica::SilicaLayer,
     pub image: SilicaImageData,
     pub addendum: Addendum,
 }
@@ -32,7 +31,7 @@ pub struct Addendum {
     pub id: u32,
 }
 
-impl SilicaLayerGpu {
+impl SilicaLayer {
     const RGBA_CHANNEL_COUNT: usize = 4;
 
     fn parse_chunk_str(chunk_str: &str) -> Result<(u32, u32), SilicaError> {
@@ -50,11 +49,11 @@ impl SilicaLayerGpu {
     }
 
     pub(crate) fn load(
-        info: SilicaLayer,
+        info: silica::SilicaLayer,
         queue: &wgpu::Queue,
         atlas_texture: &wgpu::Texture,
-        meta: &IRData<'_>,
-    ) -> Result<SilicaLayerGpu, SilicaError> {
+        meta: &LoadParams<'_>,
+    ) -> Result<SilicaLayer, SilicaError> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
         let chunks = meta
@@ -107,7 +106,7 @@ impl SilicaLayerGpu {
             })
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
-        Ok(SilicaLayerGpu {
+        Ok(SilicaLayer {
             info,
             image: SilicaImageData { chunks },
             addendum: Addendum {
