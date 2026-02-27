@@ -1,4 +1,4 @@
-use crate::ns_archive::{NsKeyedArchive, error::NsArchiveError};
+use crate::ns_archive::{NsArchive, error::NsArchiveError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlendingMode {
@@ -153,7 +153,7 @@ pub enum Orientation {
 }
 
 impl crate::ns_archive::NsDecode<'_> for Orientation {
-    fn decode(nka: &NsKeyedArchive, key: &str, val: &plist::Value) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &NsArchive, key: &str, val: &plist::Value) -> Result<Self, NsArchiveError> {
         Ok(match u64::decode(nka, key, val)? {
             1 => Self::NoRotation,
             2 => Self::Clockwise180,

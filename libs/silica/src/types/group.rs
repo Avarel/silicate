@@ -1,7 +1,7 @@
 use plist::{Dictionary, Value};
 
 use crate::{
-    ns_archive::{NsDecode, NsKeyedArchive, NsObjects, error::NsArchiveError},
+    ns_archive::{NsArchive, NsDecode, NsObjects, error::NsArchiveError},
     types::hierarchy::SilicaHierarchy,
 };
 
@@ -13,17 +13,14 @@ pub struct SilicaGroup {
 }
 
 impl<'a> NsDecode<'a> for SilicaGroup {
-    fn decode(
-        nka: &'a NsKeyedArchive,
-        key: &'a str,
-        val: &'a Value,
-    ) -> Result<Self, NsArchiveError> {
-        let coder = <&'a Dictionary>::decode(nka, key, val)?;
+    fn decode(nka: &'a NsArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+        let refs = nka.bind(<&'_ Dictionary>::decode(nka, key, val)?);
+
         Ok(Self {
-            hidden: nka.fetch::<bool>(coder, "isHidden")?,
-            name: nka.fetch::<Option<String>>(coder, "name")?,
-            children: nka
-                .fetch::<NsObjects<SilicaHierarchy>>(coder, "children")?
+            hidden: refs.resolve::<bool>("isHidden")?,
+            name: refs.resolve::<Option<String>>("name")?,
+            children: refs
+                .resolve::<NsObjects<SilicaHierarchy>>("children")?
                 .objects,
         })
     }

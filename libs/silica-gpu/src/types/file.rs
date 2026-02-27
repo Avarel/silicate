@@ -4,7 +4,7 @@ use crate::tiling::{AtlasTextureTiling, CanvasTiling};
 use crate::types::{hierarchy::SilicaHierarchy, layer::SilicaLayer};
 use rayon::iter::ParallelDrainRange;
 use rayon::prelude::ParallelIterator;
-use silica::ns_archive::NsKeyedArchive;
+use silica::ns_archive::NsArchive;
 use silica::ns_archive::Size;
 use std::sync::atomic::AtomicU32;
 use std::{
@@ -52,13 +52,13 @@ impl ProcreateFile {
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
         let mut archive = ZipArchive::new(Cursor::new(&mapping[..]))?;
 
-        let nka: NsKeyedArchive = {
+        let nka: NsArchive = {
             let mut document = archive.by_name("Document.archive")?;
 
             let mut buf = Vec::with_capacity(document.size() as usize);
             document.read_to_end(&mut buf)?;
 
-            NsKeyedArchive::from_reader(Cursor::new(buf))?
+            NsArchive::from_reader(Cursor::new(buf))?
         };
 
         Self::from_ns(archive, nka, device, queue)
@@ -66,7 +66,7 @@ impl ProcreateFile {
 
     fn from_ns(
         archive: ZipArchiveMmap<'_>,
-        nka: NsKeyedArchive,
+        nka: NsArchive,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(Self, ProcreateFileAtlas), SilicaError> {

@@ -1,7 +1,7 @@
 use crate::{
     data::{Flipped, Orientation},
     error::SilicaError,
-    ns_archive::{NsKeyedArchive, NsObjects, Size, error::NsArchiveError},
+    ns_archive::{NsArchive, NsObjects, Size, error::NsArchiveError},
     types::{hierarchy::SilicaHierarchy, layer::SilicaLayer},
 };
 
@@ -45,22 +45,22 @@ pub struct ProcreateFile {
 }
 
 impl ProcreateFile {
-    pub fn from_ns<'a>(nka: &'a NsKeyedArchive) -> Result<Self, SilicaError> {
-        let root = nka.root()?;
+    pub fn from_ns<'a>(nka: &'a NsArchive) -> Result<Self, SilicaError> {
+        let refs = nka.bind(nka.root()?);
 
-        let size = nka.fetch::<Size<u32>>(root, "size")?;
-        let tile_size = nka.fetch::<u32>(root, "tileSize")?;
+        let size = refs.resolve::<Size<u32>>("size")?;
+        let tile_size = refs.resolve::<u32>("tileSize")?;
 
-        let layers = nka
-            .fetch::<NsObjects<SilicaHierarchy>>(root, "unwrappedLayers")?
+        let layers = refs
+            .resolve::<NsObjects<SilicaHierarchy>>("unwrappedLayers")?
             .objects;
 
         Ok(Self {
-            author_name: nka.fetch::<Option<String>>(root, "authorName")?,
-            background_hidden: nka.fetch::<bool>(root, "backgroundHidden")?,
-            stroke_count: nka.fetch::<usize>(root, "strokeCount")?,
+            author_name: refs.resolve::<Option<String>>("authorName")?,
+            background_hidden: refs.resolve::<bool>("backgroundHidden")?,
+            stroke_count: refs.resolve::<usize>("strokeCount")?,
             background_color: <[f32; 4]>::try_from(
-                nka.fetch::<&[u8]>(root, "backgroundColor")?
+                refs.resolve::<&[u8]>("backgroundColor")?
                     .chunks_exact(4)
                     .map(|bytes| {
                         <[u8; 4]>::try_from(bytes)
@@ -72,14 +72,14 @@ impl ProcreateFile {
                     .collect::<Result<Vec<f32>, _>>()?,
             )
             .unwrap(),
-            name: nka.fetch::<Option<String>>(root, "name")?,
-            orientation: nka.fetch::<Orientation>(root, "orientation")?,
+            name: refs.resolve::<Option<String>>("name")?,
+            orientation: refs.resolve::<Orientation>("orientation")?,
             flipped: Flipped {
-                horizontally: nka.fetch::<bool>(root, "flippedHorizontally")?,
-                vertically: nka.fetch::<bool>(root, "flippedVertically")?,
+                horizontally: refs.resolve::<bool>("flippedHorizontally")?,
+                vertically: refs.resolve::<bool>("flippedVertically")?,
             },
             tile_size,
-            composite: Some(nka.fetch::<SilicaLayer>(root, "composite")?),
+            composite: Some(refs.resolve::<SilicaLayer>("composite")?),
             layers,
             size,
         })

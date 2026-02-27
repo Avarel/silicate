@@ -1,27 +1,19 @@
 use crate::data::BlendingMode;
-use crate::ns_archive::{NsDecode, NsKeyedArchive, error::NsArchiveError};
+use crate::ns_archive::{NsArchive, NsDecode, NsRefDictionary, error::NsArchiveError};
 use plist::{Dictionary, Value};
 
 impl<'a> NsDecode<'a> for BlendingMode {
-    fn fetch(
-        nka: &'a NsKeyedArchive,
-        world: &'a Dictionary,
-        key: &'a str,
-    ) -> Result<Self, NsArchiveError> {
+    fn resolve(refs: &NsRefDictionary<'a>, key: &'a str) -> Result<Self, NsArchiveError> {
         assert!(key == "extendedBlend" || key == "blend");
 
-        let val = nka
-            .fetch_value_nullable(world, "extendedBlend")
+        let val = refs
+            .resolve_value_nullable("extendedBlend")
             .transpose()
-            .unwrap_or_else(|| nka.fetch_value(world, "blend"))?;
-        Self::decode(nka, "extendedBlend", val)
+            .unwrap_or_else(|| refs.resolve_value("blend"))?;
+        Self::decode(refs.archive(), "extendedBlend", val)
     }
 
-    fn decode(
-        nka: &'a NsKeyedArchive,
-        key: &'a str,
-        val: &'a Value,
-    ) -> Result<Self, NsArchiveError> {
+    fn decode(nka: &'a NsArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
         BlendingMode::from_u32(u32::decode(nka, key, val)?)
             .ok_or_else(|| NsArchiveError::TypeMismatch(String::from(key)))
     }
@@ -56,25 +48,21 @@ pub struct SilicaLayer {
 }
 
 impl<'a> NsDecode<'a> for SilicaLayer {
-    fn decode(
-        nka: &'a NsKeyedArchive,
-        key: &'a str,
-        val: &'a Value,
-    ) -> Result<Self, NsArchiveError> {
-        let world = <&'a Dictionary>::decode(nka, key, val)?;
-        let uuid = nka.fetch::<String>(world, "UUID")?;
+    fn decode(nka: &'a NsArchive, key: &'a str, val: &'a Value) -> Result<Self, NsArchiveError> {
+        let refs = nka.bind(<&'_ Dictionary>::decode(nka, key, val)?);
+        let uuid = refs.resolve::<String>("UUID")?;
 
         Ok(Self {
-            blend: nka
-                .fetch::<BlendingMode>(world, "extendedBlend")
-                .or_else(|_| nka.fetch::<BlendingMode>(world, "blend"))?,
-            clipped: nka.fetch::<bool>(world, "clipped")?,
-            hidden: nka.fetch::<bool>(world, "hidden")?,
-            mask: nka.fetch::<Option<Box<SilicaLayer>>>(world, "mask")?,
-            name: nka.fetch::<Option<String>>(world, "name")?,
-            opacity: nka.fetch::<f32>(world, "opacity")?,
+            blend: refs
+                .resolve::<BlendingMode>("extendedBlend")
+                .or_else(|_| refs.resolve::<BlendingMode>("blend"))?,
+            clipped: refs.resolve::<bool>("clipped")?,
+            hidden: refs.resolve::<bool>("hidden")?,
+            mask: refs.resolve::<Option<Box<SilicaLayer>>>("mask")?,
+            name: refs.resolve::<Option<String>>("name")?,
+            opacity: refs.resolve::<f32>("opacity")?,
             uuid,
-            version: nka.fetch::<u64>(world, "version")?,
+            version: refs.resolve::<u64>("version")?,
         })
     }
 }

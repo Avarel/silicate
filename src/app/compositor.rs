@@ -167,7 +167,7 @@ impl CompositorApp {
 
             self.target.load_layer_buffer(composite_layers.as_slice());
             if reload_chunks {
-                eprintln!("Reloading chunks");
+                eprintln!("Reloading {} chunks", composite_chunks.len());
                 self.target.load_chunk_buffer(composite_chunks.as_slice());
             }
             self.target.set_background(background);
