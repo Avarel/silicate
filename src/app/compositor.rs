@@ -2,7 +2,7 @@ use silica_gpu::{ProcreateFile, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::tex::TextureExt;
 use silicate_compositor::{pipeline::Pipeline, ChunkTile, CompositeLayer, Compositor};
 use std::sync::atomic::AtomicBool;
-use std::{num::NonZeroU32, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::watch::{Receiver, Sender};
 
 pub struct CompositorApp {
@@ -86,20 +86,31 @@ impl CompositorApp {
                     }
                     SilicaHierarchy::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
-                            let mut clip_atlas_index: Option<NonZeroU32> = None;
+                            let clip_atlas_index = clip_layer.as_ref().and_then(|clip_layer| {
+                                clip_layer.image
+                                    .chunks
+                                    .iter()
+                                    .find(|clip_chunk| {
+                                        clip_chunk.col == chunk.col && clip_chunk.row == chunk.row
+                                    })
+                                    .map(|clip_chunk| clip_chunk.atlas_index)
+                            });
 
-                            if let Some(clip_layer) = clip_layer.as_ref() {
-                                for clip_chunk in clip_layer.image.chunks.iter() {
-                                    if clip_chunk.col == chunk.col && clip_chunk.row == chunk.row {
-                                        clip_atlas_index = Some(clip_chunk.atlas_index);
-                                    }
-                                }
-                            }
+                            let mask_atlas_index = layer.mask.as_ref().and_then(|mask| {
+                                mask.image
+                                    .chunks
+                                    .iter()
+                                    .find(|mask_chunk| {
+                                        mask_chunk.col == chunk.col && mask_chunk.row == chunk.row
+                                    })
+                                    .map(|mask_chunk| mask_chunk.atlas_index)
+                            });
 
                             chunks.push(ChunkTile {
                                 col: chunk.col,
                                 row: chunk.row,
                                 atlas_index: chunk.atlas_index,
+                                mask_atlas_index,
                                 clip_atlas_index,
                                 layer_index: *layer_counter,
                             });

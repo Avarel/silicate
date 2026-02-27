@@ -286,6 +286,7 @@ struct LayerData {
 struct ChunkData {
     atlas_index: u32,
     clip_atlas_index: u32,
+    mask_atlas_index: u32,
     layer_index: u32,
 };
 
@@ -352,7 +353,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         }
 
         var clipa = select(sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, 1.0, layer.clipped == 0);
-        var fga = sample_atlas_texture(chunk.atlas_index, in.coords) * clipa;
+        let maska = select(sample_atlas_texture(chunk.mask_atlas_index, in.coords / 4).a, 1.0, chunk.mask_atlas_index == 0);
+        var fga = sample_atlas_texture(chunk.atlas_index, in.coords) * clipa * maska;
 
         var bg = vec4(to_premultiplied(bga), bga.a);
         var fg = vec4(to_premultiplied(fga), fga.a * layer.opacity);

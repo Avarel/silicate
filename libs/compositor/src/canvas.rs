@@ -132,5 +132,6 @@ pub(crate) struct ChunkSilo {
 pub(crate) struct ChunkData {
     pub atlas_index: u32,
     pub clip_atlas_index: u32,
+    pub mask_atlas_index: u32,
     pub layer_index: u32,
 }

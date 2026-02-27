@@ -21,6 +21,8 @@ pub struct ChunkTile {
     pub row: u32,
     /// Texture index into an atlas.
     pub atlas_index: NonZeroU32,
+    /// Mask texture index into an atlas.
+    pub mask_atlas_index: Option<NonZeroU32>,
     /// Clipping texture index into an atlas`.
     pub clip_atlas_index: Option<NonZeroU32>,
     pub layer_index: u32,

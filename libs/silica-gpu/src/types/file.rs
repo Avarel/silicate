@@ -137,7 +137,7 @@ impl ProcreateFile {
         Ok((
             ProcreateFile {
                 composite: info.composite.take().and_then(|composite| {
-                    SilicaLayer::load(composite, queue, &atlas_texture, &irinfo).ok()
+                    SilicaLayer::load(composite, queue, &atlas_texture, &irinfo, false).ok()
                 }),
                 layers: info
                     .layers

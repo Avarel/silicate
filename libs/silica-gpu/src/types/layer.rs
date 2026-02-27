@@ -23,6 +23,7 @@ pub struct SilicaImageData {
 pub struct SilicaLayer {
     info: silica::SilicaLayer,
     pub image: SilicaImageData,
+    pub mask: Option<Box<SilicaLayer>>,
     pub addendum: Addendum,
 }
 
@@ -63,10 +64,11 @@ impl SilicaLayer {
     }
 
     pub(crate) fn load(
-        info: silica::SilicaLayer,
+        mut info: silica::SilicaLayer,
         queue: &wgpu::Queue,
         atlas_texture: &wgpu::Texture,
         params: &LoadParams<'_>,
+        is_mask: bool,
     ) -> Result<SilicaLayer, SilicaError> {
         static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
 
@@ -88,11 +90,17 @@ impl SilicaLayer {
                 let mut buf = Vec::with_capacity(chunk.size() as usize);
                 chunk.read_to_end(&mut buf)?;
 
-                let data_len = tile_extent.width as usize
-                    * tile_extent.height as usize
-                    * Self::RGBA_CHANNEL_COUNT;
+                // Try RGBA first (4 channels), but fall back to grayscale (1 channel) for masks
+                let data_len = if is_mask {
+                    tile_extent.width as usize * tile_extent.height as usize
+                } else {
+                    tile_extent.width as usize
+                        * tile_extent.height as usize
+                        * Self::RGBA_CHANNEL_COUNT
+                };
 
-                // RGBA = 4 channels of 8 bits each, lzo decompressed to lzo data
+                // RGBA = 4 channels of 8 bits each
+                // Masks are grayscale = 1 channel of 8 bits
                 let data = if path.ends_with(".lz4") {
                     let mut dst = Vec::with_capacity(data_len);
                     lz4::decompress(buf.as_slice(), &mut dst)?;
@@ -104,14 +112,15 @@ impl SilicaLayer {
                 };
 
                 let atlas_index = NonZeroU32::new(
-                    params.chunk_id_counter
+                    params
+                        .chunk_id_counter
                         .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
                 )
                 .unwrap();
 
                 let origin = params.tiling.atlas_origin(atlas_index.get());
 
-                Self::replace_from_bytes(queue, atlas_texture, &data, origin, tile_extent);
+                Self::replace_from_bytes(queue, atlas_texture, &data, origin, tile_extent, is_mask);
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -121,8 +130,13 @@ impl SilicaLayer {
             .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
         Ok(SilicaLayer {
-            info,
             image: SilicaImageData { chunks },
+            mask: info
+                .mask
+                .take()
+                .map(|mask| Self::load(*mask, queue, atlas_texture, params, true).map(Box::new))
+                .transpose()?,
+            info,
             addendum: Addendum {
                 id: params.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
             },
@@ -134,12 +148,13 @@ impl SilicaLayer {
     /// ### Note
     /// The position `x` and `y` and size `width` and `height` data
     /// should strictly fit within the texture boundaries.
-    pub fn replace_from_bytes(
+    fn replace_from_bytes(
         queue: &wgpu::Queue,
         texture: &wgpu::Texture,
         data: &[u8],
         origin: wgpu::Origin3d,
         size: wgpu::Extent3d,
+        is_mask: bool
     ) {
         let layers = texture.size().depth_or_array_layers;
         assert!(
@@ -164,7 +179,17 @@ impl SilicaLayer {
                 bytes_per_row: Some(4 * size.width),
                 rows_per_image: Some(size.height),
             },
-            size,
+            if is_mask {
+                // Masks have 1 channel instead of 4, so we need to divide the width and height by 4
+                // We copy the data verbatim and then divide the UV coordinates by 4 in the shader
+                wgpu::Extent3d {
+                    width: size.width / 4,
+                    height: size.height / 4,
+                    depth_or_array_layers: 1,
+                }
+            } else {
+                size
+            },
         );
     }
 }

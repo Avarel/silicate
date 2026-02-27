@@ -11,7 +11,7 @@ pub enum SilicaHierarchy {
 impl SilicaHierarchy {
     pub fn layer_count(&self, include_groups: bool) -> u32 {
         match self {
-            SilicaHierarchy::Layer(_) => 1,
+            SilicaHierarchy::Layer(layer) => 1 + if layer.mask.is_some() { 1 } else { 0 },
             SilicaHierarchy::Group(silica_group) => silica_group.layer_count(include_groups),
         }
     }
@@ -24,7 +24,7 @@ impl SilicaHierarchy {
     ) -> Result<SilicaHierarchy, SilicaError> {
         Ok(match info {
             silica::SilicaHierarchy::Layer(layer) => {
-                SilicaHierarchy::Layer(SilicaLayer::load(layer, queue, atlas_texture, params)?)
+                SilicaHierarchy::Layer(SilicaLayer::load(layer, queue, atlas_texture, params, false)?)
             }
             silica::SilicaHierarchy::Group(group) => {
                 SilicaHierarchy::Group(SilicaGroup::load(group, queue, atlas_texture, params)?)
