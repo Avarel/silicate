@@ -121,8 +121,8 @@ impl Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        println!(
-            "Closing instance for Procreate document \"{:?}\"",
+        eprintln!(
+            "Closing instance for Procreate document \"{}\"",
             self.file.name.as_deref().unwrap_or("Untitled Artwork")
         );
     }

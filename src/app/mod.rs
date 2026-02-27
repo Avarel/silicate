@@ -83,9 +83,18 @@ impl App {
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+        eprintln!("Loading file \"{}\"", path.display());
+
+        let start = std::time::Instant::now();
+
         let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.device, &self.queue))
                 .unwrap();
+
+        eprintln!("Loaded Procreate document \"{}\" in {}ms",
+            file.name.as_deref().unwrap_or("Untitled Artwork"),
+            start.elapsed().as_millis()
+        );
 
         let ProcreateFileAtlas {
             atlas_texture,
@@ -141,6 +150,11 @@ impl App {
             previews: HashMap::new(),
             canvas: None,
         };
+
+        eprintln!("Generating previews for Procreate document \"{}\"",
+            file.name.as_deref().unwrap_or("Untitled Artwork")
+        );
+
         instance.generate_previews(
             Compositor::new(
                 &self.device,
@@ -151,6 +165,10 @@ impl App {
             ),
             &self.device,
             &self.pipeline,
+        );
+
+        eprintln!("Instance created for Procreate document \"{}\"",
+            file.name.as_deref().unwrap_or("Untitled Artwork")
         );
 
         self.event_loop
