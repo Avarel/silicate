@@ -190,17 +190,22 @@ impl CompositorApp {
                 .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
 
             if reload_chunks {
+                let start = std::time::Instant::now();
                 Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config, true);
                 composite_chunks.sort_by_key(|v| (v.col, v.row));
+                self.target.load_chunk_buffer(composite_chunks.as_slice());
+
+                eprintln!(
+                    "{} Linearized {} chunks in {}ms",
+                    self.id,
+                    composite_chunks.len(),
+                    start.elapsed().as_millis()
+                );
             }
 
             Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
-
             self.target.load_layer_buffer(composite_layers.as_slice());
-            if reload_chunks {
-                eprintln!("{} Reloading {} chunks", self.id, composite_chunks.len());
-                self.target.load_chunk_buffer(composite_chunks.as_slice());
-            }
+
             self.target.set_background(background);
             self.target
                 .set_flipped(file.flipped.horizontally, file.flipped.vertically);
@@ -208,9 +213,7 @@ impl CompositorApp {
                 .render(&self.pipeline, output_texture.create_default_view());
             // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
             // {
-            //     if !cfg!(debug_assertions) {
-            //         panic!("FORGOT TO DISABLE DEBUG CODE")
-            //     }
+            //     const { assert!(cfg!(debug_assertions)); }
             //     std::thread::sleep(std::time::Duration::from_secs(1));
             // }
             // Debugging notes: if the GPU is highly contended, the main
