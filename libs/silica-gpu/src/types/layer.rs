@@ -1,11 +1,7 @@
 use crate::{error::SilicaError, params::LoadParams};
 use minilzo_rs::LZO;
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
-use std::{
-    io::Read,
-    num::NonZeroU32,
-    sync::{OnceLock, atomic::Ordering},
-};
+use std::{io::Read, num::NonZeroU32, sync::OnceLock};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaChunk {
@@ -24,7 +20,7 @@ pub struct SilicaLayer {
     info: silica::SilicaLayer,
     pub image: SilicaImageData,
     pub mask: Option<Box<SilicaLayer>>,
-    pub addendum: Addendum,
+    pub id: u32,
 }
 
 impl std::ops::Deref for SilicaLayer {
@@ -39,11 +35,6 @@ impl std::ops::DerefMut for SilicaLayer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.info
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Addendum {
-    pub id: u32,
 }
 
 impl SilicaLayer {
@@ -122,16 +113,17 @@ impl SilicaLayer {
 
                 assert_eq!(data.len(), data_len);
 
-                let atlas_index = NonZeroU32::new(
-                    params
-                        .chunk_id_counter
-                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
-                )
-                .unwrap();
+                let atlas_index = NonZeroU32::new(params.allocate_chunk_id()).unwrap();
 
                 let origin = params.tiling.atlas_origin(atlas_index.get());
 
-                Self::replace_from_bytes(params.queue, params.atlas_texture, &data, origin, tile_extent);
+                Self::replace_from_bytes(
+                    params.queue,
+                    params.atlas_texture,
+                    &data,
+                    origin,
+                    tile_extent,
+                );
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -148,9 +140,7 @@ impl SilicaLayer {
                 .map(|mask| Self::load(*mask, params, true).map(Box::new))
                 .transpose()?,
             info,
-            addendum: Addendum {
-                id: params.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
-            },
+            id: params.allocate_layer_id(),
         })
     }
 

@@ -9,13 +9,13 @@ pub(super) struct LayerControl<'a> {
 
 impl LayerControl<'_> {
     pub fn ui(self, ui: &mut Ui) {
-        ui.push_id(self.layer.addendum.id, |ui| {
+        ui.push_id(self.layer.id, |ui| {
             OpacitySlider::new(&mut self.layer.opacity).ui(ui);
             ui.add_space(10.0);
             BlendModeRadio::new(&mut self.layer.blend).ui(ui);
         });
 
-        Grid::new(self.layer.addendum.id).show(ui, |ui| {
+        Grid::new(self.layer.id).show(ui, |ui| {
             ui.label("Clipped");
             Checkbox::without_text(&mut self.layer.clipped).ui(ui);
         });

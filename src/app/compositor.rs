@@ -5,11 +5,14 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::watch::{Receiver, Sender};
 
+use crate::app::instance::InstanceKey;
+
 pub struct CompositorApp {
     target: Compositor,
     needs_to_load_chunks: AtomicBool,
     pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
+    id: InstanceKey,
 }
 
 pub struct CompositorHandle {
@@ -141,6 +144,7 @@ impl CompositorApp {
     }
 
     pub fn new(
+        id: InstanceKey,
         pipeline: Pipeline,
         file: Arc<ProcreateFile>,
         target: Compositor,
@@ -150,6 +154,7 @@ impl CompositorApp {
         rx.mark_changed();
 
         let compositor = Self {
+            id,
             rx,
             target,
             needs_to_load_chunks: AtomicBool::new(true),
@@ -193,7 +198,7 @@ impl CompositorApp {
 
             self.target.load_layer_buffer(composite_layers.as_slice());
             if reload_chunks {
-                eprintln!("Reloading {} chunks", composite_chunks.len());
+                eprintln!("{} Reloading {} chunks", self.id, composite_chunks.len());
                 self.target.load_chunk_buffer(composite_chunks.as_slice());
             }
             self.target.set_background(background);

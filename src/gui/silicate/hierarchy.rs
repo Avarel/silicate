@@ -20,7 +20,7 @@ impl LayersHierarchy<'_> {
             if let SilicaHierarchy::Layer(layer) = &mut layer
                 && let Some(mask_layer) = &mut layer.mask
             {
-                let id = mask_layer.addendum.id;
+                let id = mask_layer.id;
                 LayerSimple::new(
                     mask_layer
                         .name
@@ -47,7 +47,7 @@ impl LayersHierarchy<'_> {
                         .to_owned()
                         .unwrap_or_else(|| String::from("Unnamed Layer"));
 
-                    (layer.addendum.id, layer_name, &mut layer.hidden, false)
+                    (layer.id, layer_name, &mut layer.hidden, false)
                 }
                 SilicaHierarchy::Group(layer) => {
                     let layer_name = layer
@@ -55,7 +55,7 @@ impl LayersHierarchy<'_> {
                         .to_owned()
                         .unwrap_or_else(|| String::from("Unnamed Group"));
 
-                    (layer.addendum.id, layer_name, &mut layer.hidden, true)
+                    (layer.id, layer_name, &mut layer.hidden, true)
                 }
             };
 

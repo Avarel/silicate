@@ -61,16 +61,16 @@ impl ProcreateFile {
             NsArchive::from_reader(Cursor::new(buf))?
         };
 
-        Self::from_ns(archive, nka, device, queue)
+        Self::from_ns(&archive, &nka, device, queue)
     }
 
     fn from_ns(
-        archive: ZipArchiveMmap<'_>,
-        nka: NsArchive,
+        archive: &ZipArchiveMmap<'_>,
+        nka: &NsArchive,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(Self, ProcreateFileAtlas), SilicaError> {
-        let info = silica::ProcreateFile::from_ns(&nka)?;
+        let info = silica::ProcreateFile::from_ns(nka)?;
 
         Self::load(info, archive, device, queue)
     }
@@ -84,7 +84,7 @@ impl ProcreateFile {
 
     pub(crate) fn load(
         mut info: silica::ProcreateFile,
-        archive: ZipArchiveMmap<'_>,
+        archive: &ZipArchiveMmap<'_>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(ProcreateFile, ProcreateFileAtlas), SilicaError> {
@@ -119,12 +119,12 @@ impl ProcreateFile {
 
         let params = crate::params::LoadParams {
             queue,
-            archive: &archive,
+            archive,
             atlas_texture: &atlas_texture,
             file_names,
             tiling,
             chunk_id_counter: AtomicU32::new(1),
-            addendum_id_counter: AtomicU32::new(0),
+            layer_id_counter: AtomicU32::new(0),
         };
 
         Ok((

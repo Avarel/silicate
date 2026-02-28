@@ -9,9 +9,22 @@ use crate::app::compositor::CompositorApp;
 use super::compositor::CompositorHandle;
 
 #[derive(Hash, Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct InstanceKey(pub usize);
+pub struct InstanceKey(usize);
+
+impl InstanceKey {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for InstanceKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[I:{}]", self.0)
+    }
+}
 
 pub struct Instance {
+    pub id: InstanceKey,
     pub file: ProcreateFile,
     pub output_texture: wgpu::Texture,
     pub rotation: f32,
@@ -84,7 +97,7 @@ impl Instance {
                             SilicaHierarchy::Group(group) => {
                                 target.render(
                                     pipeline,
-                                    preview_textures.create_view_layer(group.addendum.id),
+                                    preview_textures.create_view_layer(group.id),
                                 );
                                 inner(pipeline, target, preview_textures, &group.children);
                             }
@@ -92,7 +105,7 @@ impl Instance {
                             SilicaHierarchy::Layer(layer) => {
                                 target.render(
                                     pipeline,
-                                    preview_textures.create_view_layer(dbg!(layer.addendum.id)),
+                                    preview_textures.create_view_layer(layer.id),
                                 );
                                 if let Some(mask_layer) = &layer.mask {
                                     inner(
@@ -130,7 +143,8 @@ impl Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         eprintln!(
-            "Closing instance for Procreate document \"{}\"",
+            "{} Closing instance for Procreate document \"{}\"",
+            self.id,
             self.file.name.as_deref().unwrap_or("Untitled Artwork")
         );
     }

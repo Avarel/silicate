@@ -23,7 +23,7 @@ pub struct ChunkTile {
     pub atlas_index: NonZeroU32,
     /// Mask texture index into an atlas.
     pub mask_atlas_index: Option<NonZeroU32>,
-    /// Clipping texture index into an atlas`.
+    /// Clipping texture index into an atlas.
     pub clip_atlas_index: Option<NonZeroU32>,
     pub layer_index: u32,
 }
@@ -31,12 +31,12 @@ pub struct ChunkTile {
 /// Compositing layer information.
 #[derive(Debug)]
 pub struct CompositeLayer {
-    pub clipped: bool,
-    pub hidden: bool,
     /// Opacity (0.0..=1.0) of the layer.
     pub opacity: f32,
     /// Blending mode of the layer.
     pub blend: BlendingMode,
+    pub clipped: bool,
+    pub hidden: bool,
     pub mask_hidden: bool,
 }
 

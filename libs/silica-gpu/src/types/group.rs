@@ -1,10 +1,8 @@
 use crate::{
     error::SilicaError,
     params::LoadParams,
-    types::{hierarchy::SilicaHierarchy, layer::Addendum},
+    types::{hierarchy::SilicaHierarchy},
 };
-
-use std::sync::atomic::Ordering;
 
 use rayon::iter::ParallelDrainRange;
 use rayon::prelude::ParallelIterator;
@@ -13,7 +11,7 @@ use rayon::prelude::ParallelIterator;
 pub struct SilicaGroup {
     info: silica::SilicaGroup,
     pub children: Vec<SilicaHierarchy>,
-    pub addendum: Addendum,
+    pub id: u32,
 }
 
 impl std::ops::Deref for SilicaGroup {
@@ -50,9 +48,7 @@ impl SilicaGroup {
                 .map(|ir| SilicaHierarchy::load(ir, params))
                 .collect::<Result<Vec<_>, _>>()?,
             info,
-            addendum: Addendum {
-                id: params.addendum_id_counter.fetch_add(1, Ordering::AcqRel),
-            },
+            id: params.allocate_layer_id(),
         })
     }
 }

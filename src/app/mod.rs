@@ -8,13 +8,13 @@ use egui_notify::Toast;
 use egui_wgpu::wgpu;
 use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
-use silica_gpu::{error::SilicaError, ProcreateFile, ProcreateFileAtlas};
+use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
+    Compositor,
     buffer::BufferDimensions,
     canvas::{CompositorAtlasTiling, CompositorCanvasTiling},
     pipeline::Pipeline,
     tex::TextureExt,
-    Compositor,
 };
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
@@ -83,7 +83,11 @@ impl App {
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
-        eprintln!("Loading file \"{}\"", path.display());
+        let id = InstanceKey::new(
+            self.curr_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
+        eprintln!("{id} Loading file \"{}\"", path.display());
 
         let start = std::time::Instant::now();
 
@@ -91,9 +95,11 @@ impl App {
             tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.device, &self.queue))
                 .unwrap();
 
-        eprintln!("Loaded Procreate document \"{}\" in {}ms",
+        eprintln!(
+            "{id} Loaded Procreate document \"{}\" in {}ms with {} layers",
             file.name.as_deref().unwrap_or("Untitled Artwork"),
-            start.elapsed().as_millis()
+            start.elapsed().as_millis(),
+            file.layer_count(true)
         );
 
         let ProcreateFileAtlas {
@@ -132,16 +138,14 @@ impl App {
 
         let initial_compositor_file = Arc::new(file.clone());
         let (compositor, handle) = CompositorApp::new(
+            id,
             self.pipeline.clone(),
             initial_compositor_file.clone(),
             composite_target,
         );
 
-        let id = self
-            .curr_id
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        let key = InstanceKey(id);
         let mut instance = Instance {
+            id,
             file: file.clone(),
             output_texture: output_texture.clone(),
             preview_textures: None,
@@ -151,7 +155,8 @@ impl App {
             canvas: None,
         };
 
-        eprintln!("Generating previews for Procreate document \"{}\"",
+        eprintln!(
+            "{id} Generating previews for Procreate document \"{}\"",
             file.name.as_deref().unwrap_or("Untitled Artwork")
         );
 
@@ -167,14 +172,15 @@ impl App {
             &self.pipeline,
         );
 
-        eprintln!("Instance created for Procreate document \"{}\"",
+        eprintln!(
+            "{id} Instance created for Procreate document \"{}\"",
             file.name.as_deref().unwrap_or("Untitled Artwork")
         );
 
         self.event_loop
-            .send_event(UserEvent::NewInstance(key, instance, compositor))
+            .send_event(UserEvent::NewInstance(id, instance, compositor))
             .unwrap();
-        Ok(key)
+        Ok(id)
     }
 
     /// Export the texture to the given path.
