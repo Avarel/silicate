@@ -116,9 +116,16 @@ impl ChunkInstance {
 pub(crate) struct LayerData {
     pub opacity: f32,
     pub blend: u32,
-    pub clipped: u32,
-    pub hidden: u32,
-    pub mask_hidden: u32,
+    pub flags: u32,
+}
+
+bitflags::bitflags! {
+    #[repr(transparent)]
+    pub(crate) struct LayerFlags: u32 {
+        const CLIPPED = 1;
+        const HIDDEN = 1 << 1;
+        const MASK_HIDDEN = 1 << 2;
+    }
 }
 
 #[repr(C)]

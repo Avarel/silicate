@@ -4,7 +4,7 @@ use crate::{
     ChunkTile, CompositeLayer,
     canvas::{
         ChunkData, ChunkInstance, ChunkSilo, CompositorAtlasTiling, CompositorCanvasTiling,
-        LayerData, VertexInput,
+        LayerData, LayerFlags, VertexInput,
     },
 };
 
@@ -307,12 +307,25 @@ impl CompositorBuffers {
         layers.clear();
 
         for layer in composite_layers.iter() {
+            let flags = {
+                let mut flags = LayerFlags::empty();
+                LayerFlags::empty();
+                if layer.clipped {
+                    flags |= LayerFlags::CLIPPED;
+                }
+                if layer.hidden {
+                    flags |= LayerFlags::HIDDEN;
+                }
+                if layer.mask_hidden {
+                    flags |= LayerFlags::MASK_HIDDEN;
+                }
+                flags
+            };
+
             layers.push(LayerData {
                 blend: layer.blend.to_u32(),
                 opacity: layer.opacity,
-                clipped: if layer.clipped { 1 } else { 0 },
-                hidden: if layer.hidden { 1 } else { 0 },
-                mask_hidden: if layer.mask_hidden { 1 } else { 0 },
+                flags: flags.bits(),
             });
         }
 

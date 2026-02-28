@@ -279,10 +279,25 @@ struct AtlasData {
 struct LayerData {
     opacity: f32,
     blend: u32,
-    clipped: u32,
-    hidden: u32,
-    mask_hidden: u32,
+    flags: u32,
 };
+
+
+const LayerFlags_CLIPPED: u32 = 1;
+const LayerFlags_HIDDEN: u32 = 1 << 1;
+const LayerFlags_MASK_HIDDEN: u32 = 1 << 2;
+
+fn layer_clipped(flags: u32) -> bool {
+    return (flags & LayerFlags_CLIPPED) != 0;
+}
+
+fn layer_hidden(flags: u32) -> bool {
+    return (flags & LayerFlags_HIDDEN) != 0;
+}
+
+fn layer_mask_hidden(flags: u32) -> bool {
+    return (flags & LayerFlags_MASK_HIDDEN) != 0;
+}
 
 struct ChunkData {
     atlas_index: u32,
@@ -349,12 +364,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
         let layer = layers[chunk.layer_index];
 
-        if (layer.hidden != 0) {
+        if (layer_hidden(layer.flags)) {
             continue;
         }
 
-        var clipa = select(sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, 1.0, layer.clipped == 0);
-        let maska = select(sample_atlas_texture(chunk.mask_atlas_index, in.coords).a, 1.0, chunk.mask_atlas_index == 0 || layer.mask_hidden != 0);
+        var clipa = select(1.0, sample_atlas_texture(chunk.clip_atlas_index, in.coords).a, layer_clipped(layer.flags));
+        let maska = select(sample_atlas_texture(chunk.mask_atlas_index, in.coords).a, 1.0, chunk.mask_atlas_index == 0 || layer_mask_hidden(layer.flags));
         var fga = sample_atlas_texture(chunk.atlas_index, in.coords) * clipa * maska;
 
         var bg = vec4(to_premultiplied(bga), bga.a);

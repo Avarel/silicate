@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 wgpu = { workspace = true }
 bytemuck = { version = "1.24", features = ["derive"] }
+bitflags = "2.11"
