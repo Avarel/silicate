@@ -65,8 +65,6 @@ impl SilicaLayer {
 
     pub(crate) fn load(
         mut info: silica::SilicaLayer,
-        queue: &wgpu::Queue,
-        atlas_texture: &wgpu::Texture,
         params: &LoadParams<'_>,
         is_mask: bool,
     ) -> Result<SilicaLayer, SilicaError> {
@@ -90,26 +88,39 @@ impl SilicaLayer {
                 let mut buf = Vec::with_capacity(chunk.size() as usize);
                 chunk.read_to_end(&mut buf)?;
 
+                let data_len = tile_extent.width as usize
+                    * tile_extent.height as usize
+                    * Self::RGBA_CHANNEL_COUNT;
+
                 // Try RGBA first (4 channels), but fall back to grayscale (1 channel) for masks
-                let data_len = if is_mask {
+                let decompress_len = if is_mask {
                     tile_extent.width as usize * tile_extent.height as usize
                 } else {
-                    tile_extent.width as usize
-                        * tile_extent.height as usize
-                        * Self::RGBA_CHANNEL_COUNT
+                    data_len
                 };
 
                 // RGBA = 4 channels of 8 bits each
                 // Masks are grayscale = 1 channel of 8 bits
                 let data = if path.ends_with(".lz4") {
-                    let mut dst = Vec::with_capacity(data_len);
+                    let mut dst = Vec::with_capacity(decompress_len);
                     lz4::decompress(buf.as_slice(), &mut dst)?;
                     dst
                 } else {
                     assert!(path.ends_with(".chunk"));
                     let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
-                    lzo.decompress_safe(buf.as_slice(), data_len)?
+                    lzo.decompress_safe(buf.as_slice(), decompress_len)?
                 };
+
+                let data = if is_mask {
+                    // Expand grayscale mask to RGBA by replicating the single channel into R, G, B and setting A to the same value
+                    data.into_iter()
+                        .flat_map(|v| [v; Self::RGBA_CHANNEL_COUNT])
+                        .collect()
+                } else {
+                    data
+                };
+
+                assert_eq!(data.len(), data_len);
 
                 let atlas_index = NonZeroU32::new(
                     params
@@ -120,7 +131,7 @@ impl SilicaLayer {
 
                 let origin = params.tiling.atlas_origin(atlas_index.get());
 
-                Self::replace_from_bytes(queue, atlas_texture, &data, origin, tile_extent, is_mask);
+                Self::replace_from_bytes(params.queue, params.atlas_texture, &data, origin, tile_extent);
                 Ok(SilicaChunk {
                     col,
                     row,
@@ -134,7 +145,7 @@ impl SilicaLayer {
             mask: info
                 .mask
                 .take()
-                .map(|mask| Self::load(*mask, queue, atlas_texture, params, true).map(Box::new))
+                .map(|mask| Self::load(*mask, params, true).map(Box::new))
                 .transpose()?,
             info,
             addendum: Addendum {
@@ -154,7 +165,6 @@ impl SilicaLayer {
         data: &[u8],
         origin: wgpu::Origin3d,
         size: wgpu::Extent3d,
-        is_mask: bool
     ) {
         let layers = texture.size().depth_or_array_layers;
         assert!(
@@ -179,17 +189,7 @@ impl SilicaLayer {
                 bytes_per_row: Some(4 * size.width),
                 rows_per_image: Some(size.height),
             },
-            if is_mask {
-                // Masks have 1 channel instead of 4, so we need to divide the width and height by 4
-                // We copy the data verbatim and then divide the UV coordinates by 4 in the shader
-                wgpu::Extent3d {
-                    width: size.width / 4,
-                    height: size.height / 4,
-                    depth_or_array_layers: 1,
-                }
-            } else {
-                size
-            },
+            size,
         );
     }
 }

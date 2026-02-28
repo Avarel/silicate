@@ -312,6 +312,7 @@ impl CompositorBuffers {
                 opacity: layer.opacity,
                 clipped: if layer.clipped { 1 } else { 0 },
                 hidden: if layer.hidden { 1 } else { 0 },
+                mask_hidden: if layer.mask_hidden { 1 } else { 0 },
             });
         }
 

@@ -37,6 +37,7 @@ pub struct CompositeLayer {
     pub opacity: f32,
     /// Blending mode of the layer.
     pub blend: BlendingMode,
+    pub mask_hidden: bool,
 }
 
 /// Output target of a compositor pipeline.

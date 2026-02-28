@@ -41,15 +41,13 @@ impl SilicaGroup {
 
     pub(crate) fn load<'a>(
         mut info: silica::SilicaGroup,
-        queue: &wgpu::Queue,
-        atlas_texture: &wgpu::Texture,
         params: &'a LoadParams<'a>,
     ) -> Result<SilicaGroup, SilicaError> {
         Ok(SilicaGroup {
             children: info
                 .children
                 .par_drain(..)
-                .map(|ir| SilicaHierarchy::load(ir, queue, atlas_texture, params))
+                .map(|ir| SilicaHierarchy::load(ir, params))
                 .collect::<Result<Vec<_>, _>>()?,
             info,
             addendum: Addendum {

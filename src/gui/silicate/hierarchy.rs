@@ -1,4 +1,7 @@
-use crate::{app::instance::InstanceKey, gui::widgets::layer_collapsible::LayerCollapsible};
+use crate::{
+    app::instance::InstanceKey,
+    gui::widgets::{layer_collapsible::LayerCollapsible, layer_simple::LayerSimple},
+};
 use egui::{load::SizedTexture, *};
 use silica_gpu::SilicaHierarchy;
 use std::collections::HashMap;
@@ -14,6 +17,29 @@ pub struct LayersHierarchy<'a> {
 impl LayersHierarchy<'_> {
     pub fn ui(self, ui: &mut Ui, idx: InstanceKey) {
         self.layers.iter_mut().for_each(|mut layer| {
+            if let SilicaHierarchy::Layer(layer) = &mut layer
+                && let Some(mask_layer) = &mut layer.mask
+            {
+                let id = mask_layer.addendum.id;
+                LayerSimple::new(
+                    mask_layer
+                        .name
+                        .to_owned()
+                        .unwrap_or_else(|| String::from("Unnamed Mask")),
+                    &mut mask_layer.hidden,
+                )
+                .ui(ui, |ui| {
+                    // ui.painter().rect(
+                    //     ui.max_rect(),
+                    //     5,
+                    //     Color32::WHITE,
+                    //     Stroke::NONE,
+                    //     StrokeKind::Middle,
+                    // );
+                    Self::paint_preview(ui, self.previews, self.rotation, id);
+                });
+            }
+
             let (id, layer_name, hidden, size_change) = match &mut layer {
                 SilicaHierarchy::Layer(layer) => {
                     let layer_name = layer
@@ -36,48 +62,7 @@ impl LayersHierarchy<'_> {
             let collapsible = LayerCollapsible::new(id, layer_name, hidden)
                 .size_change(size_change)
                 .ui(ui, |ui| {
-                    if let Some(tex) = self.previews.get(&id) {
-                        let image = Image::from_texture(*tex);
-
-                        fn round_to_nearest_quarter_turn(theta: f32) -> f32 {
-                            let theta = theta.rem_euclid(std::f32::consts::TAU);
-                            (theta / std::f32::consts::FRAC_PI_2).round()
-                                * std::f32::consts::FRAC_PI_2
-                        }
-
-                        fn is_upright(theta: f32) -> bool {
-                            let deg = theta.rem_euclid(std::f32::consts::TAU).to_degrees();
-                            !(45.0..135.0).contains(&deg) && !(225.0..315.0).contains(&deg)
-                        }
-
-                        fn make_max_fit_rect(max_rect: Rect, size: Vec2) -> Rect {
-                            let scale_x = max_rect.width() / size.x;
-                            let scale_y = max_rect.height() / size.y;
-                            let size = scale_x.min(scale_y) * size;
-                            Rect::from_center_size(max_rect.center(), size)
-                        }
-
-                        let rotation = round_to_nearest_quarter_turn(self.rotation);
-
-                        let original_image_size = image.size().expect("wgpu texture have size");
-                        let mut image_size = original_image_size;
-                        if is_upright(rotation) {
-                            std::mem::swap(&mut image_size.x, &mut image_size.y);
-                        }
-
-                        let max_rect_fit = make_max_fit_rect(ui.max_rect(), image_size);
-                        image_size.x = max_rect_fit.width();
-                        image_size.y = max_rect_fit.height();
-
-                        if !is_upright(rotation) {
-                            std::mem::swap(&mut image_size.x, &mut image_size.y);
-                        }
-
-                        image.rotate(rotation, Vec2::splat(0.5)).paint_at(
-                            ui,
-                            Rect::from_center_size(ui.max_rect().center(), image_size),
-                        );
-                    }
+                    Self::paint_preview(ui, self.previews, self.rotation, id);
                 });
 
             match layer {
@@ -97,5 +82,49 @@ impl LayersHierarchy<'_> {
                 }
             };
         });
+    }
+
+    fn paint_preview(ui: &mut Ui, previews: &HashMap<u32, SizedTexture>, rotation: f32, id: u32) {
+        if let Some(tex) = previews.get(&id) {
+            let image = Image::from_texture(*tex);
+
+            fn round_to_nearest_quarter_turn(theta: f32) -> f32 {
+                let theta = theta.rem_euclid(std::f32::consts::TAU);
+                (theta / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2
+            }
+
+            fn is_upright(theta: f32) -> bool {
+                let deg = theta.rem_euclid(std::f32::consts::TAU).to_degrees();
+                !(45.0..135.0).contains(&deg) && !(225.0..315.0).contains(&deg)
+            }
+
+            fn make_max_fit_rect(max_rect: Rect, size: Vec2) -> Rect {
+                let scale_x = max_rect.width() / size.x;
+                let scale_y = max_rect.height() / size.y;
+                let size = scale_x.min(scale_y) * size;
+                Rect::from_center_size(max_rect.center(), size)
+            }
+
+            let rotation = round_to_nearest_quarter_turn(rotation);
+
+            let original_image_size = image.size().expect("wgpu texture have size");
+            let mut image_size = original_image_size;
+            if is_upright(rotation) {
+                std::mem::swap(&mut image_size.x, &mut image_size.y);
+            }
+
+            let max_rect_fit = make_max_fit_rect(ui.max_rect(), image_size);
+            image_size.x = max_rect_fit.width();
+            image_size.y = max_rect_fit.height();
+
+            if !is_upright(rotation) {
+                std::mem::swap(&mut image_size.x, &mut image_size.y);
+            }
+
+            image.rotate(rotation, Vec2::splat(0.5)).paint_at(
+                ui,
+                Rect::from_center_size(ui.max_rect().center(), image_size),
+            );
+        }
     }
 }

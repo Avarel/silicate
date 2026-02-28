@@ -76,7 +76,7 @@ impl Instance {
                             target.load_layer_buffer(composite_layers.as_slice());
 
                             let mut composite_chunks = Vec::new();
-                            CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer);
+                            CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer, false);
                             composite_chunks.sort_by_key(|v| (v.col, v.row));
                             target.load_chunk_buffer(composite_chunks.as_slice());
                         }
@@ -92,8 +92,16 @@ impl Instance {
                             SilicaHierarchy::Layer(layer) => {
                                 target.render(
                                     pipeline,
-                                    preview_textures.create_view_layer(layer.addendum.id),
+                                    preview_textures.create_view_layer(dbg!(layer.addendum.id)),
                                 );
+                                if let Some(mask_layer) = &layer.mask {
+                                    inner(
+                                        pipeline,
+                                        target,
+                                        preview_textures,
+                                        std::slice::from_ref(&SilicaHierarchy::Layer(*mask_layer.clone())),
+                                    );
+                                }
                             }
                         }
                     }

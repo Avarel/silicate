@@ -18,16 +18,14 @@ impl SilicaHierarchy {
 
     pub(crate) fn load<'a>(
         info: silica::SilicaHierarchy,
-        queue: &wgpu::Queue,
-        atlas_texture: &'a wgpu::Texture,
         params: &'a LoadParams<'a>,
     ) -> Result<SilicaHierarchy, SilicaError> {
         Ok(match info {
             silica::SilicaHierarchy::Layer(layer) => {
-                SilicaHierarchy::Layer(SilicaLayer::load(layer, queue, atlas_texture, params, false)?)
+                SilicaHierarchy::Layer(SilicaLayer::load(layer, params, false)?)
             }
             silica::SilicaHierarchy::Group(group) => {
-                SilicaHierarchy::Group(SilicaGroup::load(group, queue, atlas_texture, params)?)
+                SilicaHierarchy::Group(SilicaGroup::load(group, params)?)
             }
         })
     }

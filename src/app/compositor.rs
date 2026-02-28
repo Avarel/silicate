@@ -1,8 +1,8 @@
 use silica_gpu::{ProcreateFile, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::tex::TextureExt;
-use silicate_compositor::{pipeline::Pipeline, ChunkTile, CompositeLayer, Compositor};
-use std::sync::atomic::AtomicBool;
+use silicate_compositor::{ChunkTile, CompositeLayer, Compositor, pipeline::Pipeline};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::watch::{Receiver, Sender};
 
 pub struct CompositorApp {
@@ -56,6 +56,7 @@ impl CompositorApp {
                             blend: super::blend::convert_blend(layer.blend),
                             clipped: layer.clipped,
                             hidden: layer.hidden | override_hidden,
+                            mask_hidden: layer.mask.as_ref().map_or(true, |mask| mask.hidden),
                         });
                     }
                 }
@@ -68,6 +69,7 @@ impl CompositorApp {
     pub(super) fn linearize_silica_chunks(
         composite_layers: &mut Vec<ChunkTile>,
         layers: &[SilicaHierarchy],
+        render_masks: bool,
     ) {
         composite_layers.clear();
 
@@ -78,16 +80,18 @@ impl CompositorApp {
             chunks: &mut Vec<ChunkTile>,
             clip_layer: &mut Option<&'a SilicaLayer>,
             layer_counter: &mut u32,
+            render_masks: bool,
         ) {
             for layer in layers.iter().rev() {
                 match layer {
                     SilicaHierarchy::Group(group) => {
-                        inner(&group.children, chunks, clip_layer, layer_counter);
+                        inner(&group.children, chunks, clip_layer, layer_counter, true);
                     }
                     SilicaHierarchy::Layer(layer) => {
                         for chunk in layer.image.chunks.iter() {
                             let clip_atlas_index = clip_layer.as_ref().and_then(|clip_layer| {
-                                clip_layer.image
+                                clip_layer
+                                    .image
                                     .chunks
                                     .iter()
                                     .find(|clip_chunk| {
@@ -96,15 +100,20 @@ impl CompositorApp {
                                     .map(|clip_chunk| clip_chunk.atlas_index)
                             });
 
-                            let mask_atlas_index = layer.mask.as_ref().and_then(|mask| {
-                                mask.image
-                                    .chunks
-                                    .iter()
-                                    .find(|mask_chunk| {
-                                        mask_chunk.col == chunk.col && mask_chunk.row == chunk.row
-                                    })
-                                    .map(|mask_chunk| mask_chunk.atlas_index)
-                            });
+                            let mask_atlas_index = if render_masks {
+                                layer.mask.as_ref().and_then(|mask| {
+                                    mask.image
+                                        .chunks
+                                        .iter()
+                                        .find(|mask_chunk| {
+                                            mask_chunk.col == chunk.col
+                                                && mask_chunk.row == chunk.row
+                                        })
+                                        .map(|mask_chunk| mask_chunk.atlas_index)
+                                })
+                            } else {
+                                None
+                            };
 
                             chunks.push(ChunkTile {
                                 col: chunk.col,
@@ -122,7 +131,13 @@ impl CompositorApp {
             }
         }
 
-        inner(layers, composite_layers, &mut None, &mut layer_counter);
+        inner(
+            layers,
+            composite_layers,
+            &mut None,
+            &mut layer_counter,
+            render_masks,
+        );
     }
 
     pub fn new(
@@ -170,7 +185,7 @@ impl CompositorApp {
                 .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
 
             if reload_chunks {
-                Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config);
+                Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config, true);
                 composite_chunks.sort_by_key(|v| (v.col, v.row));
             }
 

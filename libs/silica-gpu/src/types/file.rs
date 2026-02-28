@@ -82,16 +82,17 @@ impl ProcreateFile {
             .sum()
     }
 
-    fn load_ir_data<'a>(
-        archive: &'a ZipArchiveMmap<'_>,
-        unloaded_file: &silica::ProcreateFile,
-        limits: &wgpu::Limits,
-    ) -> Result<crate::params::LoadParams<'a>, SilicaError> {
+    pub(crate) fn load(
+        mut info: silica::ProcreateFile,
+        archive: ZipArchiveMmap<'_>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(ProcreateFile, ProcreateFileAtlas), SilicaError> {
         let file_names = archive.file_names().collect::<Vec<_>>();
         let chunk_count = file_names.len() as u32;
 
-        let size = unloaded_file.size;
-        let tile_size = unloaded_file.tile_size;
+        let size = info.size;
+        let tile_size = info.tile_size;
 
         let (cols, rows) = (
             size.width.div_ceil(tile_size),
@@ -106,49 +107,42 @@ impl ProcreateFile {
                 height: rows * tile_size - size.height,
             },
             size: tile_size,
-            atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size, limits),
+            atlas: AtlasTextureTiling::compute_atlas_size(chunk_count, tile_size, &device.limits()),
         };
 
-        Ok(crate::params::LoadParams {
+        let atlas_texture = Self::empty_layers(
+            device,
+            tiling.size * tiling.atlas.cols,
+            tiling.size * tiling.atlas.rows,
+            tiling.atlas.layers, // Make it an array
+        );
+
+        let params = crate::params::LoadParams {
+            queue,
             archive: &archive,
+            atlas_texture: &atlas_texture,
             file_names,
             tiling,
             chunk_id_counter: AtomicU32::new(1),
             addendum_id_counter: AtomicU32::new(0),
-        })
-    }
-
-    pub(crate) fn load(
-        mut info: silica::ProcreateFile,
-        archive: ZipArchiveMmap<'_>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> Result<(ProcreateFile, ProcreateFileAtlas), SilicaError> {
-        let irinfo = Self::load_ir_data(&archive, &info, &device.limits())?;
-
-        let canvas_tiling = irinfo.tiling;
-        let atlas_texture = Self::empty_layers(
-            device,
-            canvas_tiling.size * canvas_tiling.atlas.cols,
-            canvas_tiling.size * canvas_tiling.atlas.rows,
-            canvas_tiling.atlas.layers, // Make it an array
-        );
+        };
 
         Ok((
             ProcreateFile {
-                composite: info.composite.take().and_then(|composite| {
-                    SilicaLayer::load(composite, queue, &atlas_texture, &irinfo, false).ok()
-                }),
+                composite: info
+                    .composite
+                    .take()
+                    .and_then(|composite| SilicaLayer::load(composite, &params, false).ok()),
                 layers: info
                     .layers
                     .par_drain(..)
-                    .map(|ir| SilicaHierarchy::load(ir, queue, &atlas_texture, &irinfo))
+                    .map(|ir| SilicaHierarchy::load(ir, &params))
                     .collect::<Result<_, _>>()?,
                 info,
             },
             ProcreateFileAtlas {
                 atlas_texture,
-                canvas_tiling,
+                canvas_tiling: tiling,
             },
         ))
     }

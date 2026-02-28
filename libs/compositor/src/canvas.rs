@@ -118,6 +118,7 @@ pub(crate) struct LayerData {
     pub blend: u32,
     pub clipped: u32,
     pub hidden: u32,
+    pub mask_hidden: u32,
 }
 
 #[repr(C)]
