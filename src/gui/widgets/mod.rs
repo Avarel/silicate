@@ -2,10 +2,9 @@ use egui::{pos2, Color32, Rect};
 
 pub mod blend_radio;
 pub mod color_picker;
-pub mod layer_collapsible;
-pub mod layer_simple;
 pub mod opacity_slider;
 pub mod pane;
+pub mod layer;
 
 pub const ACCENT_COLOR: Color32 = Color32::from_rgb(48, 116, 243);
 

@@ -33,7 +33,7 @@ impl PaneMenu {
                 ui.allocate_space(vec2(0.0, 10.0));
 
                 if state.is_open() {
-                    Pane::new(self.name, 250.0).show(ui, add_body);
+                    Pane::new(self.name, 275.0).show(ui, add_body);
                 }
 
                 state.store(ui.ctx());

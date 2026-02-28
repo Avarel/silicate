@@ -1,6 +1,6 @@
 use crate::{
     app::instance::InstanceKey,
-    gui::widgets::{layer_collapsible::LayerCollapsible, layer_simple::LayerSimple},
+    gui::widgets::layer::{collapsible::LayerCollapsible, mask::LayerMask},
 };
 use egui::{load::SizedTexture, *};
 use silica_gpu::SilicaHierarchy;
@@ -17,11 +17,17 @@ pub struct LayersHierarchy<'a> {
 impl LayersHierarchy<'_> {
     pub fn ui(self, ui: &mut Ui, idx: InstanceKey) {
         self.layers.iter_mut().for_each(|mut layer| {
+            let mut has_mask = false;
+            let mut blend_mode = None;
+
             if let SilicaHierarchy::Layer(layer) = &mut layer
                 && let Some(mask_layer) = &mut layer.mask
             {
+                let item_spacing_y = ui.spacing().item_spacing.y;
+                ui.spacing_mut().item_spacing.y = 1.0;
+
                 let id = mask_layer.id;
-                LayerSimple::new(
+                LayerMask::new(
                     mask_layer
                         .name
                         .to_owned()
@@ -38,6 +44,8 @@ impl LayersHierarchy<'_> {
                     // );
                     Self::paint_preview(ui, self.previews, self.rotation, id);
                 });
+                has_mask = true;
+                ui.spacing_mut().item_spacing.y = item_spacing_y;
             }
 
             let (id, layer_name, hidden, size_change) = match &mut layer {
@@ -46,6 +54,8 @@ impl LayersHierarchy<'_> {
                         .name
                         .to_owned()
                         .unwrap_or_else(|| String::from("Unnamed Layer"));
+
+                    blend_mode = Some(layer.blend);
 
                     (layer.id, layer_name, &mut layer.hidden, false)
                 }
@@ -61,6 +71,18 @@ impl LayersHierarchy<'_> {
 
             let collapsible = LayerCollapsible::new(id, layer_name, hidden)
                 .size_change(size_change)
+                .corner_radius(if has_mask {
+                    CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: crate::gui::widgets::layer::CORNER_RADIUS,
+                        se: crate::gui::widgets::layer::CORNER_RADIUS,
+                    }
+                } else {
+                    CornerRadius::same(crate::gui::widgets::layer::CORNER_RADIUS)
+                })
+                .has_mask(has_mask)
+                .blend_mode(blend_mode)
                 .ui(ui, |ui| {
                     Self::paint_preview(ui, self.previews, self.rotation, id);
                 });

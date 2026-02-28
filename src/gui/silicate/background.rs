@@ -1,7 +1,7 @@
 use egui::*;
 use silica_gpu::ProcreateFile;
 
-use crate::gui::widgets::{color_picker::ColorPickerHsv, layer_collapsible::LayerCollapsible};
+use crate::gui::widgets::{color_picker::ColorPickerHsv, layer::collapsible::LayerCollapsible};
 
 pub struct BackgroundControl<'a> {
     pub file: &'a mut ProcreateFile,

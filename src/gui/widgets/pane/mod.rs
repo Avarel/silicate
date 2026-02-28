@@ -22,7 +22,7 @@ impl Pane {
 
     pub fn show<R>(self, ui: &mut Ui, add_body: impl FnOnce(&mut Ui) -> R) {
         Frame::new()
-            .fill(Color32::from_gray(32))
+            .fill(Color32::from_rgba_premultiplied(25, 25, 25, 200))
             .inner_margin(10)
             .corner_radius(10)
             .shadow(Self::SHADOW)

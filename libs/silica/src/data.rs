@@ -69,6 +69,37 @@ impl BlendingMode {
         ]
     }
 
+    pub fn as_short_str(&self) -> &'static str {
+        match self {
+            Self::Normal => "N",
+            Self::Multiply => "M",
+            Self::Screen => "S",
+            Self::Add => "A",
+            Self::Lighten => "Li",
+            Self::Exclusion => "E",
+            Self::Difference => "D",
+            Self::Subtract => "Su",
+            Self::LinearBurn => "Lb",
+            Self::ColorDodge => "Cd",
+            Self::ColorBurn => "Cb",
+            Self::Overlay => "O",
+            Self::HardLight => "Hl",
+            Self::Color => "C",
+            Self::Luminosity => "L",
+            Self::Hue => "H",
+            Self::Saturation => "Sa",
+            Self::SoftLight => "Sl",
+            Self::Darken => "Da",
+            Self::HardMix => "Hm",
+            Self::VividLight => "Vl",
+            Self::LinearLight => "Ll",
+            Self::PinLight => "Pl",
+            Self::LighterColor => "Lc",
+            Self::DarkerColor => "Dc",
+            Self::Divide => "Di",
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Normal => "Normal",

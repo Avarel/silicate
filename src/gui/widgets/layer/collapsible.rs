@@ -5,6 +5,9 @@ pub struct LayerCollapsible<'a> {
     name: String,
     hidden: &'a mut bool,
     size_change_on_open: bool,
+    corner_radius: CornerRadius,
+    has_mask: bool,
+    blend_mode: Option<silica_gpu::BlendingMode>,
 }
 
 impl<'a> LayerCollapsible<'a> {
@@ -14,11 +17,29 @@ impl<'a> LayerCollapsible<'a> {
             name: name.into(),
             hidden,
             size_change_on_open: true,
+            corner_radius: CornerRadius::same(super::CORNER_RADIUS),
+            has_mask: false,
+            blend_mode: None,
         }
     }
 
     pub fn size_change(mut self, size_change: bool) -> Self {
         self.size_change_on_open = size_change;
+        self
+    }
+
+    pub fn corner_radius(mut self, corner_radius: CornerRadius) -> Self {
+        self.corner_radius = corner_radius;
+        self
+    }
+
+    pub fn has_mask(mut self, has_mask: bool) -> Self {
+        self.has_mask = has_mask;
+        self
+    }
+
+    pub fn blend_mode(mut self, blend_mode: Option<silica_gpu::BlendingMode>) -> Self {
+        self.blend_mode = blend_mode;
         self
     }
 
@@ -50,39 +71,50 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut overlay_ui = ui.new_child(UiBuilder::new());
 
-        const PREVIEW_WIDTH: f32 = 60.0;
-        const HEIGHT: f32 = 50.0;
-        const PREVIEW_BG: Color32 = Color32::from_gray(30);
-
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
-            .corner_radius(4)
+            .corner_radius(self.corner_radius)
             .inner_margin(3)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
             if self.size_change_on_open {
-                ui.set_min_height((1.0 - state.openness(ui.ctx())) * HEIGHT);
+                ui.set_min_height((1.0 - state.openness(ui.ctx())) * super::HEIGHT);
             } else {
-                ui.set_min_height(HEIGHT);
+                ui.set_min_height(super::HEIGHT);
             }
 
             if !state.is_open() || !self.size_change_on_open {
-                let (preview_rect, _) =
-                    ui.allocate_exact_size(vec2(PREVIEW_WIDTH, HEIGHT), Sense::empty());
-                ui.painter()
-                    .add(Shape::rect_filled(preview_rect, 5, PREVIEW_BG));
+                let (mut preview_rect, _) = ui
+                    .allocate_exact_size(vec2(super::PREVIEW_WIDTH, super::HEIGHT), Sense::empty());
+                if self.has_mask {
+                    preview_rect = preview_rect.translate(vec2(0.0, -3.0));
+                    preview_rect.set_height(preview_rect.height() + 3.0);
+                    ui.painter().add(Shape::rect_filled(
+                        preview_rect,
+                        CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: super::PREVIEW_CORNER_RADIUS,
+                            se: super::PREVIEW_CORNER_RADIUS,
+                        },
+                        super::PREVIEW_BG,
+                    ));
+                } else {
+                    ui.painter()
+                        .add(Shape::rect_filled(preview_rect, 5, super::PREVIEW_BG));
+                }
 
                 preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
             } else {
                 let (preview_rect, _) = ui.allocate_exact_size(
                     vec2(
-                        PREVIEW_WIDTH,
-                        remap(state.openness(ui.ctx()), 0.0..=1.0, HEIGHT..=5.0),
+                        super::PREVIEW_WIDTH,
+                        remap(state.openness(ui.ctx()), 0.0..=1.0, super::HEIGHT..=5.0),
                     ),
                     Sense::empty(),
                 );
                 ui.painter()
-                    .add(Shape::rect_filled(preview_rect, 2, PREVIEW_BG));
+                    .add(Shape::rect_filled(preview_rect, 2, super::PREVIEW_BG));
             }
 
             Label::new(RichText::new(self.name).strong())
@@ -91,10 +123,20 @@ impl<'a> LayerCollapsible<'a> {
 
             let response = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add_space(10.0);
+
                     let mut shown = !*self.hidden;
                     Checkbox::without_text(&mut shown).ui(ui);
                     *self.hidden = !shown;
-                    state.show_toggle_button(ui, Self::paint_icon);
+
+                    if let Some(blend_mode) = self.blend_mode {
+                        ui.add_space(5.0);
+                        Label::new(blend_mode.as_short_str())
+                            .selectable(false)
+                            .ui(ui);
+                    } else {
+                        state.show_toggle_button(ui, Self::paint_icon);
+                    }
                 })
                 .response;
 
@@ -105,16 +147,16 @@ impl<'a> LayerCollapsible<'a> {
             let mut label_rect = frame.frame.outer_rect(frame.content_ui.min_rect());
             label_rect.set_width(label_rect.width() - control_width);
             let response = overlay_ui.allocate_rect(label_rect, Sense::click());
-            if response.clicked() {
+            if response.clicked() || response.secondary_clicked() {
                 state.toggle(ui);
             }
         }
 
         let response = frame.allocate_space(ui);
         if response.hovered() {
-            frame.frame.fill = Color32::from_gray(35)
+            frame.frame.fill = Color32::from_gray(45)
         } else {
-            frame.frame.fill = Color32::from_gray(27)
+            frame.frame.fill = Color32::from_gray(35)
         }
         frame.paint(ui);
 

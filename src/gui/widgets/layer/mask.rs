@@ -1,11 +1,11 @@
 use egui::*;
 
-pub struct LayerSimple<'a> {
+pub struct LayerMask<'a> {
     name: String,
     hidden: &'a mut bool,
 }
 
-impl<'a> LayerSimple<'a> {
+impl<'a> LayerMask<'a> {
     pub fn new(name: impl Into<String>, hidden: &'a mut bool) -> Self {
         Self {
             name: name.into(),
@@ -14,22 +14,33 @@ impl<'a> LayerSimple<'a> {
     }
 
     pub fn ui(self, ui: &mut Ui, preview_body: impl FnOnce(&mut Ui)) -> Response {
-        const PREVIEW_WIDTH: f32 = 60.0;
-        const HEIGHT: f32 = 50.0;
-        const PREVIEW_BG: Color32 = Color32::from_gray(30);
-
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
-            .corner_radius(4)
+            .corner_radius(CornerRadius {
+                nw: super::CORNER_RADIUS,
+                ne: super::CORNER_RADIUS,
+                sw: 0,
+                se: 0,
+            })
             .inner_margin(3)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
-            ui.set_min_height(HEIGHT);
+            ui.set_min_height(super::HEIGHT);
 
-            let (preview_rect, _) =
-                ui.allocate_exact_size(vec2(PREVIEW_WIDTH, HEIGHT), Sense::empty());
-            ui.painter()
-                .add(Shape::rect_filled(preview_rect, 5, PREVIEW_BG));
+            let (mut preview_rect, _) =
+                ui.allocate_exact_size(vec2(super::PREVIEW_WIDTH, super::HEIGHT), Sense::empty());
+            preview_rect.set_height(preview_rect.height() + 3.0);
+
+            ui.painter().add(Shape::rect_filled(
+                preview_rect,
+                CornerRadius {
+                    nw: super::PREVIEW_CORNER_RADIUS,
+                    ne: super::PREVIEW_CORNER_RADIUS,
+                    sw: 0,
+                    se: 0,
+                },
+                super::PREVIEW_BG,
+            ));
 
             preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
 
@@ -39,6 +50,8 @@ impl<'a> LayerSimple<'a> {
 
             let response = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add_space(10.0);
+
                     let mut shown = !*self.hidden;
                     Checkbox::without_text(&mut shown).ui(ui);
                     *self.hidden = !shown;
@@ -55,9 +68,9 @@ impl<'a> LayerSimple<'a> {
 
         let response = frame.allocate_space(ui);
         if response.hovered() {
-            frame.frame.fill = Color32::from_gray(35)
+            frame.frame.fill = Color32::from_gray(45)
         } else {
-            frame.frame.fill = Color32::from_gray(27)
+            frame.frame.fill = Color32::from_gray(35)
         }
         frame.paint(ui);
 
