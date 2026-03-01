@@ -33,7 +33,7 @@ impl CompositorHandle {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    pub(super) fn linearize_silica_layers(
+    fn linearize_silica_layers(
         composite_layers: &mut Vec<CompositeLayer>,
         layers: &[SilicaHierarchy],
     ) {
@@ -69,7 +69,7 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    pub(super) fn linearize_silica_chunks(
+    fn linearize_silica_chunks(
         composite_layers: &mut Vec<ChunkTile>,
         layers: &[SilicaHierarchy],
         render_masks: bool,
@@ -78,7 +78,7 @@ impl CompositorApp {
 
         let mut layer_counter = 0;
 
-        pub(crate) fn inner<'a>(
+        fn inner<'a>(
             layers: &'a [SilicaHierarchy],
             chunks: &mut Vec<ChunkTile>,
             clip_layer: &mut Option<&'a SilicaLayer>,
@@ -141,6 +141,46 @@ impl CompositorApp {
             &mut layer_counter,
             render_masks,
         );
+    }
+
+    pub fn generate_layers_preview(
+        pipeline: &Pipeline,
+        target: &mut Compositor,
+        preview_textures: &wgpu::Texture,
+        layers: &[SilicaHierarchy],
+    ) {
+        for layer in layers.iter() {
+            {
+                let layer = std::slice::from_ref(layer);
+                let mut composite_layers = Vec::new();
+                CompositorApp::linearize_silica_layers(&mut composite_layers, layer);
+
+                target.load_layer_buffer(composite_layers.as_slice());
+
+                let mut composite_chunks = Vec::new();
+                CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer, false);
+                composite_chunks.sort_by_key(|v| (v.col, v.row));
+                target.load_chunk_buffer(composite_chunks.as_slice());
+            }
+            match layer {
+                SilicaHierarchy::Group(group) => {
+                    target.render(pipeline, preview_textures.create_view_layer(group.id));
+                    Self::generate_layers_preview(pipeline, target, preview_textures, &group.children);
+                }
+
+                SilicaHierarchy::Layer(layer) => {
+                    target.render(pipeline, preview_textures.create_view_layer(layer.id));
+                    if let Some(mask_layer) = &layer.mask {
+                        Self::generate_layers_preview(
+                            pipeline,
+                            target,
+                            preview_textures,
+                            std::slice::from_ref(&SilicaHierarchy::Layer(*mask_layer.clone())),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     pub fn new(

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use egui::load::SizedTexture;
-use silica_gpu::{ProcreateFile, SilicaHierarchy};
+use silica_gpu::ProcreateFile;
 use silicate_compositor::{pipeline::Pipeline, tex::TextureExt, Compositor};
 
 use crate::app::compositor::CompositorApp;
@@ -68,61 +68,6 @@ impl Instance {
         let scaled_height = (256.0 * aspect_ratio) as u32;
 
         let preview_textures = {
-            fn generate_silica_layers_preview(
-                pipeline: &Pipeline,
-                target: &mut Compositor,
-                preview_textures: &wgpu::Texture,
-                layers: &[SilicaHierarchy],
-            ) {
-                fn inner(
-                    pipeline: &Pipeline,
-                    target: &mut Compositor,
-                    preview_textures: &wgpu::Texture,
-                    layers: &[SilicaHierarchy],
-                ) {
-                    for layer in layers.iter() {
-                        {
-                            let layer = std::slice::from_ref(layer);
-                            let mut composite_layers = Vec::new();
-                            CompositorApp::linearize_silica_layers(&mut composite_layers, layer);
-
-                            target.load_layer_buffer(composite_layers.as_slice());
-
-                            let mut composite_chunks = Vec::new();
-                            CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer, false);
-                            composite_chunks.sort_by_key(|v| (v.col, v.row));
-                            target.load_chunk_buffer(composite_chunks.as_slice());
-                        }
-                        match layer {
-                            SilicaHierarchy::Group(group) => {
-                                target.render(
-                                    pipeline,
-                                    preview_textures.create_view_layer(group.id),
-                                );
-                                inner(pipeline, target, preview_textures, &group.children);
-                            }
-
-                            SilicaHierarchy::Layer(layer) => {
-                                target.render(
-                                    pipeline,
-                                    preview_textures.create_view_layer(layer.id),
-                                );
-                                if let Some(mask_layer) = &layer.mask {
-                                    inner(
-                                        pipeline,
-                                        target,
-                                        preview_textures,
-                                        std::slice::from_ref(&SilicaHierarchy::Layer(*mask_layer.clone())),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                inner(pipeline, target, preview_textures, layers);
-            }
-
             let preview_textures = wgpu::Texture::empty_layers(
                 device,
                 256,
@@ -131,7 +76,7 @@ impl Instance {
                 wgpu::Texture::OUTPUT_USAGE,
             );
 
-            generate_silica_layers_preview(pipeline, &mut target, &preview_textures, &file.layers);
+            CompositorApp::generate_layers_preview(pipeline, &mut target, &preview_textures, &file.layers);
 
             preview_textures
         };
