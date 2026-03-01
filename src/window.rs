@@ -6,9 +6,9 @@ use crate::app::{App, UserEvent};
 use crate::dev::GpuHandle;
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
-use egui::{load::SizedTexture, FullOutput, Vec2, ViewportId};
+use egui::{FullOutput, Vec2, ViewportId, load::SizedTexture};
 use egui_notify::{Toast, Toasts};
-use egui_wgpu::{wgpu, Renderer, RendererOptions, ScreenDescriptor};
+use egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor, wgpu};
 use silicate_compositor::tex::TextureExt;
 use tokio::runtime::Runtime;
 use wgpu::Surface;
@@ -29,7 +29,7 @@ struct WindowBundle {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
-    window: Arc<egui_winit::winit::window::Window>,
+    window: Arc<Window>,
     integration: egui_winit::State,
     screen_descriptor: egui_wgpu::ScreenDescriptor,
     renderer: egui_wgpu::Renderer,
@@ -206,17 +206,11 @@ impl AppInstance {
                 let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
 
                 if repaint_after.is_zero() {
-                    self.window.window.request_redraw();
                     eltarget.set_control_flow(ControlFlow::Poll);
-                } else if let Some(repaint_after_instant) =
-                    Instant::now().checked_add(repaint_after)
-                {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(repaint_after_instant));
                 } else {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_secs(1),
-                    ));
+                    eltarget.set_control_flow(ControlFlow::wait_duration(repaint_after));
                 }
+                self.window.window.request_redraw();
 
                 self.window
                     .integration

@@ -239,7 +239,10 @@ impl ViewerGui {
                 ui.available_height() / 2.0 - ui.text_style_height(&style::TextStyle::Button),
             ));
             ui.vertical_centered(|ui| {
-                ui.label("Drag and drop Procreate file to view it.");
+                Label::new("Drag and drop Procreate documents to view them.")
+                    .selectable(false)
+                    .ui(ui);
+
                 if ui.button("Load Procreate File").clicked() {
                     self.event_loop
                         .send_event(UserEvent::LoadDialog(
