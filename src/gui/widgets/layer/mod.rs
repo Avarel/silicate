@@ -3,6 +3,8 @@ use egui::Color32;
 pub mod collapsible;
 pub mod mask;
 
+pub const PADDING: f32 = 2.0;
+
 pub const HEIGHT: f32 = 50.0;
 pub const CORNER_RADIUS: u8 = 4;
 

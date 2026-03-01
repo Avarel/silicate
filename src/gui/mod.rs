@@ -178,6 +178,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
             |ui| {
                 LayersHierarchy {
                     rotation: instance.rotation,
+                    flipped: instance.file.flipped,
                     previews: &instance.previews,
                     layers: &mut instance.file.layers,
                 }

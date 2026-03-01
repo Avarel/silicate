@@ -74,7 +74,7 @@ impl<'a> LayerCollapsible<'a> {
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
             .corner_radius(self.corner_radius)
-            .inner_margin(3)
+            .inner_margin(super::PADDING)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
             if self.size_change_on_open {
@@ -87,8 +87,8 @@ impl<'a> LayerCollapsible<'a> {
                 let (mut preview_rect, _) = ui
                     .allocate_exact_size(vec2(super::PREVIEW_WIDTH, super::HEIGHT), Sense::empty());
                 if self.has_mask {
-                    preview_rect = preview_rect.translate(vec2(0.0, -3.0));
-                    preview_rect.set_height(preview_rect.height() + 3.0);
+                    preview_rect = preview_rect.translate(vec2(0.0, -super::PADDING));
+                    preview_rect.set_height(preview_rect.height() + super::PADDING);
                     ui.painter().add(Shape::rect_filled(
                         preview_rect,
                         CornerRadius {

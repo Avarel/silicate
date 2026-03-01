@@ -22,14 +22,14 @@ impl<'a> LayerMask<'a> {
                 sw: 0,
                 se: 0,
             })
-            .inner_margin(3)
+            .inner_margin(super::PADDING)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {
             ui.set_min_height(super::HEIGHT);
 
             let (mut preview_rect, _) =
                 ui.allocate_exact_size(vec2(super::PREVIEW_WIDTH, super::HEIGHT), Sense::empty());
-            preview_rect.set_height(preview_rect.height() + 3.0);
+            preview_rect.set_height(preview_rect.height() + super::PADDING);
 
             ui.painter().add(Shape::rect_filled(
                 preview_rect,

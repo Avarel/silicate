@@ -3,13 +3,14 @@ use crate::{
     gui::widgets::layer::{collapsible::LayerCollapsible, mask::LayerMask},
 };
 use egui::{load::SizedTexture, *};
-use silica_gpu::SilicaHierarchy;
+use silica_gpu::{Flipped, SilicaHierarchy};
 use std::collections::HashMap;
 
 use super::layer::LayerControl;
 
 pub struct LayersHierarchy<'a> {
     pub rotation: f32,
+    pub flipped: Flipped,
     pub previews: &'a HashMap<u32, SizedTexture>,
     pub layers: &'a mut [SilicaHierarchy],
 }
@@ -42,7 +43,7 @@ impl LayersHierarchy<'_> {
                     //     Stroke::NONE,
                     //     StrokeKind::Middle,
                     // );
-                    Self::paint_preview(ui, self.previews, self.rotation, id);
+                    Self::paint_preview(ui, self.flipped, self.previews, self.rotation, id);
                 });
                 has_mask = true;
                 ui.spacing_mut().item_spacing.y = item_spacing_y;
@@ -84,7 +85,7 @@ impl LayersHierarchy<'_> {
                 .has_mask(has_mask)
                 .blend_mode(blend_mode)
                 .ui(ui, |ui| {
-                    Self::paint_preview(ui, self.previews, self.rotation, id);
+                    Self::paint_preview(ui, self.flipped, self.previews, self.rotation, id);
                 });
 
             match layer {
@@ -96,6 +97,7 @@ impl LayersHierarchy<'_> {
                     collapsible.show_body_indented(ui, |ui| {
                         LayersHierarchy {
                             rotation: self.rotation,
+                            flipped: self.flipped,
                             previews: self.previews,
                             layers: &mut layer.children,
                         }
@@ -106,7 +108,13 @@ impl LayersHierarchy<'_> {
         });
     }
 
-    fn paint_preview(ui: &mut Ui, previews: &HashMap<u32, SizedTexture>, rotation: f32, id: u32) {
+    fn paint_preview(
+        ui: &mut Ui,
+        flipped: Flipped,
+        previews: &HashMap<u32, SizedTexture>,
+        rotation: f32,
+        id: u32,
+    ) {
         if let Some(tex) = previews.get(&id) {
             let image = Image::from_texture(*tex);
 
@@ -143,6 +151,16 @@ impl LayersHierarchy<'_> {
                 std::mem::swap(&mut image_size.x, &mut image_size.y);
             }
 
+            let image = image.uv(Rect {
+                min: pos2(
+                    1.0 - if flipped.horizontally { 0.0 } else { 1.0 },
+                    1.0 - if flipped.vertically { 0.0 } else { 1.0 },
+                ),
+                max: pos2(
+                    1.0 - if flipped.horizontally { 1.0 } else { 0.0 },
+                    1.0 - if flipped.vertically { 1.0 } else { 0.0 },
+                ),
+            });
             image.rotate(rotation, Vec2::splat(0.5)).paint_at(
                 ui,
                 Rect::from_center_size(ui.max_rect().center(), image_size),
