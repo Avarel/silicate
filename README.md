@@ -18,9 +18,9 @@ Cross-platform native viewer for `.procreate` files. There is a
 ## Features
 * Native desktop app for Windows, macOS, and Linux.
 * Load and view multiple `.procreate` files at once.
-* Export `.procreate` files to `png, jpeg, tga, tiff, webp, bmp` formats.
+* Export `.procreate` files to `png`, `jpeg`, `tga`, `tiff`, `webp`, `bmp` formats.
 * Change layer settings and live-preview the final result.
-  * Currently supports blending modes, clipping masks, opacity, hiding, and groups.
+  * Currently supports blending modes, clipping masks, masks, opacity, hiding, and groups.
 * Drag and drop loading.
 * GPU rendering, leveraging cross-platform `wgpu` integration.
   * Rotate and flip the canvas at orthogonal angles and orientations.
@@ -31,7 +31,6 @@ Cross-platform native viewer for `.procreate` files. There is a
 The following features will probably be added sometime in the future.
 * Documentation.
 * More utilization of `async` mechanics.
-* Nicer and more robust UI.
 * PSD export.
 * PSD preview (limited).
 
