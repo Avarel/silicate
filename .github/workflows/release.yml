@@ -29,7 +29,7 @@ jobs:
           rust: stable
           target: x86_64-apple-darwin
           cross: false
-          bundle: Silicate.dmg
+          bundle: Silicate-macos-x86_64.dmg
         - build: x86_64-windows
           os: windows-latest
           rust: stable
@@ -40,6 +40,7 @@ jobs:
           os: macos-latest
           rust: stable
           target: aarch64-apple-darwin
+          bundle: Silicate-macos-arm64.dmg
 
     steps:
       - name: Checkout sources
