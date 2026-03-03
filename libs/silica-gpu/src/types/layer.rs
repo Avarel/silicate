@@ -96,6 +96,7 @@ impl SilicaLayer {
                     data
                 } else {
                     assert!(path.ends_with(".chunk"));
+                    data.resize(decompress_len, 0);
                     lzokay::decompress::decompress(buf.as_slice(), &mut data)?;
                     data
                 };
