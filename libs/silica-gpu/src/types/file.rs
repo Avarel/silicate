@@ -7,11 +7,7 @@ use rayon::prelude::ParallelIterator;
 use silica::ns_archive::NsArchive;
 use silica::ns_archive::Size;
 use std::sync::atomic::AtomicU32;
-use std::{
-    fs::OpenOptions,
-    io::{Cursor, Read},
-    path::Path,
-};
+use std::io::{Cursor, Read};
 use zip::read::ZipArchive;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,14 +39,11 @@ pub struct ProcreateFileAtlas {
 impl ProcreateFile {
     // Load a Procreate file asynchronously.
     pub fn open(
-        path: &Path,
+        bytes: &[u8],
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(Self, ProcreateFileAtlas), SilicaError> {
-        let file = OpenOptions::new().read(true).write(false).open(path)?;
-
-        let mapping = unsafe { memmap2::Mmap::map(&file)? };
-        let mut archive = ZipArchive::new(Cursor::new(&mapping[..]))?;
+        let mut archive = ZipArchive::new(Cursor::new(bytes))?;
 
         let nka: NsArchive = {
             let mut document = archive.by_name("Document.archive")?;

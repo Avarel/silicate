@@ -2166,9 +2166,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.44"
+version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
+checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
 ]
@@ -2383,7 +2383,6 @@ version = "0.1.0"
 dependencies = [
  "lz4_flex",
  "lzokay",
- "memmap2",
  "rayon",
  "silica",
  "thiserror 2.0.18",
@@ -2402,6 +2401,7 @@ dependencies = [
  "egui-notify",
  "egui_dock",
  "image",
+ "memmap2",
  "rfd",
  "silica-gpu",
  "silicate-compositor",

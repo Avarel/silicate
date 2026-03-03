@@ -43,9 +43,11 @@ eframe = { version = "0.33", default-features = false, features = [
 egui_dock = "0.18"
 egui-notify = "0.21"
 
+memmap2 = "0.9"
+
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Async runtime
-tokio = { version = "1.48", features = ["sync", "rt-multi-thread"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 
 [profile.release]
 strip = true

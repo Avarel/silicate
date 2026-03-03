@@ -3,9 +3,9 @@ pub mod compositor;
 pub mod instance;
 
 use compositor::CompositorApp;
+use eframe::egui_wgpu::wgpu;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
-use eframe::egui_wgpu::wgpu;
 use instance::{Instance, InstanceKey};
 use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
@@ -15,8 +15,8 @@ use silicate_compositor::{
     pipeline::Pipeline,
     tex::TextureExt,
 };
-use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
+use std::{fs::OpenOptions, sync::Arc};
 use std::{sync::atomic::AtomicUsize, sync::mpsc::Sender, time::Duration};
 
 pub enum AppEvent {
@@ -65,11 +65,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        event_sender: Sender<AppEvent>,
-    ) -> Self {
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue, event_sender: Sender<AppEvent>) -> Self {
         Self {
             pipeline: Pipeline::new(&device),
             device,
@@ -79,22 +75,25 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn send_toast(&self, toast: Toast) {
-        self.event_sender.send(AppEvent::Toast(toast)).ok();
+    pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+        let file = OpenOptions::new().read(true).write(false).open(path)?;
+
+        let mapping = unsafe { memmap2::Mmap::map(&file)? };
+
+        self.load_file_bytes(&mapping)
     }
 
-    pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+    fn load_file_bytes(&self, bytes: &[u8]) -> Result<InstanceKey, SilicaError> {
         let id = InstanceKey::new(
             self.curr_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         );
-        eprintln!("{id} Loading file \"{}\"", path.display());
+        eprintln!("{id} Loading file");
 
         let start = std::time::Instant::now();
 
         let (file, metadata) =
-            tokio::task::block_in_place(|| ProcreateFile::open(&path, &self.device, &self.queue))
+            tokio::task::block_in_place(|| ProcreateFile::open(bytes, &self.device, &self.queue))
                 .unwrap();
 
         eprintln!(
@@ -229,8 +228,6 @@ impl App {
     }
 
     pub fn rebind_texture(&self, id: InstanceKey) {
-        self.event_sender
-            .send(AppEvent::RebindTexture(id))
-            .unwrap();
+        self.event_sender.send(AppEvent::RebindTexture(id)).unwrap();
     }
 }
