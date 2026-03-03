@@ -20,8 +20,6 @@ pub struct AppInstance {
     viewer: ViewerGui,
     toasts: Toasts,
     event_sender: Sender<AppEvent>,
-    #[allow(dead_code)]
-    renderer: Option<eframe::egui_wgpu::Renderer>,
 }
 
 impl AppInstance {
@@ -54,7 +52,6 @@ impl AppInstance {
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
             event_sender,
-            renderer: None,
         }
     }
 
