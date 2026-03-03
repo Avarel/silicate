@@ -2,7 +2,7 @@ mod dialog;
 
 use crate::winit;
 
-use crate::app::{App, UserEvent};
+use crate::app::{App, AppEvent};
 use crate::dev::GpuHandle;
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
@@ -16,12 +16,12 @@ use wgpu::Surface;
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::Arc,
+    sync::{mpsc::Sender, Arc},
     time::{Duration, Instant},
 };
 use winit::{
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow},
     window::Window,
 };
 
@@ -102,7 +102,7 @@ pub struct AppInstance {
     window: WindowBundle,
     viewer: ViewerGui,
     toasts: Toasts,
-    event_loop: EventLoopProxy<UserEvent>,
+    event_sender: Sender<AppEvent>,
 }
 
 impl AppInstance {
@@ -110,14 +110,14 @@ impl AppInstance {
         dev: GpuHandle,
         surface: Surface<'static>,
         window: Arc<Window>,
-        event_loop: EventLoopProxy<UserEvent>,
+        event_sender: Sender<AppEvent>,
     ) -> Self {
         let window = WindowBundle::new(&dev, surface, window);
 
         let app = Arc::new(App::new(
             window.device.clone(),
             window.queue.clone(),
-            event_loop.clone(),
+            event_sender.clone(),
         ));
 
         let viewer = ViewerGui {
@@ -129,7 +129,7 @@ impl AppInstance {
                 extended_crosshair: false,
             },
             canvas_tree: egui_dock::DockState::new(Vec::new()),
-            event_loop: event_loop.clone(),
+            event_sender: event_sender.clone(),
         };
 
         let app_instance = AppInstance {
@@ -137,7 +137,7 @@ impl AppInstance {
             window,
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
-            event_loop,
+            event_sender,
         };
 
         app_instance
@@ -152,8 +152,8 @@ impl AppInstance {
                 }
                 Ok(key) => {
                     self.toasts.success("Loaded file from command line.");
-                    self.event_loop
-                        .send_event(UserEvent::NewView(
+                    self.event_sender
+                        .send(AppEvent::NewView(
                             egui_dock::SurfaceIndex::main(),
                             egui_dock::NodeIndex::root(),
                             key,
@@ -306,7 +306,7 @@ impl AppInstance {
                 println!("File dropped: {:?}", file.as_path().display().to_string());
                 rt.spawn({
                     let app = self.app.clone();
-                    let event_loop = self.event_loop.clone();
+                    let event_sender = self.event_sender.clone();
                     async move {
                         match app.load_file(file) {
                             Err(_) => {
@@ -314,8 +314,8 @@ impl AppInstance {
                             }
                             Ok(key) => {
                                 app.send_toast(Toast::success("Loaded file from drag/drop."));
-                                event_loop
-                                    .send_event(UserEvent::NewView(
+                                event_sender
+                                    .send(AppEvent::NewView(
                                         egui_dock::SurfaceIndex::main(),
                                         egui_dock::NodeIndex::root(),
                                         key,
@@ -343,12 +343,12 @@ impl AppInstance {
         }
     }
 
-    pub fn handle_user_event(&mut self, event: UserEvent, rt: &Runtime) {
+    pub fn handle_user_event(&mut self, event: AppEvent, rt: &Runtime) {
         match event {
-            UserEvent::RemoveInstance(idx) => {
+            AppEvent::RemoveInstance(idx) => {
                 self.viewer.instances.remove(&idx);
             }
-            UserEvent::RebindTexture(idx) => {
+            AppEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
                 // Do not block on any locks/rwlocks since we do not want to block
                 // the GUI thread when the renderer is potentially taking a long
@@ -384,7 +384,7 @@ impl AppInstance {
                     instance.canvas = Some(SizedTexture { id, size });
                 }
             }
-            UserEvent::RebindPreviews(idx) => {
+            AppEvent::RebindPreviews(idx) => {
                 let Some(instance) = self.viewer.instances.get_mut(&idx) else {
                     return;
                 };
@@ -419,34 +419,34 @@ impl AppInstance {
                     }
                 }
             }
-            UserEvent::NewInstance(instance_key, instance, compositor) => {
+            AppEvent::NewInstance(instance_key, instance, compositor) => {
                 rt.spawn(compositor.rendering_thread(instance.output_texture.clone()));
                 self.viewer.instances.insert(instance_key, instance);
-                self.event_loop
-                    .send_event(UserEvent::RebindPreviews(instance_key))
+                self.event_sender
+                    .send(AppEvent::RebindPreviews(instance_key))
                     .unwrap();
-                self.event_loop
-                    .send_event(UserEvent::RebindTexture(instance_key))
+                self.event_sender
+                    .send(AppEvent::RebindTexture(instance_key))
                     .unwrap();
             }
-            UserEvent::Toast(toast) => {
+            AppEvent::Toast(toast) => {
                 self.toasts.add(toast);
             }
-            UserEvent::LoadDialog(surface, node) => {
-                rt.spawn(Dialog::new(self.event_loop.clone()).load_dialog(
+            AppEvent::LoadDialog(surface, node) => {
+                rt.spawn(Dialog::new(self.event_sender.clone()).load_dialog(
                     self.app.clone(),
                     surface,
                     node,
                 ));
             }
-            UserEvent::SaveDialog(texture) => {
-                rt.spawn(Dialog::new(self.event_loop.clone()).save_dialog(
+            AppEvent::SaveDialog(texture) => {
+                rt.spawn(Dialog::new(self.event_sender.clone()).save_dialog(
                     self.window.device.clone(),
                     self.window.queue.clone(),
                     texture,
                 ));
             }
-            UserEvent::NewView(surface, node, id) => {
+            AppEvent::NewView(surface, node, id) => {
                 self.viewer
                     .canvas_tree
                     .set_focused_node_and_surface((surface, node));

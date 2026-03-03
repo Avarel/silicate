@@ -3,16 +3,23 @@ mod dev;
 mod gui;
 mod window;
 
-use app::UserEvent;
+use app::AppEvent;
 use clap::Parser;
 use dev::GpuHandle;
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, EventLoop},
     window::Window,
 };
-use std::{error::Error, path::PathBuf, sync::Arc};
+use std::{
+    error::Error,
+    path::PathBuf,
+    sync::{
+        Arc,
+        mpsc::{Receiver, Sender},
+    },
+};
 use tokio::runtime::Runtime;
 use window::AppInstance;
 
@@ -27,19 +34,22 @@ struct AppMultiplexer {
     rt: Runtime,
     initial_files: Vec<PathBuf>,
     running: Option<AppInstance>,
-    proxy: EventLoopProxy<UserEvent>,
+    event_sender: Sender<AppEvent>,
+    event_receiver: Receiver<AppEvent>,
 }
 
 impl AppMultiplexer {
-    fn new(initial_file: Vec<PathBuf>, proxy: EventLoopProxy<UserEvent>) -> Self {
+    fn new(initial_files: Vec<PathBuf>) -> Self {
+        let (event_sender, event_receiver) = std::sync::mpsc::channel();
         Self {
             rt: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("tokio runtime creation successful"),
-            initial_files: initial_file,
+            initial_files,
             running: None,
-            proxy,
+            event_sender,
+            event_receiver,
         }
     }
 
@@ -62,7 +72,7 @@ impl AppMultiplexer {
     }
 }
 
-impl ApplicationHandler<UserEvent> for AppMultiplexer {
+impl ApplicationHandler for AppMultiplexer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.running.is_some() {
             return;
@@ -90,7 +100,7 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             .block_on(Self::handle_with_window(window.clone()))
             .unwrap();
 
-        let mut instance = AppInstance::new(dev, surface, window, self.proxy.clone());
+        let mut instance = AppInstance::new(dev, surface, window, self.event_sender.clone());
         instance.load_files(std::mem::take(&mut self.initial_files));
 
         self.running = Some(instance);
@@ -106,13 +116,11 @@ impl ApplicationHandler<UserEvent> for AppMultiplexer {
             return;
         };
         app.handle_event(event, event_loop, &self.rt);
-    }
 
-    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
-        let Some(app) = self.running.as_mut() else {
-            return;
-        };
-        app.handle_user_event(event, &self.rt);
+        // Poll for user events from the channel
+        while let Ok(app_event) = self.event_receiver.try_recv() {
+            app.handle_user_event(app_event, &self.rt);
+        }
     }
 }
 
@@ -126,11 +134,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let event_loop = EventLoop::<app::UserEvent>::with_user_event()
-        .build()
-        .unwrap();
+    let event_loop = EventLoop::new().unwrap();
 
-    let proxy = event_loop.create_proxy();
-
-    Ok(event_loop.run_app(&mut AppMultiplexer::new(args.files, proxy))?)
+    Ok(event_loop.run_app(&mut AppMultiplexer::new(args.files))?)
 }

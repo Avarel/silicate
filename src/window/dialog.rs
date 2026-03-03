@@ -1,23 +1,22 @@
-use std::sync::Arc;
+use std::sync::{mpsc::Sender, Arc};
 
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
-use egui_winit::winit::event_loop::EventLoopProxy;
 use silicate_compositor::buffer::BufferDimensions;
 
-use crate::app::{App, UserEvent};
+use crate::app::{App, AppEvent};
 
 pub struct Dialog {
-    event_loop: EventLoopProxy<UserEvent>,
+    event_sender: Sender<AppEvent>,
 }
 
 impl Dialog {
-    pub fn new(event_loop: EventLoopProxy<UserEvent>) -> Self {
-        Self { event_loop }
+    pub fn new(event_sender: Sender<AppEvent>) -> Self {
+        Self { event_sender }
     }
 
     fn send_toast(&self, toast: Toast) {
-        self.event_loop.send_event(UserEvent::Toast(toast)).ok();
+        self.event_sender.send(AppEvent::Toast(toast)).ok();
     }
 
     pub async fn load_dialog(
@@ -48,8 +47,8 @@ impl Dialog {
                     "File {} successfully opened.",
                     handle.file_name()
                 )));
-                self.event_loop
-                    .send_event(UserEvent::NewView(surface_index, node_index, key))
+                self.event_sender
+                    .send(AppEvent::NewView(surface_index, node_index, key))
                     .unwrap();
             }
         }

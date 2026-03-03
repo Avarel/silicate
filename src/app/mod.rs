@@ -6,7 +6,6 @@ use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
 use egui_wgpu::wgpu;
-use egui_winit::winit::event_loop::EventLoopProxy;
 use instance::{Instance, InstanceKey};
 use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
@@ -18,9 +17,9 @@ use silicate_compositor::{
 };
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
-use std::{sync::atomic::AtomicUsize, time::Duration};
+use std::{sync::atomic::AtomicUsize, sync::mpsc::Sender, time::Duration};
 
-pub enum UserEvent {
+pub enum AppEvent {
     NewInstance(InstanceKey, Instance, CompositorApp),
     NewView(SurfaceIndex, NodeIndex, InstanceKey),
     RebindTexture(InstanceKey),
@@ -31,26 +30,26 @@ pub enum UserEvent {
     Toast(Toast),
 }
 
-impl std::fmt::Debug for UserEvent {
+impl std::fmt::Debug for AppEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UserEvent::NewInstance(arg0, arg1, _) => f
+            AppEvent::NewInstance(arg0, arg1, _) => f
                 .debug_tuple("NewInstance")
                 .field(arg0)
                 .field(arg1)
                 .finish(),
-            UserEvent::NewView(surface_index, node_index, instance_key) => f
+            AppEvent::NewView(surface_index, node_index, instance_key) => f
                 .debug_tuple("NewView")
                 .field(surface_index)
                 .field(node_index)
                 .field(instance_key)
                 .finish(),
-            UserEvent::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
-            UserEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
-            UserEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
-            UserEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
-            UserEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
-            UserEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
+            AppEvent::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
+            AppEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
+            AppEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
+            AppEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
+            AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
+            AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
         }
     }
 }
@@ -58,7 +57,7 @@ impl std::fmt::Debug for UserEvent {
 pub struct App {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    event_loop: EventLoopProxy<UserEvent>,
+    event_sender: Sender<AppEvent>,
     pipeline: Pipeline,
     curr_id: AtomicUsize,
 }
@@ -67,19 +66,19 @@ impl App {
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        event_loop: EventLoopProxy<UserEvent>,
+        event_sender: Sender<AppEvent>,
     ) -> Self {
         Self {
             pipeline: Pipeline::new(&device),
             device,
             queue,
-            event_loop,
+            event_sender,
             curr_id: AtomicUsize::new(0),
         }
     }
 
     pub fn send_toast(&self, toast: Toast) {
-        self.event_loop.send_event(UserEvent::Toast(toast)).ok();
+        self.event_sender.send(AppEvent::Toast(toast)).ok();
     }
 
     pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
@@ -177,8 +176,8 @@ impl App {
             file.name.as_deref().unwrap_or("Untitled Artwork")
         );
 
-        self.event_loop
-            .send_event(UserEvent::NewInstance(id, instance, compositor))
+        self.event_sender
+            .send(AppEvent::NewInstance(id, instance, compositor))
             .unwrap();
         Ok(id)
     }
@@ -227,8 +226,8 @@ impl App {
     }
 
     pub fn rebind_texture(&self, id: InstanceKey) {
-        self.event_loop
-            .send_event(UserEvent::RebindTexture(id))
+        self.event_sender
+            .send(AppEvent::RebindTexture(id))
             .unwrap();
     }
 }

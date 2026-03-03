@@ -4,13 +4,12 @@ mod widgets;
 
 use egui::{Frame, *};
 use egui_dock::{tab_viewer::OnCloseResponse, NodeIndex, SurfaceIndex};
-use egui_winit::winit::event_loop::EventLoopProxy;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{mpsc::Sender, Arc};
 
 use crate::app::{
     instance::{Instance, InstanceKey},
-    App, UserEvent,
+    App, AppEvent,
 };
 
 use canvas::CanvasView;
@@ -80,7 +79,7 @@ impl ControlsGui {
 
     fn layout_export_control(
         ui: &mut Ui,
-        event_loop: &EventLoopProxy<UserEvent>,
+        event_sender: &Sender<AppEvent>,
         instance: &Instance,
     ) {
         Grid::new("Share Grid").num_columns(2).show(ui, |ui| {
@@ -88,7 +87,7 @@ impl ControlsGui {
             ui.vertical(|ui| {
                 if ui.button("Export View").clicked() {
                     let texture = instance.output_texture.clone();
-                    event_loop.send_event(UserEvent::SaveDialog(texture)).ok();
+                    event_sender.send(AppEvent::SaveDialog(texture)).ok();
                 }
             });
         });
@@ -103,7 +102,7 @@ pub struct ViewOptions {
 
 struct CanvasGui<'a> {
     app: &'a Arc<App>,
-    event_loop: &'a EventLoopProxy<UserEvent>,
+    event_sender: &'a Sender<AppEvent>,
     instances: &'a mut HashMap<InstanceKey, Instance>,
     view_options: &'a mut ViewOptions,
 }
@@ -169,7 +168,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
                 ui.separator();
 
-                ControlsGui::layout_export_control(ui, self.event_loop, instance);
+                ControlsGui::layout_export_control(ui, self.event_sender, instance);
             },
         );
 
@@ -195,15 +194,15 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
-        self.event_loop
-            .send_event(UserEvent::RemoveInstance(*tab))
+        self.event_sender
+            .send(AppEvent::RemoveInstance(*tab))
             .unwrap();
         OnCloseResponse::Close
     }
 
     fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
-        self.event_loop
-            .send_event(UserEvent::LoadDialog(surface, node))
+        self.event_sender
+            .send(AppEvent::LoadDialog(surface, node))
             .ok();
     }
 
@@ -222,7 +221,7 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
 pub struct ViewerGui {
     pub app: Arc<App>,
-    pub event_loop: EventLoopProxy<UserEvent>,
+    pub event_sender: Sender<AppEvent>,
     pub instances: HashMap<InstanceKey, Instance>,
 
     pub view_options: ViewOptions,
@@ -244,8 +243,8 @@ impl ViewerGui {
                     .ui(ui);
 
                 if ui.button("Load Procreate File").clicked() {
-                    self.event_loop
-                        .send_event(UserEvent::LoadDialog(
+                    self.event_sender
+                        .send(AppEvent::LoadDialog(
                             SurfaceIndex::main(),
                             NodeIndex::root(),
                         ))
@@ -293,7 +292,7 @@ impl ViewerGui {
                         app: &self.app,
                         view_options: &mut self.view_options,
                         instances: &mut self.instances,
-                        event_loop: &self.event_loop,
+                        event_sender: &self.event_sender,
                     },
                 );
         }
