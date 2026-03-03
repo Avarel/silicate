@@ -1,7 +1,6 @@
 use crate::{error::SilicaError, params::LoadParams};
-use minilzo_rs::LZO;
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
-use std::{io::Read, num::NonZeroU32, sync::OnceLock};
+use std::{io::Read, num::NonZeroU32};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SilicaChunk {
@@ -59,8 +58,6 @@ impl SilicaLayer {
         params: &LoadParams<'_>,
         is_mask: bool,
     ) -> Result<SilicaLayer, SilicaError> {
-        static LZO_INSTANCE: OnceLock<LZO> = OnceLock::new();
-
         let chunks = params
             .file_names
             .par_iter()
@@ -90,16 +87,17 @@ impl SilicaLayer {
                     data_len
                 };
 
+                let mut data = Vec::with_capacity(decompress_len);
+
                 // RGBA = 4 channels of 8 bits each
                 // Masks are grayscale = 1 channel of 8 bits
                 let data = if path.ends_with(".lz4") {
-                    let mut dst = Vec::with_capacity(decompress_len);
-                    lz4::decompress(buf.as_slice(), &mut dst)?;
-                    dst
+                    lz4::decompress(buf.as_slice(), &mut data)?;
+                    data
                 } else {
                     assert!(path.ends_with(".chunk"));
-                    let lzo = LZO_INSTANCE.get_or_init(|| minilzo_rs::LZO::init().unwrap());
-                    lzo.decompress_safe(buf.as_slice(), decompress_len)?
+                    lzokay::decompress::decompress(buf.as_slice(), &mut data)?;
+                    data
                 };
 
                 let data = if is_mask {

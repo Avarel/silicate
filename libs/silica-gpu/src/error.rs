@@ -11,7 +11,7 @@ pub enum SilicaError {
     #[error("Zip error: {0}")]
     ZipError(#[from] zip::result::ZipError),
     #[error("LZO error: {0}")]
-    LzoError(#[from] minilzo_rs::Error),
+    LzoError(#[from] lzokay::Error),
     #[error("LZ4 error: {0}")]
     Lz4Error(#[from] lz4_flex::block::DecompressError),
     #[error("Corrupted format")]
