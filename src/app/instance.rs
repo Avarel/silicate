@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use eframe::wgpu;
 
+use std::collections::HashMap;
 use egui::load::SizedTexture;
 use silica_gpu::ProcreateFile;
 use silicate_compositor::{pipeline::Pipeline, tex::TextureExt, Compositor};

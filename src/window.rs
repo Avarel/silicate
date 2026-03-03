@@ -1,122 +1,39 @@
 mod dialog;
 
-use crate::winit;
-
 use crate::app::{App, AppEvent};
-use crate::dev::GpuHandle;
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
-use egui::{FullOutput, Vec2, ViewportId, load::SizedTexture};
-use egui_notify::{Toast, Toasts};
-use egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor, wgpu};
+use egui::{Vec2, load::SizedTexture};
+use egui_notify::Toasts;
+use eframe::wgpu;
 use silicate_compositor::tex::TextureExt;
 use tokio::runtime::Runtime;
-use wgpu::Surface;
 
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{mpsc::Sender, Arc},
-    time::{Duration, Instant},
+    sync::{Arc, mpsc::Sender},
 };
-use winit::{
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow},
-    window::Window,
-};
-
-struct WindowBundle {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
-    window: Arc<Window>,
-    integration: egui_winit::State,
-    screen_descriptor: egui_wgpu::ScreenDescriptor,
-    renderer: egui_wgpu::Renderer,
-    surface_config: wgpu::SurfaceConfiguration,
-}
-
-impl WindowBundle {
-    fn new(dev: &GpuHandle, surface: Surface<'static>, window: Arc<Window>) -> Self {
-        let surface_caps = surface.get_capabilities(&dev.adapter);
-        let surface_format = surface_caps.formats[0];
-        let surface_alpha = surface_caps.alpha_modes[0];
-        let surface_present: wgpu::PresentMode = surface_caps.present_modes[0];
-        let surface_config = {
-            let window_size = window.inner_size();
-            wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: surface_format,
-                width: window_size.width,
-                height: window_size.height,
-                present_mode: surface_present,
-                view_formats: Vec::new(),
-                alpha_mode: surface_alpha,
-                desired_maximum_frame_latency: 0,
-            }
-        };
-        dbg!(&surface_caps, &surface_config);
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: window.scale_factor() as f32,
-        };
-        surface.configure(&dev.device, &surface_config);
-
-        let integration = egui_winit::State::new(
-            egui::Context::default(),
-            ViewportId::ROOT,
-            &window,
-            Some(window.scale_factor() as f32),
-            None,
-            None,
-        );
-
-        // let renderer = Renderer::new(&dev.dispatch.device(), surface_format, None, 1, false);
-        let renderer = Renderer::new(
-            &dev.device,
-            surface_format,
-            RendererOptions {
-                msaa_samples: 1,
-                depth_stencil_format: None,
-                dithering: true,
-                predictable_texture_filtering: false,
-            },
-        );
-
-        Self {
-            device: dev.device.clone(),
-            queue: dev.queue.clone(),
-            surface,
-            window,
-            integration,
-            screen_descriptor,
-            surface_config,
-            renderer,
-        }
-    }
-}
 
 pub struct AppInstance {
     app: Arc<App>,
-    window: WindowBundle,
     viewer: ViewerGui,
     toasts: Toasts,
     event_sender: Sender<AppEvent>,
+    #[allow(dead_code)]
+    renderer: Option<eframe::egui_wgpu::Renderer>,
 }
 
 impl AppInstance {
-    pub fn new(
-        dev: GpuHandle,
-        surface: Surface<'static>,
-        window: Arc<Window>,
+    /// Create a new AppInstance for use with eframe
+    pub fn new_for_eframe(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
         event_sender: Sender<AppEvent>,
     ) -> Self {
-        let window = WindowBundle::new(&dev, surface, window);
-
         let app = Arc::new(App::new(
-            window.device.clone(),
-            window.queue.clone(),
+            device.clone(),
+            queue.clone(),
             event_sender.clone(),
         ));
 
@@ -132,15 +49,13 @@ impl AppInstance {
             event_sender: event_sender.clone(),
         };
 
-        let app_instance = AppInstance {
+        AppInstance {
             app,
-            window,
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
             event_sender,
-        };
-
-        app_instance
+            renderer: None,
+        }
     }
 
     pub fn load_files(&mut self, paths: Vec<PathBuf>) {
@@ -164,186 +79,7 @@ impl AppInstance {
         }
     }
 
-    pub fn handle_event(
-        &mut self,
-        event: winit::event::WindowEvent,
-        eltarget: &ActiveEventLoop,
-        rt: &Runtime,
-    ) {
-        match event {
-            WindowEvent::RedrawRequested => {
-                let output_frame = match self.window.surface.get_current_texture() {
-                    Ok(frame) => frame,
-                    Err(wgpu::SurfaceError::Outdated) => {
-                        // This error occurs when the app is minimized on Windows.
-                        // Silently return here to prevent spamming the console with:
-                        // "The underlying surface has changed, and therefore the swap chain must be updated"
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Dropped frame with error: {}", e);
-                        return;
-                    }
-                };
-
-                let FullOutput {
-                    platform_output,
-                    textures_delta,
-                    shapes,
-                    pixels_per_point,
-                    viewport_output,
-                } = {
-                    let input = self.window.integration.take_egui_input(&self.window.window);
-                    let ctx = self.window.integration.egui_ctx();
-                    ctx.begin_pass(input);
-
-                    self.viewer.layout_gui(ctx);
-                    self.toasts.show(ctx);
-
-                    ctx.end_pass()
-                };
-
-                let repaint_after = viewport_output[&ViewportId::ROOT].repaint_delay;
-
-                if repaint_after.is_zero() {
-                    eltarget.set_control_flow(ControlFlow::Poll);
-                } else {
-                    eltarget.set_control_flow(ControlFlow::wait_duration(repaint_after));
-                }
-                self.window.window.request_redraw();
-
-                self.window
-                    .integration
-                    .handle_platform_output(&self.window.window, platform_output);
-
-                // Draw the GUI onto the output texture.
-                let paint_jobs = self
-                    .window
-                    .integration
-                    .egui_ctx()
-                    .tessellate(shapes, pixels_per_point);
-
-                // Upload all resources for the GPU.
-                for (id, image_delta) in textures_delta.set {
-                    self.window.renderer.update_texture(
-                        &self.window.device,
-                        &self.window.queue,
-                        id,
-                        &image_delta,
-                    );
-                }
-                for id in textures_delta.free {
-                    self.window.renderer.free_texture(&id);
-                }
-
-                let output_view = output_frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                self.window.queue.submit([{
-                    let mut encoder = self
-                        .window
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-                    self.window.renderer.update_buffers(
-                        &self.window.device,
-                        &self.window.queue,
-                        &mut encoder,
-                        &paint_jobs,
-                        &self.window.screen_descriptor,
-                    );
-
-                    self.window.renderer.render(
-                        &mut encoder
-                            .begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &output_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                    depth_slice: None,
-                                })],
-                                depth_stencil_attachment: None,
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            })
-                            .forget_lifetime(),
-                        &paint_jobs,
-                        &self.window.screen_descriptor,
-                    );
-
-                    encoder.finish()
-                }]);
-                output_frame.present();
-            }
-            WindowEvent::CloseRequested => {
-                return eltarget.exit();
-            }
-            WindowEvent::Resized(size) => {
-                // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-                // See: https://github.com/rust-windowing/winit/issues/208
-                // This solves an issue where the app would panic when minimizing on Windows.
-                if size.width > 0 && size.height > 0 {
-                    self.window.surface_config.width = size.width;
-                    self.window.surface_config.height = size.height;
-                    self.window.screen_descriptor.size_in_pixels = [size.width, size.height];
-                    self.window
-                        .surface
-                        .configure(&self.window.device, &self.window.surface_config);
-                }
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.window.screen_descriptor.pixels_per_point = scale_factor as f32;
-                self.window
-                    .surface
-                    .configure(&self.window.device, &self.window.surface_config);
-            }
-            WindowEvent::DroppedFile(file) => {
-                println!("File dropped: {:?}", file.as_path().display().to_string());
-                rt.spawn({
-                    let app = self.app.clone();
-                    let event_sender = self.event_sender.clone();
-                    async move {
-                        match app.load_file(file) {
-                            Err(_) => {
-                                app.send_toast(Toast::error("File from drag/drop failed to load."));
-                            }
-                            Ok(key) => {
-                                app.send_toast(Toast::success("Loaded file from drag/drop."));
-                                event_sender
-                                    .send(AppEvent::NewView(
-                                        egui_dock::SurfaceIndex::main(),
-                                        egui_dock::NodeIndex::root(),
-                                        key,
-                                    ))
-                                    .unwrap();
-                            }
-                        }
-                    }
-                });
-            }
-            _ => {
-                let response = self
-                    .window
-                    .integration
-                    .on_window_event(&self.window.window, &event);
-                if response.repaint {
-                    self.window.window.request_redraw();
-                    eltarget.set_control_flow(ControlFlow::Poll);
-                } else {
-                    eltarget.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_secs(1),
-                    ))
-                }
-            }
-        }
-    }
-
-    pub fn handle_user_event(&mut self, event: AppEvent, rt: &Runtime) {
+    pub fn handle_user_event(&mut self, event: AppEvent, rt: &Runtime, frame: &mut eframe::Frame) {
         match event {
             AppEvent::RemoveInstance(idx) => {
                 self.viewer.instances.remove(&idx);
@@ -367,21 +103,28 @@ impl AppInstance {
                 let texture_view = output.create_default_view();
                 let size = Vec2::new(output.size().width as f32, output.size().height as f32);
 
-                if let Some(tex) = &mut instance.canvas {
-                    self.window.renderer.update_egui_texture_from_wgpu_texture(
-                        &self.window.device,
-                        &texture_view,
-                        texture_filter,
-                        tex.id,
-                    );
-                    tex.size = size;
-                } else {
-                    let id = self.window.renderer.register_native_texture(
-                        &self.window.device,
-                        &texture_view,
-                        texture_filter,
-                    );
-                    instance.canvas = Some(SizedTexture { id, size });
+                if let Some(eframe::egui_wgpu::RenderState {
+                    device,
+                    renderer,
+                    ..
+                }) = frame.wgpu_render_state() {
+                    let mut renderer = renderer.write();
+                    if let Some(tex) = &mut instance.canvas {
+                        renderer.update_egui_texture_from_wgpu_texture(
+                            device,
+                            &texture_view,
+                            texture_filter,
+                            tex.id,
+                        );
+                        tex.size = size;
+                    } else {
+                        let id = renderer.register_native_texture(
+                            device,
+                            &texture_view,
+                            texture_filter,
+                        );
+                        instance.canvas = Some(SizedTexture { id, size });
+                    }
                 }
             }
             AppEvent::RebindPreviews(idx) => {
@@ -399,23 +142,30 @@ impl AppInstance {
                     preview_texture.size().height as f32,
                 );
 
-                for i in 0..preview_texture.size().depth_or_array_layers {
-                    let texture_view = preview_texture.create_view_layer(i);
-                    if let Some(tex) = instance.previews.get_mut(&i) {
-                        self.window.renderer.update_egui_texture_from_wgpu_texture(
-                            &self.window.device,
-                            &texture_view,
-                            texture_filter,
-                            tex.id,
-                        );
-                        tex.size = size;
-                    } else {
-                        let id = self.window.renderer.register_native_texture(
-                            &self.window.device,
-                            &texture_view,
-                            texture_filter,
-                        );
-                        instance.previews.insert(i, SizedTexture { id, size });
+                if let Some(eframe::egui_wgpu::RenderState {
+                    device,
+                    renderer,
+                    ..
+                }) = frame.wgpu_render_state() {
+                    let mut renderer = renderer.write();
+                    for i in 0..preview_texture.size().depth_or_array_layers {
+                        let texture_view = preview_texture.create_view_layer(i);
+                        if let Some(tex) = instance.previews.get_mut(&i) {
+                            renderer.update_egui_texture_from_wgpu_texture(
+                                &device,
+                                &texture_view,
+                                texture_filter,
+                                tex.id,
+                            );
+                            tex.size = size;
+                        } else {
+                            let id = renderer.register_native_texture(
+                                &device,
+                                &texture_view,
+                                texture_filter,
+                            );
+                            instance.previews.insert(i, SizedTexture { id, size });
+                        }
                     }
                 }
             }
@@ -432,6 +182,24 @@ impl AppInstance {
             AppEvent::Toast(toast) => {
                 self.toasts.add(toast);
             }
+            AppEvent::LoadFile(path) => {
+                match self.app.load_file(path) {
+                    Err(err) => {
+                        self.toasts
+                            .error(format!("File from drag/drop failed to load. Reason: {err}"));
+                    }
+                    Ok(key) => {
+                        self.toasts.success("Loaded file from drag/drop.");
+                        self.event_sender
+                            .send(AppEvent::NewView(
+                                egui_dock::SurfaceIndex::main(),
+                                egui_dock::NodeIndex::root(),
+                                key,
+                            ))
+                            .unwrap();
+                    }
+                }
+            }
             AppEvent::LoadDialog(surface, node) => {
                 rt.spawn(Dialog::new(self.event_sender.clone()).load_dialog(
                     self.app.clone(),
@@ -440,11 +208,13 @@ impl AppInstance {
                 ));
             }
             AppEvent::SaveDialog(texture) => {
-                rt.spawn(Dialog::new(self.event_sender.clone()).save_dialog(
-                    self.window.device.clone(),
-                    self.window.queue.clone(),
-                    texture,
-                ));
+                if let Some(wgpu_render_state) = frame.wgpu_render_state() {
+                    rt.spawn(Dialog::new(self.event_sender.clone()).save_dialog(
+                        wgpu_render_state.device.clone(),
+                        wgpu_render_state.queue.clone(),
+                        texture,
+                    ));
+                }
             }
             AppEvent::NewView(surface, node, id) => {
                 self.viewer
@@ -453,5 +223,11 @@ impl AppInstance {
                 self.viewer.canvas_tree.push_to_focused_leaf(id);
             }
         }
+    }
+
+    /// Render the GUI using the viewer
+    pub fn render_gui(&mut self, ctx: &egui::Context) {
+        self.viewer.layout_gui(ctx);
+        self.toasts.show(ctx);
     }
 }

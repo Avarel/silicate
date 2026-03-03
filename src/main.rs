@@ -1,34 +1,17 @@
 mod app;
-mod dev;
 mod gui;
 mod window;
 
 use app::AppEvent;
 use clap::Parser;
-use dev::GpuHandle;
-use egui_winit::winit::{
-    application::ApplicationHandler,
-    dpi::LogicalSize,
-    event_loop::{ActiveEventLoop, EventLoop},
-    window::Window,
-};
 use std::{
-    error::Error,
     path::PathBuf,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
 };
 use tokio::runtime::Runtime;
 use window::AppInstance;
 
-pub use egui_winit::winit;
-
-const INITIAL_SIZE: LogicalSize<u32> = LogicalSize {
-    width: 1200,
-    height: 700,
-};
+const INITIAL_SIZE: [f32; 2] = [1200.0, 700.0];
 
 struct AppMultiplexer {
     rt: Runtime,
@@ -52,74 +35,37 @@ impl AppMultiplexer {
             event_receiver,
         }
     }
-
-    /// Create a GPU handle with a surface target compatible with the window.
-    pub async fn handle_with_window(
-        window: Arc<egui_winit::winit::window::Window>,
-    ) -> Option<(GpuHandle, wgpu::Surface<'static>)> {
-        let instance = wgpu::Instance::new(&GpuHandle::instance_descriptor());
-        let surface = instance.create_surface(window).ok()?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..GpuHandle::ADAPTER_OPTIONS
-            })
-            .await
-            .ok()?;
-        GpuHandle::from_adapter(instance, adapter)
-            .await
-            .map(|dev| (dev, surface))
-    }
 }
 
-impl ApplicationHandler for AppMultiplexer {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.running.is_some() {
-            return;
+impl eframe::App for AppMultiplexer {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Initialize the app instance if not already done
+        if self.running.is_none() {
+            if let Some(wgpu_render_state) = frame.wgpu_render_state() {
+                let device = wgpu_render_state.device.clone();
+                let queue = wgpu_render_state.queue.clone();
+
+                let mut instance = AppInstance::new_for_eframe(
+                    device,
+                    queue,
+                    self.event_sender.clone(),
+                );
+
+                instance.load_files(std::mem::take(&mut self.initial_files));
+                self.running = Some(instance);
+            }
         }
 
-        let taskbar_icon = egui_winit::winit::window::Icon::from_rgba(
-            include_bytes!("../assets/icon.rgba").to_vec(),
-            240,
-            240,
-        )
-        .ok();
-
-        let window_attributes = Window::default_attributes()
-            .with_decorations(true)
-            .with_resizable(true)
-            .with_transparent(true)
-            .with_blur(true)
-            .with_title("Silicate")
-            .with_min_inner_size(INITIAL_SIZE)
-            .with_window_icon(taskbar_icon);
-
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        let (dev, surface) = self
-            .rt
-            .block_on(Self::handle_with_window(window.clone()))
-            .unwrap();
-
-        let mut instance = AppInstance::new(dev, surface, window, self.event_sender.clone());
-        instance.load_files(std::mem::take(&mut self.initial_files));
-
-        self.running = Some(instance);
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _: winit::window::WindowId,
-        event: winit::event::WindowEvent,
-    ) {
-        let Some(app) = self.running.as_mut() else {
-            return;
-        };
-        app.handle_event(event, event_loop, &self.rt);
-
-        // Poll for user events from the channel
+        // Process user events from the channel
         while let Ok(app_event) = self.event_receiver.try_recv() {
-            app.handle_user_event(app_event, &self.rt);
+            if let Some(app) = self.running.as_mut() {
+                app.handle_user_event(app_event, &self.rt, frame);
+            }
+        }
+
+        // Render the GUI
+        if let Some(app) = self.running.as_mut() {
+            app.render_gui(ctx);
         }
     }
 }
@@ -131,10 +77,39 @@ struct Args {
     files: Vec<PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> eframe::Result {
     let args = Args::parse();
 
-    let event_loop = EventLoop::new().unwrap();
+    let icon_data = include_bytes!("../assets/icon.rgba").to_vec();
+    let taskbar_icon = egui::IconData {
+        rgba: icon_data,
+        width: 240,
+        height: 240,
+    };
 
-    Ok(event_loop.run_app(&mut AppMultiplexer::new(args.files))?)
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size(INITIAL_SIZE)
+            .with_min_inner_size(INITIAL_SIZE)
+            .with_decorations(true)
+            .with_resizable(true)
+            .with_transparent(true)
+            .with_title("Silicate")
+            .with_icon(std::sync::Arc::new(taskbar_icon)),
+        renderer: eframe::Renderer::Wgpu,
+        centered: true,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Silicate",
+        options,
+        Box::new(|cc| {
+            if let Some(eframe::egui_wgpu::RenderState { adapter, .. }) = cc.wgpu_render_state.as_ref() {
+                dbg!(adapter.get_info());
+                dbg!(adapter.limits());
+            }
+            Ok(Box::new(AppMultiplexer::new(args.files)))
+        }),
+    )
 }

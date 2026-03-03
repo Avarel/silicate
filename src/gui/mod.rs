@@ -303,6 +303,16 @@ impl ViewerGui {
             .frame(Frame::NONE)
             .show(context, |ui| {
                 self.layout_view(ui);
+
+                ui.input(|i| {
+                    i.raw.dropped_files.iter().for_each(|file| {
+                        if let Some(path) = &file.path {
+                            self.event_sender
+                                .send(AppEvent::LoadFile(path.to_path_buf()))
+                                .ok();
+                        }
+                    });
+                })
             });
     }
 }

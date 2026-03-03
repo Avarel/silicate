@@ -1,3 +1,5 @@
+use eframe::wgpu;
+
 use silica_gpu::{ProcreateFile, SilicaHierarchy, SilicaLayer};
 use silicate_compositor::tex::TextureExt;
 use silicate_compositor::{ChunkTile, CompositeLayer, Compositor, pipeline::Pipeline};

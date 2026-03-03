@@ -1,3 +1,5 @@
+use eframe::wgpu;
+
 use std::sync::{mpsc::Sender, Arc};
 
 use egui_dock::{NodeIndex, SurfaceIndex};

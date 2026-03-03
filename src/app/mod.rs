@@ -5,7 +5,7 @@ pub mod instance;
 use compositor::CompositorApp;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
-use egui_wgpu::wgpu;
+use eframe::egui_wgpu::wgpu;
 use instance::{Instance, InstanceKey};
 use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
@@ -25,6 +25,7 @@ pub enum AppEvent {
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
+    LoadFile(PathBuf),
     LoadDialog(SurfaceIndex, NodeIndex),
     SaveDialog(wgpu::Texture),
     Toast(Toast),
@@ -48,6 +49,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
             AppEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
             AppEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
+            AppEvent::LoadFile(_) => f.debug_tuple("LoadFile").field(&"...").finish(),
             AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
         }
@@ -77,6 +79,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn send_toast(&self, toast: Toast) {
         self.event_sender.send(AppEvent::Toast(toast)).ok();
     }
