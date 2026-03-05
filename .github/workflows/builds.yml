@@ -17,6 +17,11 @@ jobs:
       matrix:
         build: [x86_64-linux, x86_64-macos, x86_64-windows]
         include:
+        - build: wasm32
+          os: ubuntu-latest
+          rust: stable
+          target: wasm32-unknown-unknown
+          cross: false
         - build: x86_64-linux
           os: ubuntu-latest
           rust: stable
