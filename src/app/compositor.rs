@@ -230,7 +230,7 @@ impl CompositorApp {
             self.render_inner(&file, &output_texture);
         }
 
-        eprintln!("{} Done rendering", self.id)
+        log::debug!("{} Done rendering", self.id)
     }
 
     pub fn rendering_tick_blocking(&mut self, output_texture: &wgpu::Texture) {
@@ -263,7 +263,7 @@ impl CompositorApp {
             self.target
                 .load_chunk_buffer(self.composite_chunks.as_slice());
 
-            eprintln!(
+            log::debug!(
                 "{} Linearized {} chunks",
                 self.id,
                 self.composite_chunks.len()

@@ -18,6 +18,8 @@ wgpu = "27.0"
 default = []
 
 [dependencies]
+log = "0.4"
+
 silicate-compositor = { path = "libs/compositor" }
 silica-gpu = { path = "libs/silica-gpu" }
 
@@ -43,11 +45,13 @@ eframe = { version = "0.33", default-features = false, features = [
 egui_dock = "0.18"
 egui-notify = "0.21"
 
-memmap2 = "0.9"
-
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Async runtime
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11.8"
+memmap2 = "0.9"
 
 [profile.release]
 strip = true

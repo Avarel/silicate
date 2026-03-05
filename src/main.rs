@@ -12,6 +12,15 @@ struct Args {
 }
 
 fn main() -> eframe::Result {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "info"
+        },
+    ))
+    .init();
+
     let args = Args::parse();
 
     let icon_data = include_bytes!("../assets/icon.rgba").to_vec();

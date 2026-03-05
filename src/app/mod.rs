@@ -88,13 +88,13 @@ impl App {
             self.curr_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         );
-        eprintln!("{id} Loading file");
+        log::info!("{id} Loading file");
 
         let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(bytes, &self.device, &self.queue))
                 .unwrap();
 
-        eprintln!(
+        log::info!(
             "{id} Loaded Procreate document \"{}\" with {} layers",
             file.name.as_deref().unwrap_or("Untitled Artwork"),
             file.layer_count(true)
@@ -153,7 +153,7 @@ impl App {
             canvas: None,
         };
 
-        eprintln!(
+        log::debug!(
             "{id} Generating previews for Procreate document \"{}\"",
             file.name.as_deref().unwrap_or("Untitled Artwork")
         );
@@ -170,7 +170,7 @@ impl App {
             &self.pipeline,
         );
 
-        eprintln!(
+        log::info!(
             "{id} Instance created for Procreate document \"{}\"",
             file.name.as_deref().unwrap_or("Untitled Artwork")
         );
@@ -208,7 +208,7 @@ impl App {
         let data = buffer_slice.get_mapped_range().to_vec();
         output_buffer.unmap();
 
-        eprintln!("Loading data to CPU");
+        log::debug!("Loading data to CPU");
         let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
             dim.padded_bytes_per_row() / 4,
             dim.height(),
@@ -218,7 +218,7 @@ impl App {
 
         let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width(), dim.height()).to_image();
 
-        eprintln!("Saving the file to {}", path.display());
+        log::info!("Saving the file to {}", path.display());
         tokio::task::spawn_blocking(move || buffer.save(path))
             .await
             .unwrap()
