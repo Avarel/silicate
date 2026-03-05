@@ -22,10 +22,19 @@ impl AppMultiplexer {
     pub fn new(initial_files: Vec<PathBuf>) -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel();
         Self {
-            rt: tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("tokio runtime creation successful"),
+            rt: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    tokio::runtime::Builder::new_multi_thread()
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    tokio::runtime::Builder::new_current_thread()
+                }
+            }
+            .enable_all()
+            .build()
+            .expect("tokio runtime creation successful"),
             initial_files,
             running: None,
             event_sender,
@@ -42,11 +51,8 @@ impl eframe::App for AppMultiplexer {
                 let device = wgpu_render_state.device.clone();
                 let queue = wgpu_render_state.queue.clone();
 
-                let mut instance = AppInstance::new_for_eframe(
-                    device,
-                    queue,
-                    self.event_sender.clone(),
-                );
+                let mut instance =
+                    AppInstance::new_for_eframe(device, queue, self.event_sender.clone());
 
                 instance.load_files(std::mem::take(&mut self.initial_files));
                 self.running = Some(instance);
@@ -62,7 +68,7 @@ impl eframe::App for AppMultiplexer {
 
         // Render the GUI
         if let Some(app) = self.running.as_mut() {
-            for (compositor, texture) in app.compositors_mut() {
+            for (_, (compositor, texture)) in app.compositors_mut() {
                 compositor.rendering_tick_blocking(texture);
             }
             app.render_gui(ctx);

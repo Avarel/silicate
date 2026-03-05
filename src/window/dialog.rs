@@ -4,7 +4,6 @@ use std::sync::mpsc::Sender;
 
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
-use silicate_compositor::buffer::BufferDimensions;
 
 use crate::app::{App, AppEvent};
 
@@ -21,11 +20,7 @@ impl Dialog {
         self.event_sender.send(AppEvent::Toast(toast)).ok();
     }
 
-    pub async fn load_dialog(
-        self,
-        surface_index: SurfaceIndex,
-        node_index: NodeIndex,
-    ) {
+    pub async fn load_dialog(self, surface_index: SurfaceIndex, node_index: NodeIndex) {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("All Files", &["*"])
             .add_filter("Procreate Files", &["procreate"])
@@ -36,13 +31,30 @@ impl Dialog {
             return;
         };
 
-        self.event_sender
-            .send(AppEvent::LoadFilePath {
-                path: handle.path().to_path_buf(),
-                surface_index: Some(surface_index),
-                node_index: Some(node_index),
-            })
-            .unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.event_sender
+                .send(AppEvent::LoadFilePath {
+                    path: handle.path().to_path_buf(),
+                    surface_index: Some(surface_index),
+                    node_index: Some(node_index),
+                })
+                .unwrap();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use std::sync::Arc;
+
+            let data = handle.read().await;
+            log::info!("File read complete, loading file...");
+            self.event_sender
+                .send(AppEvent::LoadFileBytes {
+                    bytes: Arc::from(data),
+                    surface_index: Some(surface_index),
+                    node_index: Some(node_index),
+                })
+                .unwrap();
+        }
     }
 
     pub async fn save_dialog(
@@ -65,18 +77,33 @@ impl Dialog {
             return;
         };
 
-        let dim = BufferDimensions::from_extent(copied_texture.size());
-        let path = handle.path().to_path_buf();
-        if let Err(err) = App::export(&copied_texture, &device, &queue, dim, path).await {
-            self.send_toast(Toast::error(format!(
-                "File {} failed to export. Reason: {err}.",
-                handle.file_name()
-            )));
-        } else {
-            self.send_toast(Toast::success(format!(
-                "File {} successfully exported.",
-                handle.file_name()
-            )));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use silicate_compositor::buffer::BufferDimensions;
+
+            let dim = BufferDimensions::from_extent(copied_texture.size());
+            let path = handle.path().to_path_buf();
+
+            let image = App::export(&copied_texture, &device, &queue, dim)
+                .await
+                .unwrap();
+
+            log::info!("Saving the file to {}", path.display());
+            let save_result = tokio::task::spawn_blocking(move || image.save(path))
+                .await
+                .unwrap();
+
+            if let Err(err) = save_result {
+                self.send_toast(Toast::error(format!(
+                    "File {} failed to export. Reason: {err}.",
+                    handle.file_name()
+                )));
+            } else {
+                self.send_toast(Toast::success(format!(
+                    "File {} successfully exported.",
+                    handle.file_name()
+                )));
+            }
         }
     }
 }

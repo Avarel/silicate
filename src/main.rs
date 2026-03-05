@@ -1,17 +1,19 @@
-use clap::Parser;
 use silicate::AppMultiplexer;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-const INITIAL_SIZE: [f32; 2] = [1200.0, 700.0];
-
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-struct Args {
-    /// Files to open in the pager
-    files: Vec<PathBuf>,
-}
-
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
+    use clap::Parser;
+    use std::path::PathBuf;
+    const INITIAL_SIZE: [f32; 2] = [1200.0, 700.0];
+
+    #[derive(Parser, Debug)]
+    #[command(author, version, about)]
+    struct Args {
+        /// Files to open in the pager
+        files: Vec<PathBuf>,
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
         if cfg!(debug_assertions) {
             "debug"
@@ -73,6 +75,10 @@ fn adapter_selector(
 ) -> Result<eframe::wgpu::Adapter, String> {
     use eframe::egui_wgpu::wgpu;
     let mut adapters = adapters.iter().collect::<Vec<_>>();
+
+    for adapter in &adapters {
+        log::debug!("Found adapter: {:?}", adapter.get_info());
+    }
 
     // Prefer DX12 and Metal, then Vulkan, then OpenGL
     adapters.sort_by_key(|a| match a.get_info().backend {

@@ -88,6 +88,7 @@ impl App {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_file(&self, path: &Path) -> Result<InstanceKey, SilicaError> {
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
@@ -103,9 +104,12 @@ impl App {
         );
         log::info!("{id} Loading file");
 
-        let (file, metadata) =
-            tokio::task::block_in_place(|| ProcreateFile::open(bytes, &self.device, &self.queue))
-                .unwrap();
+        let open_file = || ProcreateFile::open(bytes, &self.device, &self.queue);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let (file, metadata) = tokio::task::block_in_place(open_file).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        let (file, metadata) = open_file().unwrap();
 
         log::info!(
             "{id} Loaded Procreate document \"{}\" with {} layers",
@@ -200,8 +204,7 @@ impl App {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         dim: BufferDimensions,
-        path: std::path::PathBuf,
-    ) -> image::ImageResult<()> {
+    ) -> image::ImageResult<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
         let output_buffer = texture.export_buffer(device, queue, dim);
 
         let buffer_slice = output_buffer.slice(..);
@@ -229,12 +232,7 @@ impl App {
         )
         .unwrap();
 
-        let buffer = image::imageops::crop_imm(&buffer, 0, 0, dim.width(), dim.height()).to_image();
-
-        log::info!("Saving the file to {}", path.display());
-        tokio::task::spawn_blocking(move || buffer.save(path))
-            .await
-            .unwrap()
+        Ok(image::imageops::crop_imm(&buffer, 0, 0, dim.width(), dim.height()).to_image())
     }
 
     pub fn rebind_texture(&self, id: InstanceKey) {

@@ -1,6 +1,7 @@
 mod dialog;
 
 use crate::app::compositor::CompositorApp;
+use crate::app::instance::InstanceKey;
 use crate::app::{App, AppEvent};
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
@@ -21,7 +22,7 @@ pub struct AppInstance {
     viewer: ViewerGui,
     toasts: Toasts,
     event_sender: Sender<AppEvent>,
-    compositors: Vec<(CompositorApp, wgpu::Texture)>,
+    compositors: HashMap<InstanceKey, (CompositorApp, wgpu::Texture)>,
 }
 
 impl AppInstance {
@@ -54,11 +55,11 @@ impl AppInstance {
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
             event_sender,
-            compositors: Vec::new(),
+            compositors: HashMap::new(),
         }
     }
 
-    pub fn compositors_mut(&mut self) -> &mut [(CompositorApp, wgpu::Texture)] {
+    pub fn compositors_mut(&mut self) -> &mut HashMap<InstanceKey, (CompositorApp, wgpu::Texture)> {
         &mut self.compositors
     }
 
@@ -78,6 +79,7 @@ impl AppInstance {
         match event {
             AppEvent::RemoveInstance(idx) => {
                 self.viewer.instances.remove(&idx);
+                self.compositors.remove(&idx);
             }
             AppEvent::RebindTexture(idx) => {
                 // Updates textures bound for EGUI rendering
@@ -164,7 +166,7 @@ impl AppInstance {
                 rt.spawn(compositor.rendering_thread(instance.output_texture.clone()));
                 #[cfg(target_arch = "wasm32")]
                 self.compositors
-                    .push((compositor, instance.output_texture.clone()));
+                    .insert(instance_key, (compositor, instance.output_texture.clone()));
 
                 self.viewer.instances.insert(instance_key, instance);
                 self.event_sender
@@ -226,7 +228,6 @@ impl AppInstance {
                 wasm_bindgen_futures::spawn_local(dialog);
             }
             AppEvent::SaveDialog(texture) => {
-                #[cfg(not(target_arch = "wasm32"))]
                 if let Some(eframe::egui_wgpu::RenderState { device, queue, .. }) =
                     frame.wgpu_render_state()
                 {
@@ -235,6 +236,7 @@ impl AppInstance {
                         queue.clone(),
                         texture,
                     );
+                    #[cfg(not(target_arch = "wasm32"))]
                     rt.spawn(dialog);
                 }
             }
