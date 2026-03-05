@@ -62,6 +62,9 @@ impl eframe::App for AppMultiplexer {
 
         // Render the GUI
         if let Some(app) = self.running.as_mut() {
+            for (compositor, texture) in app.compositors_mut() {
+                compositor.rendering_tick_blocking(texture);
+            }
             app.render_gui(ctx);
         }
     }

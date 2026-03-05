@@ -308,7 +308,19 @@ impl ViewerGui {
                     i.raw.dropped_files.iter().for_each(|file| {
                         if let Some(path) = &file.path {
                             self.event_sender
-                                .send(AppEvent::LoadFile(path.to_path_buf()))
+                                .send(AppEvent::LoadFilePath {
+                                    path: path.to_path_buf(),
+                                    surface_index: None,
+                                    node_index: None,
+                                })
+                                .ok();
+                        } else if let Some(bytes) = &file.bytes {
+                            self.event_sender
+                                .send(AppEvent::LoadFileBytes {
+                                    bytes: bytes.clone(),
+                                    surface_index: None,
+                                    node_index: None,
+                                })
                                 .ok();
                         }
                     });

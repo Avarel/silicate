@@ -15,7 +15,10 @@ use silicate_compositor::{
     pipeline::Pipeline,
     tex::TextureExt,
 };
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use std::{fs::OpenOptions, sync::Arc};
 use std::{sync::atomic::AtomicUsize, sync::mpsc::Sender, time::Duration};
 
@@ -25,7 +28,16 @@ pub enum AppEvent {
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
-    LoadFile(PathBuf),
+    LoadFilePath {
+        path: PathBuf,
+        surface_index: Option<SurfaceIndex>,
+        node_index: Option<NodeIndex>,
+    },
+    LoadFileBytes {
+        bytes: Arc<[u8]>,
+        surface_index: Option<SurfaceIndex>,
+        node_index: Option<NodeIndex>,
+    },
     LoadDialog(SurfaceIndex, NodeIndex),
     SaveDialog(wgpu::Texture),
     Toast(Toast),
@@ -49,7 +61,8 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
             AppEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
             AppEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
-            AppEvent::LoadFile(_) => f.debug_tuple("LoadFile").field(&"...").finish(),
+            AppEvent::LoadFilePath { .. } => f.debug_tuple("LoadFilePath").field(&"...").finish(),
+            AppEvent::LoadFileBytes { .. } => f.debug_tuple("LoadFilebytes").field(&"...").finish(),
             AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
         }
@@ -75,7 +88,7 @@ impl App {
         }
     }
 
-    pub fn load_file(&self, path: PathBuf) -> Result<InstanceKey, SilicaError> {
+    pub fn load_file(&self, path: &Path) -> Result<InstanceKey, SilicaError> {
         let file = OpenOptions::new().read(true).write(false).open(path)?;
 
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
@@ -83,7 +96,7 @@ impl App {
         self.load_bytes(&mapping)
     }
 
-    fn load_bytes(&self, bytes: &[u8]) -> Result<InstanceKey, SilicaError> {
+    pub fn load_bytes(&self, bytes: &[u8]) -> Result<InstanceKey, SilicaError> {
         let id = InstanceKey::new(
             self.curr_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),

@@ -1,6 +1,6 @@
 use eframe::wgpu;
 
-use std::sync::{mpsc::Sender, Arc};
+use std::sync::mpsc::Sender;
 
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
@@ -23,7 +23,6 @@ impl Dialog {
 
     pub async fn load_dialog(
         self,
-        app: Arc<App>,
         surface_index: SurfaceIndex,
         node_index: NodeIndex,
     ) {
@@ -37,23 +36,13 @@ impl Dialog {
             return;
         };
 
-        match app.load_file(handle.path().to_path_buf()) {
-            Err(err) => {
-                self.send_toast(Toast::error(format!(
-                    "File {} failed to load. Reason: {err}",
-                    handle.file_name()
-                )));
-            }
-            Ok(key) => {
-                self.send_toast(Toast::success(format!(
-                    "File {} successfully opened.",
-                    handle.file_name()
-                )));
-                self.event_sender
-                    .send(AppEvent::NewView(surface_index, node_index, key))
-                    .unwrap();
-            }
-        }
+        self.event_sender
+            .send(AppEvent::LoadFilePath {
+                path: handle.path().to_path_buf(),
+                surface_index: Some(surface_index),
+                node_index: Some(node_index),
+            })
+            .unwrap();
     }
 
     pub async fn save_dialog(

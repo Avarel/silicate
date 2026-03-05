@@ -1,11 +1,12 @@
 mod dialog;
 
+use crate::app::compositor::CompositorApp;
 use crate::app::{App, AppEvent};
 use crate::gui::{ViewOptions, ViewerGui};
 use dialog::Dialog;
+use eframe::wgpu;
 use egui::{Vec2, load::SizedTexture};
 use egui_notify::Toasts;
-use eframe::wgpu;
 use silicate_compositor::tex::TextureExt;
 use tokio::runtime::Runtime;
 
@@ -20,6 +21,7 @@ pub struct AppInstance {
     viewer: ViewerGui,
     toasts: Toasts,
     event_sender: Sender<AppEvent>,
+    compositors: Vec<(CompositorApp, wgpu::Texture)>,
 }
 
 impl AppInstance {
@@ -52,27 +54,23 @@ impl AppInstance {
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
             event_sender,
+            compositors: Vec::new(),
         }
+    }
+
+    pub fn compositors_mut(&mut self) -> &mut [(CompositorApp, wgpu::Texture)] {
+        &mut self.compositors
     }
 
     pub fn load_files(&mut self, paths: Vec<PathBuf>) {
         for path in paths {
-            match self.app.load_file(path) {
-                Err(err) => {
-                    self.toasts
-                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
-                }
-                Ok(key) => {
-                    self.toasts.success("Loaded file from command line.");
-                    self.event_sender
-                        .send(AppEvent::NewView(
-                            egui_dock::SurfaceIndex::main(),
-                            egui_dock::NodeIndex::root(),
-                            key,
-                        ))
-                        .unwrap();
-                }
-            }
+            self.event_sender
+                .send(AppEvent::LoadFilePath {
+                    path,
+                    surface_index: None,
+                    node_index: None,
+                })
+                .unwrap();
         }
     }
 
@@ -101,10 +99,9 @@ impl AppInstance {
                 let size = Vec2::new(output.size().width as f32, output.size().height as f32);
 
                 if let Some(eframe::egui_wgpu::RenderState {
-                    device,
-                    renderer,
-                    ..
-                }) = frame.wgpu_render_state() {
+                    device, renderer, ..
+                }) = frame.wgpu_render_state()
+                {
                     let mut renderer = renderer.write();
                     if let Some(tex) = &mut instance.canvas {
                         renderer.update_egui_texture_from_wgpu_texture(
@@ -115,11 +112,8 @@ impl AppInstance {
                         );
                         tex.size = size;
                     } else {
-                        let id = renderer.register_native_texture(
-                            device,
-                            &texture_view,
-                            texture_filter,
-                        );
+                        let id =
+                            renderer.register_native_texture(device, &texture_view, texture_filter);
                         instance.canvas = Some(SizedTexture { id, size });
                     }
                 }
@@ -140,10 +134,9 @@ impl AppInstance {
                 );
 
                 if let Some(eframe::egui_wgpu::RenderState {
-                    device,
-                    renderer,
-                    ..
-                }) = frame.wgpu_render_state() {
+                    device, renderer, ..
+                }) = frame.wgpu_render_state()
+                {
                     let mut renderer = renderer.write();
                     for i in 0..preview_texture.size().depth_or_array_layers {
                         let texture_view = preview_texture.create_view_layer(i);
@@ -167,7 +160,12 @@ impl AppInstance {
                 }
             }
             AppEvent::NewInstance(instance_key, instance, compositor) => {
+                #[cfg(not(target_arch = "wasm32"))]
                 rt.spawn(compositor.rendering_thread(instance.output_texture.clone()));
+                #[cfg(target_arch = "wasm32")]
+                self.compositors
+                    .push((compositor, instance.output_texture.clone()));
+
                 self.viewer.instances.insert(instance_key, instance);
                 self.event_sender
                     .send(AppEvent::RebindPreviews(instance_key))
@@ -179,38 +177,65 @@ impl AppInstance {
             AppEvent::Toast(toast) => {
                 self.toasts.add(toast);
             }
-            AppEvent::LoadFile(path) => {
-                match self.app.load_file(path) {
-                    Err(err) => {
-                        self.toasts
-                            .error(format!("File from drag/drop failed to load. Reason: {err}"));
-                    }
-                    Ok(key) => {
-                        self.toasts.success("Loaded file from drag/drop.");
-                        self.event_sender
-                            .send(AppEvent::NewView(
-                                egui_dock::SurfaceIndex::main(),
-                                egui_dock::NodeIndex::root(),
-                                key,
-                            ))
-                            .unwrap();
-                    }
+            #[cfg(not(target_arch = "wasm32"))]
+            AppEvent::LoadFilePath {
+                path,
+                surface_index,
+                node_index,
+            } => match self.app.load_file(&path) {
+                Err(err) => {
+                    self.toasts
+                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
                 }
-            }
+                Ok(key) => {
+                    self.toasts.success("Loaded file from drag/drop.");
+                    self.event_sender
+                        .send(AppEvent::NewView(
+                            surface_index.unwrap_or_else(egui_dock::SurfaceIndex::main),
+                            node_index.unwrap_or_else(egui_dock::NodeIndex::root),
+                            key,
+                        ))
+                        .unwrap();
+                }
+            },
+            AppEvent::LoadFileBytes {
+                bytes,
+                surface_index,
+                node_index,
+            } => match self.app.load_bytes(&bytes) {
+                Err(err) => {
+                    self.toasts
+                        .error(format!("File from drag/drop failed to load. Reason: {err}"));
+                }
+                Ok(key) => {
+                    self.toasts.success("Loaded file from drag/drop.");
+                    self.event_sender
+                        .send(AppEvent::NewView(
+                            surface_index.unwrap_or_else(egui_dock::SurfaceIndex::main),
+                            node_index.unwrap_or_else(egui_dock::NodeIndex::root),
+                            key,
+                        ))
+                        .unwrap();
+                }
+            },
             AppEvent::LoadDialog(surface, node) => {
-                rt.spawn(Dialog::new(self.event_sender.clone()).load_dialog(
-                    self.app.clone(),
-                    surface,
-                    node,
-                ));
+                let dialog = Dialog::new(self.event_sender.clone()).load_dialog(surface, node);
+                #[cfg(not(target_arch = "wasm32"))]
+                rt.spawn(dialog);
+                #[cfg(target_arch = "wasm32")]
+                wasm_bindgen_futures::spawn_local(dialog);
             }
             AppEvent::SaveDialog(texture) => {
-                if let Some(wgpu_render_state) = frame.wgpu_render_state() {
-                    rt.spawn(Dialog::new(self.event_sender.clone()).save_dialog(
-                        wgpu_render_state.device.clone(),
-                        wgpu_render_state.queue.clone(),
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(eframe::egui_wgpu::RenderState { device, queue, .. }) =
+                    frame.wgpu_render_state()
+                {
+                    let dialog = Dialog::new(self.event_sender.clone()).save_dialog(
+                        device.clone(),
+                        queue.clone(),
                         texture,
-                    ));
+                    );
+                    rt.spawn(dialog);
                 }
             }
             AppEvent::NewView(surface, node, id) => {
@@ -218,6 +243,10 @@ impl AppInstance {
                     .canvas_tree
                     .set_focused_node_and_surface((surface, node));
                 self.viewer.canvas_tree.push_to_focused_leaf(id);
+            }
+            #[allow(unreachable_patterns)]
+            _ => {
+                log::error!("Received unhandled AppEvent: {:?}", event);
             }
         }
     }

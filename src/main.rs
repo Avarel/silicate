@@ -59,8 +59,8 @@ fn main() -> eframe::Result {
             if let Some(eframe::egui_wgpu::RenderState { adapter, .. }) =
                 cc.wgpu_render_state.as_ref()
             {
-                dbg!(adapter.get_info());
-                dbg!(adapter.limits());
+                log::debug!("{:?}", adapter.get_info());
+                log::debug!("{:?}", adapter.limits());
             }
             Ok(Box::new(AppMultiplexer::new(args.files)))
         }),

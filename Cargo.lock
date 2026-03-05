@@ -2493,6 +2493,8 @@ dependencies = [
  "silica-gpu",
  "silicate-compositor",
  "tokio",
+ "wasm-bindgen-futures",
+ "web-sys",
  "winres",
 ]
 
