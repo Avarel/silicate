@@ -80,26 +80,23 @@ impl App {
 
         let mapping = unsafe { memmap2::Mmap::map(&file)? };
 
-        self.load_file_bytes(&mapping)
+        self.load_bytes(&mapping)
     }
 
-    fn load_file_bytes(&self, bytes: &[u8]) -> Result<InstanceKey, SilicaError> {
+    fn load_bytes(&self, bytes: &[u8]) -> Result<InstanceKey, SilicaError> {
         let id = InstanceKey::new(
             self.curr_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         );
         eprintln!("{id} Loading file");
 
-        let start = std::time::Instant::now();
-
         let (file, metadata) =
             tokio::task::block_in_place(|| ProcreateFile::open(bytes, &self.device, &self.queue))
                 .unwrap();
 
         eprintln!(
-            "{id} Loaded Procreate document \"{}\" in {}ms with {} layers",
+            "{id} Loaded Procreate document \"{}\" with {} layers",
             file.name.as_deref().unwrap_or("Untitled Artwork"),
-            start.elapsed().as_millis(),
             file.layer_count(true)
         );
 

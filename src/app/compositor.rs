@@ -15,6 +15,8 @@ pub struct CompositorApp {
     pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
     id: InstanceKey,
+    composite_layers: Vec<CompositeLayer>,
+    composite_chunks: Vec<ChunkTile>,
 }
 
 pub struct CompositorHandle {
@@ -167,7 +169,12 @@ impl CompositorApp {
             match layer {
                 SilicaHierarchy::Group(group) => {
                     target.render(pipeline, preview_textures.create_view_layer(group.id));
-                    Self::generate_layers_preview(pipeline, target, preview_textures, &group.children);
+                    Self::generate_layers_preview(
+                        pipeline,
+                        target,
+                        preview_textures,
+                        &group.children,
+                    );
                 }
 
                 SilicaHierarchy::Layer(layer) => {
@@ -201,6 +208,8 @@ impl CompositorApp {
             target,
             needs_to_load_chunks: AtomicBool::new(true),
             pipeline,
+            composite_layers: Vec::new(),
+            composite_chunks: Vec::new(),
         };
 
         let handle = CompositorHandle {
@@ -212,56 +221,70 @@ impl CompositorApp {
     }
 
     pub async fn rendering_thread(mut self, output_texture: wgpu::Texture) {
-        let mut composite_layers = Vec::new();
-        let mut composite_chunks: Vec<ChunkTile> = Vec::new();
-
         loop {
             let file = match self.rx.changed().await {
-                Ok(_) => (*self.rx.borrow()).clone(),
+                Ok(()) => (*self.rx.borrow_and_update()).clone(),
                 Err(_) => break,
             };
 
-            let new_layer_config = file.layers.clone();
-            // TODO: add render by composite mode
-            // let new_layer_config = [SilicaHierarchy::Layer(file.composite.clone().unwrap())];
-
-            let background = (!file.background_hidden).then_some(file.background_color);
-
-            let reload_chunks = self
-                .needs_to_load_chunks
-                .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
-
-            if reload_chunks {
-                let start = std::time::Instant::now();
-                Self::linearize_silica_chunks(&mut composite_chunks, &new_layer_config, true);
-                composite_chunks.sort_by_key(|v| (v.col, v.row));
-                self.target.load_chunk_buffer(composite_chunks.as_slice());
-
-                eprintln!(
-                    "{} Linearized {} chunks in {}ms",
-                    self.id,
-                    composite_chunks.len(),
-                    start.elapsed().as_millis()
-                );
-            }
-
-            Self::linearize_silica_layers(&mut composite_layers, &new_layer_config);
-            self.target.load_layer_buffer(composite_layers.as_slice());
-
-            self.target.set_background(background);
-            self.target
-                .set_flipped(file.flipped.horizontally, file.flipped.vertically);
-            self.target
-                .render(&self.pipeline, output_texture.create_default_view());
-            // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
-            // {
-            //     const { assert!(cfg!(debug_assertions)); }
-            //     std::thread::sleep(std::time::Duration::from_secs(1));
-            // }
-            // Debugging notes: if the GPU is highly contended, the main
-            // GUI rendering can still be somewhat sluggish.
+            self.render_inner(&file, &output_texture);
         }
 
-        eprintln!("Done rendering")
+        eprintln!("{} Done rendering", self.id)
+    }
+
+    pub fn rendering_tick_blocking(&mut self, output_texture: &wgpu::Texture) {
+        match self.rx.has_changed() {
+            Ok(true) => {
+                let file = (*self.rx.borrow_and_update()).clone();
+                self.render_inner(&file, output_texture);
+            }
+            Ok(false) => {}
+            Err(_) => {
+                panic!("{} Compositor channel closed unexpectedly", self.id);
+            }
+        }
+    }
+
+    fn render_inner(&mut self, file: &ProcreateFile, output_texture: &wgpu::Texture) {
+        let new_layer_config = file.layers.clone();
+        // TODO: add render by composite mode
+        // let new_layer_config = [SilicaHierarchy::Layer(file.composite.clone().unwrap())];
+
+        let background = (!file.background_hidden).then_some(file.background_color);
+
+        let reload_chunks = self
+            .needs_to_load_chunks
+            .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
+
+        if reload_chunks {
+            Self::linearize_silica_chunks(&mut self.composite_chunks, &new_layer_config, true);
+            self.composite_chunks.sort_by_key(|v| (v.col, v.row));
+            self.target
+                .load_chunk_buffer(self.composite_chunks.as_slice());
+
+            eprintln!(
+                "{} Linearized {} chunks",
+                self.id,
+                self.composite_chunks.len()
+            );
+        }
+
+        Self::linearize_silica_layers(&mut self.composite_layers, &new_layer_config);
+        self.target
+            .load_layer_buffer(self.composite_layers.as_slice());
+
+        self.target.set_background(background);
+        self.target
+            .set_flipped(file.flipped.horizontally, file.flipped.vertically);
+        self.target
+            .render(&self.pipeline, output_texture.create_default_view());
+        // ENABLE TO DEBUG: hold the lock to make sure the GUI is responsive
+        // {
+        //     const { assert!(cfg!(debug_assertions)); }
+        //     std::thread::sleep(std::time::Duration::from_secs(1));
+        // }
+        // Debugging notes: if the GPU is highly contended, the main
+        // GUI rendering can still be somewhat sluggish.
     }
 }
