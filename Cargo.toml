@@ -63,10 +63,8 @@ lto = true
 panic = "abort"
 codegen-units = 1
 
-[target.'cfg(windows)'.build-dependencies]
-winres = "0.1"
-
 [build-dependencies]
+winres = "0.1"
 cc = "1.2"
 
 [package.metadata.bundle]

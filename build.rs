@@ -1,11 +1,9 @@
 use std::io;
-#[cfg(windows)]
-use winres::WindowsResource;
 
 fn main() -> io::Result<()> {
     #[cfg(windows)]
-    {
-        WindowsResource::new()
+    if std::env::var_os("CARGO_CFG_WINDOWS").is_some(){
+        winres::WindowsResource::new()
             .set_icon("assets/favicon.ico")
             .compile()?;
     }
