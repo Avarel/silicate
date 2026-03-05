@@ -1,4 +1,5 @@
 use crate::{error::SilicaError, params::LoadParams};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::{iter::IntoParallelRefIterator, prelude::ParallelIterator};
 use std::{io::Read, num::NonZeroU32};
 
@@ -58,78 +59,81 @@ impl SilicaLayer {
         params: &LoadParams<'_>,
         is_mask: bool,
     ) -> Result<SilicaLayer, SilicaError> {
-        let chunks = params
-            .file_names
-            .par_iter()
-            .filter(|path| path.starts_with(info.uuid.as_str()))
-            .map(|path| -> Result<SilicaChunk, SilicaError> {
-                let mut archive = params.archive.clone();
+        let chunks = {
+            #[cfg(not(target_arch = "wasm32"))]
+            let iter = params.file_names.par_iter();
+            #[cfg(target_arch = "wasm32")]
+            let iter = params.file_names.iter();
+            iter
+        }
+        .filter(|path| path.starts_with(info.uuid.as_str()))
+        .map(|path| -> Result<SilicaChunk, SilicaError> {
+            let mut archive = params.archive.clone();
 
-                let chunk_str = &path[info.uuid.len() + 1..path.find('.').unwrap_or(path.len())];
-                let (col, row) = Self::parse_chunk_str(chunk_str)?;
+            let chunk_str = &path[info.uuid.len() + 1..path.find('.').unwrap_or(path.len())];
+            let (col, row) = Self::parse_chunk_str(chunk_str)?;
 
-                let tile_extent = params.tiling.tile_extent(col, row);
+            let tile_extent = params.tiling.tile_extent(col, row);
 
-                // impossible
-                let mut chunk = archive.by_name(path).expect("path not inside zip");
+            // impossible
+            let mut chunk = archive.by_name(path).expect("path not inside zip");
 
-                let mut buf = Vec::with_capacity(chunk.size() as usize);
-                chunk.read_to_end(&mut buf)?;
+            let mut buf = Vec::with_capacity(chunk.size() as usize);
+            chunk.read_to_end(&mut buf)?;
 
-                let data_len = tile_extent.width as usize
-                    * tile_extent.height as usize
-                    * Self::RGBA_CHANNEL_COUNT;
+            let data_len =
+                tile_extent.width as usize * tile_extent.height as usize * Self::RGBA_CHANNEL_COUNT;
 
-                // Try RGBA first (4 channels), but fall back to grayscale (1 channel) for masks
-                let decompress_len = if is_mask {
-                    tile_extent.width as usize * tile_extent.height as usize
-                } else {
-                    data_len
-                };
+            // Try RGBA first (4 channels), but fall back to grayscale (1 channel) for masks
+            let decompress_len = if is_mask {
+                tile_extent.width as usize * tile_extent.height as usize
+            } else {
+                data_len
+            };
 
-                let mut data = Vec::with_capacity(decompress_len);
+            let mut data = Vec::with_capacity(decompress_len);
 
-                // RGBA = 4 channels of 8 bits each
-                // Masks are grayscale = 1 channel of 8 bits
-                let data = if path.ends_with(".lz4") {
-                    lz4::decompress(buf.as_slice(), &mut data)?;
-                    data
-                } else {
-                    assert!(path.ends_with(".chunk"));
-                    data.resize(decompress_len, 0);
-                    lzokay::decompress::decompress(buf.as_slice(), &mut data)?;
-                    data
-                };
+            // RGBA = 4 channels of 8 bits each
+            // Masks are grayscale = 1 channel of 8 bits
+            let data = if path.ends_with(".lz4") {
+                lz4::decompress(buf.as_slice(), &mut data)?;
+                data
+            } else {
+                assert!(path.ends_with(".chunk"));
+                data.resize(decompress_len, 0);
+                lzokay::decompress::decompress(buf.as_slice(), &mut data)?;
+                data
+            };
 
-                let data = if is_mask {
-                    // Expand grayscale mask to RGBA by replicating the single channel into R, G, B and setting A to the same value
-                    data.into_iter()
-                        .flat_map(|v| [v; Self::RGBA_CHANNEL_COUNT])
-                        .collect()
-                } else {
-                    data
-                };
+            let data = if is_mask {
+                // Expand grayscale mask to RGBA by replicating the single channel into R, G, B and setting A to the same value
+                data.into_iter()
+                    .flat_map(|v| [v; Self::RGBA_CHANNEL_COUNT])
+                    .collect()
+            } else {
+                data
+            };
 
-                assert_eq!(data.len(), data_len);
+            assert_eq!(data.len(), data_len);
 
-                let atlas_index = NonZeroU32::new(params.allocate_chunk_id()).unwrap();
+            let atlas_index = NonZeroU32::new(params.allocate_chunk_id()).unwrap();
 
-                let origin = params.tiling.atlas_origin(atlas_index.get());
+            let origin = params.tiling.atlas_origin(atlas_index.get());
 
-                Self::replace_from_bytes(
-                    params.queue,
-                    params.atlas_texture,
-                    &data,
-                    origin,
-                    tile_extent,
-                );
-                Ok(SilicaChunk {
-                    col,
-                    row,
-                    atlas_index,
-                })
+            Self::replace_from_bytes(
+                params.queue,
+                params.atlas_texture,
+                &data,
+                origin,
+                tile_extent,
+            );
+            Ok(SilicaChunk {
+                col,
+                row,
+                atlas_index,
             })
-            .collect::<Result<Vec<SilicaChunk>, _>>()?;
+        })
+        .collect::<Result<Vec<SilicaChunk>, _>>()?;
 
         Ok(SilicaLayer {
             image: SilicaImageData { chunks },

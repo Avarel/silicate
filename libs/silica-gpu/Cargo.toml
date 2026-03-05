@@ -15,4 +15,6 @@ lzokay = { version = "2.0", default-features = false, features = [
     "decompress",
 ] }
 lz4_flex = { version = "0.12", default-features = false, features = ["frame"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"

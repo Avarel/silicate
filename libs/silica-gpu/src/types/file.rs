@@ -2,12 +2,12 @@ use crate::ZipArchiveMmap;
 use crate::error::SilicaError;
 use crate::tiling::{AtlasTextureTiling, CanvasTiling};
 use crate::types::{hierarchy::SilicaHierarchy, layer::SilicaLayer};
-use rayon::iter::ParallelDrainRange;
-use rayon::prelude::ParallelIterator;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::{iter::ParallelDrainRange, prelude::ParallelIterator};
 use silica::ns_archive::NsArchive;
 use silica::ns_archive::Size;
-use std::sync::atomic::AtomicU32;
 use std::io::{Cursor, Read};
+use std::sync::atomic::AtomicU32;
 use zip::read::ZipArchive;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,11 +126,15 @@ impl ProcreateFile {
                     .composite
                     .take()
                     .and_then(|composite| SilicaLayer::load(composite, &params, false).ok()),
-                layers: info
-                    .layers
-                    .par_drain(..)
-                    .map(|ir| SilicaHierarchy::load(ir, &params))
-                    .collect::<Result<_, _>>()?,
+                layers: {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let iter = info.layers.par_drain(..);
+                    #[cfg(target_arch = "wasm32")]
+                    let iter = info.layers.drain(..);
+                    iter
+                }
+                .map(|ir| SilicaHierarchy::load(ir, &params))
+                .collect::<Result<_, _>>()?,
                 info,
             },
             ProcreateFileAtlas {

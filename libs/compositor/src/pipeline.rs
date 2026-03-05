@@ -185,14 +185,14 @@ impl Pipeline {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(any(not(debug_assertions), target_arch = "wasm32"))]
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     // In release mode, the final binary includes the file directly so that
     // the binary does not rely on the shader file being at a specific location.
     wgpu::include_wgsl!("shader.wgsl")
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
 fn shader_load() -> wgpu::ShaderModuleDescriptor<'static> {
     // In debug mode, this reads directly from a file so that recompilation
     // will not be necessary in the event that only the shader file changes.
