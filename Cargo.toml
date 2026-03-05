@@ -72,5 +72,5 @@ cc = "1.2"
 [package.metadata.bundle]
 name = "Silicate"
 identifier = "io.antran.silicate"
-icon = ["assets/icon.ico"]
+icon = ["assets/favicon.ico"]
 category = "Utility"

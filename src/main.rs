@@ -25,7 +25,7 @@ fn main() -> eframe::Result {
 
     let args = Args::parse();
 
-    let icon_data = include_bytes!("../assets/icon.rgba").to_vec();
+    let icon_data = include_bytes!("../assets/favicon.rgba").to_vec();
     let taskbar_icon = egui::IconData {
         rgba: icon_data,
         width: 240,
