@@ -5,9 +5,6 @@ on:
     branches:
       - master
 
-env:
-  BIN_NAME: silicate
-
 jobs:
   build_job:
     name: Build master branch
@@ -16,30 +13,35 @@ jobs:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
         include:
-        - build: wasm32
-          os: ubuntu-latest
-          rust: stable
-          target: wasm32-unknown-unknown
-          cross: false
-        - build: x86_64-linux
-          os: ubuntu-latest
-          rust: stable
-          target: x86_64-unknown-linux-gnu
-          cross: false
-        - build: x86_64-macos
-          os: macos-latest
-          rust: stable
-          target: x86_64-apple-darwin
-          cross: false
         - build: x86_64-windows
           os: windows-latest
           rust: stable
           target: x86_64-pc-windows-msvc
           cross: false
+          bin_name: silicate.exe
+        - build: x86_64-linux
+          os: ubuntu-latest
+          rust: stable
+          target: x86_64-unknown-linux-gnu
+          cross: false
+          bin_name: silicate
+        - build: x86_64-macos
+          os: macos-latest
+          rust: stable
+          target: x86_64-apple-darwin
+          cross: false
+          bin_name: silicate
         - build: aarch64-macos
           os: macos-latest
           rust: stable
           target: aarch64-apple-darwin
+          bin_name: silicate
+        - build: wasm32
+          os: ubuntu-latest
+          rust: stable
+          target: wasm32-unknown-unknown
+          cross: false
+          bin_name: silicate.wasm
         # - build: aarch64-linux
         #   os: ubuntu-latest
         #   rust: stable
@@ -68,14 +70,10 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" "dist/"
-          else
-            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "dist/"
-          fi
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "dist/"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.build }}
+          name: release-${{ matrix.build }}-${{ matrix.bin_name }}
           path: dist
