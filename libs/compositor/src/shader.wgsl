@@ -28,7 +28,7 @@ struct TileInstance {
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) coords: vec2f,
-    @location(1) silo_index: u32,
+    @location(1) @interpolate(flat) silo_index: u32,
 };
 
 @vertex
