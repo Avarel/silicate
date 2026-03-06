@@ -87,7 +87,7 @@ fn main() {
                     wgpu_options: wgpu_config(),
                     ..Default::default()
                 },
-                Box::new(|cc| Ok(Box::new(silicate::AppMultiplexer::new(Vec::new())))),
+                Box::new(|_cc| Ok(Box::new(silicate::AppMultiplexer::new(Vec::new())))),
             )
             .await;
 

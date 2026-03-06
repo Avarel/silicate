@@ -10,19 +10,20 @@
     <title>Silicate</title>
 
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
-    <link data-trunk rel="rust" data-wasm-opt="2" />
+    <link data-trunk rel="rust" data-wasm-opt="3"
+        data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
     <base data-trunk-public-url />
 
     <link data-trunk rel="icon" href="assets/favicon.ico">
 
 
-    <link data-trunk rel="copy-file" href="assets/sw.js"/>
-    <link data-trunk rel="copy-file" href="assets/manifest.json"/>
-    <link data-trunk rel="copy-file" href="assets/icon-1024.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/icon-256.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/icon_ios_touch_192.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/maskable_icon_x512.png" data-target-path="assets"/>
+    <link data-trunk rel="copy-file" href="assets/sw.js" />
+    <link data-trunk rel="copy-file" href="assets/manifest.json" />
+    <link data-trunk rel="copy-file" href="assets/icon-1024.png" data-target-path="assets" />
+    <link data-trunk rel="copy-file" href="assets/icon-256.png" data-target-path="assets" />
+    <link data-trunk rel="copy-file" href="assets/icon_ios_touch_192.png" data-target-path="assets" />
+    <link data-trunk rel="copy-file" href="assets/maskable_icon_x512.png" data-target-path="assets" />
 
 
     <link rel="manifest" href="manifest.json">
