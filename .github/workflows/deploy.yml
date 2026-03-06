@@ -16,6 +16,25 @@ jobs:
         with:
           submodules: true
 
+      - name: Cache Git LFS objects
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs/objects
+          key: $-git-lfs-$-$
+          restore-keys: |
+            $-git-lfs-$-
+            $-git-lfs-
+
+      - name: Ensure LFS files are real (materialize)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git lfs fetch origin "${GITHUB_SHA}"
+          git lfs checkout
+          echo "LFS files tracked (pointer -> actual):"
+          git lfs ls-files
+
       - name: Install ${{ matrix.rust }} toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
