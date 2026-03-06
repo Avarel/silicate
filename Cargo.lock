@@ -2465,7 +2465,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "silica"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "plist",
  "thiserror 2.0.18",
@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "silica-gpu"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "lz4_flex",
  "lzokay",
@@ -2486,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "silicate"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "cc",
  "clap",
@@ -2509,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "silicate-compositor"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",

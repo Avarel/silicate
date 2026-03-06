@@ -5,36 +5,47 @@
   <img src="media/editor.png" width="400"/>
 </p>
 
-Cross-platform native viewer for `.procreate` files. There is a
-`reference.procreate` file in the base directory for users to try.
+This is the repository for Silicate, a GPU-accelerated, cross-platform native/web viewer for [`.procreate` files](https://procreate.com/).
 
-## Downloads
-* Latest builds are available through CI [here](https://github.com/Avarel/procreate-rs/actions/).
+## Getting Started
+* Cutting-edge web viewer is available [here](https://avarel.github.io/silicate/).
+* Stable native builds are available through the [Releases page](https://github.com/Avarel/silicate/releases).
+  * Same macOS note applies as above.
+* Cutting-edge native builds are available through the [CI pipeline](https://github.com/Avarel/silicate/actions/).
   * Download the `release-{insert your OS here}` zip and unpack to obtain the binary.
     * macOS users: You will need to unpack the zip and the dmg file to access
       the binary. You might also need to go to System Preferences and allow the
       application to run, since there is no code signing.
+    * Alternatively, you can remove the quarantine attribute with the following command:
+      `xattr -d com.apple.quarantine <file_path>`
+
+Don't have a Procreate file? There is a `reference.procreate` file in the base directory for you to try.
 
 ## Features
-* Native desktop app for Windows, macOS, and Linux.
-* Load and view multiple `.procreate` files at once.
-* Export `.procreate` files to `png`, `jpeg`, `tga`, `tiff`, `webp`, `bmp` formats.
+* Native desktop app for Windows, macOS, and Linux, and a [web viewer](https://avarel.github.io/silicate/) for modern browsers.
+  * Load and view multiple `.procreate` files at once.
+  * Drag and drop loading.
+  * Export `.procreate` files to `png`, `jpeg`, `tga`, `tiff`, `webp`, `bmp` formats.
 * Change layer settings and live-preview the final result.
-  * Currently supports blending modes, clipping masks, masks, opacity, hiding, and groups.
-* Drag and drop loading.
+  * Supports blending modes, clipping masks, masks, opacity, hiding, and groups.
+* UI inspired by Procreate's own app.
 * GPU rendering, leveraging cross-platform `wgpu` integration.
   * Rotate and flip the canvas at orthogonal angles and orientations.
   * Rotate the view arbitrarily.
   * Smooth or pixelated sampling in the viewer.
 
-### Wishlist
-The following features will probably be added sometime in the future.
-* Documentation.
-* More utilization of `async` mechanics.
-* PSD export.
-* PSD preview (limited).
-
 ## Notes
+### Web Viewer
+The [web viewer](https://avarel.github.io/silicate/) only works on modern browsers that support WebGPU and WebAssembly. It is also significantly slower than the native viewer due to the additional overhead of the web environment and single-threaded execution. Unlike the native viewer, the web viewer does not support exporting for now.
+
+Compositing is driven by the UI thread, which means that the compositor will
+block the UI thread. This is not a problem for the native viewer, as the
+compositor runs on its own thread. However, for the web viewer, this means
+that the UI can be unresponsive during compositing for large files.
+
+In addition, the web viewer cannot leverage multithreaded decoding of the
+Procreate file, which makes larger files take a longer time to load.
+
 ### Accuracy
 The renderer produces slightly different results from the reference render by
 Procreate's engine. The compositor produces accurate blending results except for
