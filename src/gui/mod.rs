@@ -250,6 +250,11 @@ impl ViewerGui {
                         ))
                         .ok();
                 }
+
+                #[cfg(target_arch = "wasm32")]
+                if ui.button("Load Demo File").clicked() {
+                    self.event_sender.send(AppEvent::LoadDemoFile).ok();
+                }
             });
         } else {
             egui_dock::DockArea::new(&mut self.canvas_tree)

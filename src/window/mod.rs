@@ -76,6 +76,11 @@ impl AppInstance {
     }
 
     pub fn handle_user_event(&mut self, event: AppEvent, rt: &Runtime, frame: &mut eframe::Frame) {
+        #[cfg(target_arch = "wasm32")]
+        // rt is unused on wasm, so we bind it to _ to avoid a warning.
+        // On native, we use rt to spawn blocking tasks for file loading and saving.
+        let _ = rt;
+
         match event {
             AppEvent::RemoveInstance(idx) => {
                 self.viewer.instances.remove(&idx);
@@ -238,6 +243,8 @@ impl AppInstance {
                     );
                     #[cfg(not(target_arch = "wasm32"))]
                     rt.spawn(dialog);
+                    #[cfg(target_arch = "wasm32")]
+                    drop(dialog); // Saving not currently supported on wasm, so we just drop the future that would run the save dialog
                 }
             }
             AppEvent::NewView(surface, node, id) => {
@@ -245,6 +252,31 @@ impl AppInstance {
                     .canvas_tree
                     .set_focused_node_and_surface((surface, node));
                 self.viewer.canvas_tree.push_to_focused_leaf(id);
+            }
+            #[cfg(target_arch = "wasm32")]
+            AppEvent::LoadDemoFile => {
+                use crate::web::demo::fetch_demo_file;
+                let event_sender = self.event_sender.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match fetch_demo_file().await {
+                        Ok(bytes) => {
+                            event_sender
+                                .send(AppEvent::LoadFileBytes {
+                                    bytes: Arc::from(bytes),
+                                    surface_index: None,
+                                    node_index: None,
+                                })
+                                .unwrap();
+                        }
+                        Err(_) => {
+                            event_sender
+                                .send(AppEvent::Toast(egui_notify::Toast::error(
+                                    "Failed to fetch demo file.",
+                                )))
+                                .unwrap();
+                        }
+                    }
+                });
             }
             #[allow(unreachable_patterns)]
             _ => {

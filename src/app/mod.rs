@@ -15,11 +15,10 @@ use silicate_compositor::{
     pipeline::Pipeline,
     tex::TextureExt,
 };
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
-use std::{fs::OpenOptions, sync::Arc};
+use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs::OpenOptions, path::Path};
 use std::{sync::atomic::AtomicUsize, sync::mpsc::Sender, time::Duration};
 
 pub enum AppEvent {
@@ -28,6 +27,7 @@ pub enum AppEvent {
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     LoadFilePath {
         path: PathBuf,
         surface_index: Option<SurfaceIndex>,
@@ -41,6 +41,8 @@ pub enum AppEvent {
     LoadDialog(SurfaceIndex, NodeIndex),
     SaveDialog(wgpu::Texture),
     Toast(Toast),
+    #[cfg(target_arch = "wasm32")]
+    LoadDemoFile,
 }
 
 impl std::fmt::Debug for AppEvent {
@@ -65,6 +67,8 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::LoadFileBytes { .. } => f.debug_tuple("LoadFilebytes").field(&"...").finish(),
             AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
+            #[cfg(target_arch = "wasm32")]
+            AppEvent::LoadDemoFile => f.debug_tuple("LoadDemoFile").finish(),
         }
     }
 }
@@ -198,6 +202,7 @@ impl App {
         Ok(id)
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     /// Export the texture to the given path.
     pub async fn export(
         texture: &wgpu::Texture,

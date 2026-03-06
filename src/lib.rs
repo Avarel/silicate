@@ -2,6 +2,9 @@ mod app;
 mod gui;
 mod window;
 
+#[cfg(target_arch = "wasm32")]
+mod web;
+
 use app::AppEvent;
 use std::{
     path::PathBuf,

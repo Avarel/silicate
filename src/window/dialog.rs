@@ -5,7 +5,7 @@ use std::sync::mpsc::Sender;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
 
-use crate::app::{App, AppEvent};
+use crate::app::AppEvent;
 
 pub struct Dialog {
     event_sender: Sender<AppEvent>,
@@ -57,6 +57,7 @@ impl Dialog {
         }
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused))]
     pub async fn save_dialog(
         self,
         device: wgpu::Device,
@@ -84,7 +85,7 @@ impl Dialog {
             let dim = BufferDimensions::from_extent(copied_texture.size());
             let path = handle.path().to_path_buf();
 
-            let image = App::export(&copied_texture, &device, &queue, dim)
+            let image = crate::app::App::export(&copied_texture, &device, &queue, dim)
                 .await
                 .unwrap();
 

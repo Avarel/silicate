@@ -220,6 +220,7 @@ impl CompositorApp {
         (compositor, handle)
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub async fn rendering_thread(mut self, output_texture: wgpu::Texture) {
         loop {
             let file = match self.rx.changed().await {
@@ -233,6 +234,7 @@ impl CompositorApp {
         log::debug!("{} Done rendering", self.id)
     }
 
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub fn rendering_tick_blocking(&mut self, output_texture: &wgpu::Texture) {
         match self.rx.has_changed() {
             Ok(true) => {
