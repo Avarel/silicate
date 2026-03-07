@@ -94,6 +94,7 @@ pub struct ViewOptions {
     pub extended_crosshair: bool,
     pub smooth: bool,
     pub grid: bool,
+    pub theme: egui::ThemePreference,
 }
 
 struct CanvasGui<'a> {
@@ -136,18 +137,54 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
 
                 Grid::new("View Grid").show(ui, |ui| {
                     ui.label("Grid View");
-                    ui.checkbox(&mut self.view_options.grid, "Enable");
+                    ui.horizontal(|ui| {
+                        ui
+                            .selectable_value(
+                                &mut self.view_options.grid,
+                                false,
+                                "Disabled",
+                            )
+                            .changed();
+                        ui
+                            .selectable_value(
+                                &mut self.view_options.grid,
+                                true,
+                                "Enabled",
+                            )
+                            .changed();
+                    });
                     ui.end_row();
-                    ui.label("Extended Crosshair");
-                    ui.checkbox(&mut self.view_options.extended_crosshair, "Enable");
+                    ui.label("Crosshair");
+                    ui.horizontal(|ui| {
+                        ui
+                            .selectable_value(
+                                &mut self.view_options.extended_crosshair,
+                                false,
+                                "Disabled",
+                            )
+                            .changed();
+                        ui
+                            .selectable_value(
+                                &mut self.view_options.extended_crosshair,
+                                true,
+                                "Enabled",
+                            )
+                            .changed();
+                    });
                     ui.end_row();
-                    ui.label("Smooth Sampling");
-                    if ui
-                        .checkbox(&mut self.view_options.smooth, "Enable")
-                        .changed()
-                    {
-                        self.app.rebind_texture(*tab);
-                    }
+                    ui.label("Sampling");
+                    ui.horizontal(|ui| {
+                        let mut changed = false;
+                        changed |= ui
+                            .selectable_value(&mut self.view_options.smooth, false, "Nearest")
+                            .changed();
+                        changed |= ui
+                            .selectable_value(&mut self.view_options.smooth, true, "Linear")
+                            .changed();
+                        if changed {
+                            self.app.rebind_texture(*tab);
+                        }
+                    });
                     ui.end_row();
                     ui.label("Rotation");
                     ui.add(
@@ -156,8 +193,40 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                                 let degree = v.to_degrees();
                                 format!("{degree:.0}")
                             })
+                            .custom_parser(|s| s.parse::<f64>().map(|d| d.to_radians()).ok())
                             .suffix(" deg"),
                     );
+
+                    ui.end_row();
+                    ui.label("Theme");
+                    ui.horizontal(|ui| {
+                        let mut changed = false;
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.view_options.theme,
+                                egui::ThemePreference::System,
+                                "System",
+                            )
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.view_options.theme,
+                                egui::ThemePreference::Light,
+                                "Light",
+                            )
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.view_options.theme,
+                                egui::ThemePreference::Dark,
+                                "Dark",
+                            )
+                            .changed();
+
+                        if changed {
+                            ui.ctx().set_theme(self.view_options.theme);
+                        }
+                    });
                 });
 
                 ControlsGui::layout_canvas_control(ui, instance);
@@ -256,6 +325,8 @@ impl ViewerGui {
             egui_dock::DockArea::new(&mut self.canvas_tree)
                 .id(Id::new("view.dock"))
                 .style({
+                    let corner_radius = CornerRadius::same(5);
+
                     let mut style = egui_dock::Style::from_egui(ui.style());
                     style.tab.tab_body.inner_margin = Margin::ZERO;
                     style.tab_bar.height = 50.0;
@@ -266,20 +337,20 @@ impl ViewerGui {
 
                     style.tab_bar.bg_fill = Color32::TRANSPARENT;
 
-                    style.tab.active.corner_radius = CornerRadius::same(10);
+                    style.tab.active.corner_radius = corner_radius;
                     style.tab.active.bg_fill = Color32::TRANSPARENT;
                     style.tab.active.outline_color = Color32::TRANSPARENT;
 
-                    style.tab.inactive.corner_radius = CornerRadius::same(10);
+                    style.tab.inactive.corner_radius = corner_radius;
                     style.tab.inactive.bg_fill = Color32::TRANSPARENT;
                     style.tab.inactive.outline_color = Color32::TRANSPARENT;
 
-                    style.tab.focused.corner_radius = CornerRadius::same(10);
+                    style.tab.focused.corner_radius = corner_radius;
                     style.tab.focused.outline_color = Color32::TRANSPARENT;
                     style.tab.focused.bg_fill = widgets::ACCENT_COLOR;
                     style.tab.focused.text_color = Color32::WHITE;
 
-                    style.tab.hovered.corner_radius = CornerRadius::same(10);
+                    style.tab.hovered.corner_radius = corner_radius;
                     style.tab.hovered.bg_fill = ui.visuals().widgets.hovered.bg_fill;
                     style.tab.hovered.outline_color = Color32::TRANSPARENT;
 

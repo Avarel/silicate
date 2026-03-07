@@ -7,8 +7,23 @@
 
 This is the repository for Silicate, a GPU-accelerated, cross-platform native/web viewer for [`.procreate` files](https://procreate.com/).
 
-## Getting Started
+Don't have a Procreate file? There is a `reference.procreate` file in the base directory for you to try.
+
+## [Web Viewer](https://avarel.github.io/silicate/)
+
 * Cutting-edge web viewer is available [here](https://avarel.github.io/silicate/).
+* The [web viewer](https://avarel.github.io/silicate/) only works on modern browsers that support WebGPU and WebAssembly.
+  * It is also significantly slower than the native viewer due to the additional overhead of the web environment and single-threaded execution.
+  * **Unlike the native viewer, the web viewer does not support exporting for now.**
+* Compositing is driven by the UI thread, which means that the compositor will
+block the UI thread. This is not a problem for the native viewer, as the
+compositor runs on its own thread. **However, for the web viewer, this means
+that the UI can be unresponsive during compositing for large files.**
+* In addition, the web viewer cannot leverage multithreaded decoding of the
+Procreate file, which makes larger files take a longer time to load.
+
+## [Native Viewer](https://github.com/Avarel/silicate/releases)
+
 * Stable native builds are available through the [Releases page](https://github.com/Avarel/silicate/releases).
   * Same macOS note applies as above.
 * Cutting-edge native builds are available through the [CI pipeline](https://github.com/Avarel/silicate/actions/).
@@ -19,7 +34,6 @@ This is the repository for Silicate, a GPU-accelerated, cross-platform native/we
     * Alternatively, you can remove the quarantine attribute with the following command:
       `xattr -d com.apple.quarantine <file_path>`
 
-Don't have a Procreate file? There is a `reference.procreate` file in the base directory for you to try.
 
 ## Features
 * Native desktop app for Windows, macOS, and Linux, and a [web viewer](https://avarel.github.io/silicate/) for modern browsers.
@@ -35,16 +49,6 @@ Don't have a Procreate file? There is a `reference.procreate` file in the base d
   * Smooth or pixelated sampling in the viewer.
 
 ## Notes
-### Web Viewer
-The [web viewer](https://avarel.github.io/silicate/) only works on modern browsers that support WebGPU and WebAssembly. It is also significantly slower than the native viewer due to the additional overhead of the web environment and single-threaded execution. Unlike the native viewer, the web viewer does not support exporting for now.
-
-Compositing is driven by the UI thread, which means that the compositor will
-block the UI thread. This is not a problem for the native viewer, as the
-compositor runs on its own thread. However, for the web viewer, this means
-that the UI can be unresponsive during compositing for large files.
-
-In addition, the web viewer cannot leverage multithreaded decoding of the
-Procreate file, which makes larger files take a longer time to load.
 
 ### Accuracy
 The renderer produces slightly different results from the reference render by

@@ -16,8 +16,7 @@ impl LayerControl<'_> {
         });
 
         Grid::new(self.layer.id).show(ui, |ui| {
-            ui.label("Clipped");
-            Checkbox::without_text(&mut self.layer.clipped).ui(ui);
+            ui.toggle_value(&mut self.layer.clipped, "Clipped");
         });
         ui.add_space(10.0);
     }

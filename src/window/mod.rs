@@ -45,6 +45,7 @@ impl AppInstance {
                 smooth: false,
                 grid: true,
                 extended_crosshair: false,
+                theme: egui::ThemePreference::System,
             },
             canvas_tree: egui_dock::DockState::new(Vec::new()),
             event_sender: event_sender.clone(),
