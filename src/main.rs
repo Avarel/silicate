@@ -56,12 +56,7 @@ fn main() -> eframe::Result {
         "Silicate",
         options,
         Box::new(|cc| {
-            if let Some(eframe::egui_wgpu::RenderState { adapter, .. }) =
-                cc.wgpu_render_state.as_ref()
-            {
-                log::debug!("{:?}", adapter.get_info());
-                log::debug!("{:?}", adapter.limits());
-            }
+            app_creator_helper(cc);
             Ok(Box::new(AppMultiplexer::new(args.files)))
         }),
     )
@@ -92,7 +87,10 @@ fn main() {
                     wgpu_options: wgpu_config(),
                     ..Default::default()
                 },
-                Box::new(|_cc| Ok(Box::new(AppMultiplexer::new(Vec::new())))),
+                Box::new(|cc| {
+                    app_creator_helper(cc);
+                    Ok(Box::new(AppMultiplexer::new(Vec::new())))
+                }),
             )
             .await;
 
@@ -111,6 +109,16 @@ fn main() {
             }
         }
     });
+}
+
+fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
+    if let Some(eframe::egui_wgpu::RenderState { adapter, .. }) =
+        cc.wgpu_render_state.as_ref()
+    {
+        log::debug!("{:?}", adapter.get_info());
+        log::debug!("{:?}", adapter.limits());
+    }
+    cc.egui_ctx.set_theme(egui::Theme::Dark);
 }
 
 fn wgpu_config() -> eframe::egui_wgpu::WgpuConfiguration {
