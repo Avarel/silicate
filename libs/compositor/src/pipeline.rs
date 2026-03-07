@@ -163,7 +163,7 @@ impl Pipeline {
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    strip_index_format: None,
+                    strip_index_format: Some(wgpu::IndexFormat::Uint16),
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,

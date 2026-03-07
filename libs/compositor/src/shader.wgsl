@@ -346,7 +346,7 @@ fn sample_atlas_texture(atlas_index: u32, coords: vec2f) -> vec4f {
     let a_grid = vec2f(f32(atlas.cols), f32(atlas.rows));
     let a_coords = atlas_coords(atlas_index);
     let uv = (vec2f(a_coords.xy) + coords) / a_grid;
-    return textureSample(atlas_texture, splr, uv, a_coords.z);
+    return textureSampleLevel(atlas_texture, splr, uv, a_coords.z, 0);
 }
 
 fn to_premultiplied(c: vec4f) -> vec3f {
