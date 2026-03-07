@@ -39,7 +39,7 @@ impl<'a> LayerMask<'a> {
                     sw: 0,
                     se: 0,
                 },
-                super::PREVIEW_BG,
+                ui.visuals().faint_bg_color,
             ));
 
             preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
@@ -68,9 +68,9 @@ impl<'a> LayerMask<'a> {
 
         let response = frame.allocate_space(ui);
         if response.hovered() {
-            frame.frame.fill = Color32::from_gray(45)
+            frame.frame.fill = ui.visuals().widgets.hovered.bg_fill;
         } else {
-            frame.frame.fill = Color32::from_gray(35)
+            frame.frame.fill = ui.visuals().widgets.inactive.bg_fill;
         }
         frame.paint(ui);
 

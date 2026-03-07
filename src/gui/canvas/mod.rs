@@ -397,12 +397,14 @@ impl PreparedView<'_> {
     fn ui(self, ui: &mut Ui, response: &Response) {
         let transform = &self.transform;
 
+        let bg_color = ui.visuals().code_bg_color;
+
         let mut plot_ui = ui.new_child(UiBuilder::new().max_rect(*transform.frame()));
         plot_ui.set_clip_rect(*transform.frame());
         plot_ui.painter().rect(
             plot_ui.max_rect(),
             CornerRadius::default(),
-            Color32::from_gray(32),
+            bg_color,
             Stroke::NONE,
             StrokeKind::Outside,
         );
@@ -410,12 +412,14 @@ impl PreparedView<'_> {
         if self.show_grid {
             let painter = plot_ui.painter();
 
+            let line_color = bg_color.lerp_to_gamma(Color32::GRAY, 0.075);
+
             for x in (plot_ui.max_rect().min.x as u32..plot_ui.max_rect().max.x as u32).step_by(15)
             {
                 painter.vline(
                     x as f32,
                     plot_ui.max_rect().y_range(),
-                    Stroke::new(1.0, Color32::from_gray(40)),
+                    Stroke::new(1.0, line_color),
                 );
             }
             for y in (plot_ui.max_rect().min.y as u32..plot_ui.max_rect().max.y as u32).step_by(15)
@@ -423,7 +427,7 @@ impl PreparedView<'_> {
                 painter.hline(
                     plot_ui.max_rect().x_range(),
                     y as f32,
-                    Stroke::new(1.0, Color32::from_gray(40)),
+                    Stroke::new(1.0, line_color),
                 );
             }
         }
@@ -446,7 +450,7 @@ impl PreparedView<'_> {
 
             painter.add(Shape::mesh({
                 let mut mesh = Mesh::default();
-                mesh.add_colored_rect(rect, Color32::from_rgba_premultiplied(0, 0, 0, 50));
+                mesh.add_colored_rect(rect, Color32::from_rgba_premultiplied(0, 0, 0, 20));
                 mesh.rotate(rot, origin);
                 mesh
             }));
@@ -463,7 +467,7 @@ impl PreparedView<'_> {
                     p
                 });
 
-                Shape::closed_line(points.to_vec(), Stroke::new(1.5, Color32::BLACK))
+                Shape::closed_line(points.to_vec(), Stroke::new(1.0, ui.visuals().extreme_bg_color))
             });
 
             image

@@ -3,13 +3,13 @@ mod silicate;
 mod widgets;
 
 use egui::{Frame, *};
-use egui_dock::{tab_viewer::OnCloseResponse, NodeIndex, SurfaceIndex};
+use egui_dock::{NodeIndex, SurfaceIndex, tab_viewer::OnCloseResponse};
 use std::collections::HashMap;
-use std::sync::{mpsc::Sender, Arc};
+use std::sync::{Arc, mpsc::Sender};
 
 use crate::app::{
-    instance::{Instance, InstanceKey},
     App, AppEvent,
+    instance::{Instance, InstanceKey},
 };
 
 use canvas::CanvasView;
@@ -77,11 +77,7 @@ impl ControlsGui {
         });
     }
 
-    fn layout_export_control(
-        ui: &mut Ui,
-        event_sender: &Sender<AppEvent>,
-        instance: &Instance,
-    ) {
+    fn layout_export_control(ui: &mut Ui, event_sender: &Sender<AppEvent>, instance: &Instance) {
         Grid::new("Share Grid").num_columns(2).show(ui, |ui| {
             ui.label("Actions");
             ui.vertical(|ui| {
@@ -271,19 +267,22 @@ impl ViewerGui {
                     style.tab_bar.bg_fill = Color32::TRANSPARENT;
 
                     style.tab.active.corner_radius = CornerRadius::same(10);
+                    style.tab.active.bg_fill = Color32::TRANSPARENT;
                     style.tab.active.outline_color = Color32::TRANSPARENT;
 
                     style.tab.inactive.corner_radius = CornerRadius::same(10);
+                    style.tab.inactive.bg_fill = Color32::TRANSPARENT;
                     style.tab.inactive.outline_color = Color32::TRANSPARENT;
 
                     style.tab.focused.corner_radius = CornerRadius::same(10);
                     style.tab.focused.outline_color = Color32::TRANSPARENT;
                     style.tab.focused.bg_fill = widgets::ACCENT_COLOR;
+                    style.tab.focused.text_color = Color32::WHITE;
 
                     style.tab.hovered.corner_radius = CornerRadius::same(10);
+                    style.tab.hovered.bg_fill = ui.visuals().widgets.hovered.bg_fill;
                     style.tab.hovered.outline_color = Color32::TRANSPARENT;
 
-                    style.buttons.close_tab_color = Color32::WHITE;
                     style.buttons.close_tab_bg_fill = Color32::TRANSPARENT;
 
                     style
@@ -305,7 +304,7 @@ impl ViewerGui {
 
     pub fn layout_gui(&mut self, context: &Context) {
         CentralPanel::default()
-            .frame(Frame::NONE)
+            .frame(Frame::NONE.fill(context.style().visuals.panel_fill))
             .show(context, |ui| {
                 self.layout_view(ui);
 

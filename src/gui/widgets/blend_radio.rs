@@ -30,23 +30,29 @@ impl<'a> BlendModeRadio<'a> {
             ui.set_width(ui.available_width());
 
             for b in BlendingMode::all() {
+                let selected = b == self.value;
+
                 let mut frame = egui::Frame::NONE
                     .inner_margin(Margin::symmetric(10, 3))
                     .begin(ui);
                 {
                     let ui = &mut frame.content_ui;
                     ui.set_width(ui.available_width());
-                    Label::new(RichText::new(b.as_str()).color(Color32::WHITE))
-                        .selectable(false)
-                        .ui(ui);
+                    Label::new(RichText::new(b.as_str()).color(if selected {
+                        Color32::WHITE
+                    } else {
+                        ui.visuals().weak_text_color()
+                    }))
+                    .selectable(false)
+                    .ui(ui);
                 }
                 let response = ui.allocate_rect(frame.content_ui.min_rect(), Sense::click());
 
-                if b == self.value {
+                if selected {
                     scroll_to_value = response.rect.min.y - min_y;
                     frame.frame.fill = super::ACCENT_COLOR;
                 } else if response.hovered() {
-                    frame.frame.fill = Color32::from_rgb(50, 50, 50)
+                    frame.frame.fill = ui.visuals().widgets.hovered.bg_fill;
                 }
 
                 if response.clicked() {
@@ -70,7 +76,7 @@ impl<'a> BlendModeRadio<'a> {
         let mut response = egui::Frame::default()
             .inner_margin(Margin::symmetric(0, 5))
             .corner_radius(4)
-            .fill(Color32::from_rgb(20, 20, 20))
+            .fill(ui.visuals().widgets.inactive.bg_fill)
             .show(ui, |ui| self.layout_scroll_area(ui))
             .response;
 

@@ -22,7 +22,7 @@ impl PaneMenu {
             ui.with_layout(Layout::top_down(self.align), |ui| {
                 let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
-                    Id::new(&self.name), // ui.next_auto_id(),
+                    ui.next_auto_id(),
                     false,
                 );
 

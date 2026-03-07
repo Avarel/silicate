@@ -9,23 +9,21 @@ pub struct Pane {
 }
 
 impl Pane {
-    const SHADOW: Shadow = Shadow {
-        offset: [0, 0],
-        blur: 20,
-        spread: 10,
-        color: Color32::from_black_alpha(75),
-    };
-
     pub fn new(name: String, width: f32) -> Self {
         Self { name, width }
     }
 
     pub fn show<R>(self, ui: &mut Ui, add_body: impl FnOnce(&mut Ui) -> R) {
         Frame::new()
-            .fill(Color32::from_rgba_premultiplied(25, 25, 25, 254))
+            .fill(ui.visuals().window_fill)
             .inner_margin(10)
             .corner_radius(10)
-            .shadow(Self::SHADOW)
+            .shadow(Shadow {
+                offset: [0, 0],
+                blur: 20,
+                spread: 10,
+                color: ui.visuals().window_shadow.color,
+            })
             .show(ui, |ui| {
                 ui.set_width(self.width);
                 ui.with_layout(Layout::default(), |ui| {
@@ -35,7 +33,7 @@ impl Pane {
                                 RichText::new(&self.name)
                                     .heading()
                                     .strong()
-                                    .color(Color32::WHITE),
+                                    .color(ui.visuals().strong_text_color()),
                             )
                             .selectable(false),
                         );

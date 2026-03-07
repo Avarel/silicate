@@ -20,17 +20,17 @@ impl PaneButton {
     }
 
     fn menu_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
-        let small_rect_size = rect.size() * 0.75;
-        let bar_rect_size = small_rect_size * vec2(1.0, 0.15);
-        let top_rect =
-            Rect::from_center_size(rect.min + rect.size() * vec2(0.5, 0.2), bar_rect_size);
-        let mid_rect = Rect::from_center_size(rect.center(), bar_rect_size);
-        let bot_rect =
-            Rect::from_center_size(rect.min + rect.size() * vec2(0.5, 0.8), bar_rect_size);
+        ui.painter().add(Shape::rect_filled(rect, 5.0, color));
 
-        ui.painter().add(Shape::rect_filled(top_rect, 1.0, color));
-        ui.painter().add(Shape::rect_filled(mid_rect, 1.0, color));
-        ui.painter().add(Shape::rect_filled(bot_rect, 1.0, color));
+        let text_color = Color32::DARK_GRAY;
+
+        let galley = ui.painter().layout_no_wrap(
+            "?".into(),
+            TextStyle::Monospace.resolve(ui.style()),
+            text_color,
+        );
+        let text_pos = rect.center() - galley.size() / 2.0;
+        ui.painter().add(Shape::galley(text_pos, galley, text_color));
     }
 
     fn layer_button_drawer(ui: &mut Ui, rect: Rect, color: Color32) {
@@ -71,7 +71,7 @@ impl PaneButton {
         let color = if active {
             super::super::ACCENT_COLOR
         } else {
-            Color32::WHITE
+            visuals.fg_stroke.color
         };
 
         (self.drawer)(ui, rect, color);

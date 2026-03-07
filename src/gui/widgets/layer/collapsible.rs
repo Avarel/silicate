@@ -83,6 +83,8 @@ impl<'a> LayerCollapsible<'a> {
                 ui.set_min_height(super::HEIGHT);
             }
 
+            let preview_bg = ui.visuals().faint_bg_color;
+
             if !state.is_open() || !self.size_change_on_open {
                 let (mut preview_rect, _) = ui
                     .allocate_exact_size(vec2(super::PREVIEW_WIDTH, super::HEIGHT), Sense::empty());
@@ -97,11 +99,11 @@ impl<'a> LayerCollapsible<'a> {
                             sw: super::PREVIEW_CORNER_RADIUS,
                             se: super::PREVIEW_CORNER_RADIUS,
                         },
-                        super::PREVIEW_BG,
+                        preview_bg,
                     ));
                 } else {
                     ui.painter()
-                        .add(Shape::rect_filled(preview_rect, 5, super::PREVIEW_BG));
+                        .add(Shape::rect_filled(preview_rect, 5, preview_bg));
                 }
 
                 preview_body(&mut ui.new_child(UiBuilder::new().max_rect(preview_rect)));
@@ -114,7 +116,7 @@ impl<'a> LayerCollapsible<'a> {
                     Sense::empty(),
                 );
                 ui.painter()
-                    .add(Shape::rect_filled(preview_rect, 2, super::PREVIEW_BG));
+                    .add(Shape::rect_filled(preview_rect, 2, preview_bg));
             }
 
             Label::new(RichText::new(self.name).strong())
@@ -154,9 +156,9 @@ impl<'a> LayerCollapsible<'a> {
 
         let response = frame.allocate_space(ui);
         if response.hovered() {
-            frame.frame.fill = Color32::from_gray(45)
+            frame.frame.fill = ui.visuals().widgets.hovered.bg_fill;
         } else {
-            frame.frame.fill = Color32::from_gray(35)
+            frame.frame.fill = ui.visuals().widgets.inactive.bg_fill;
         }
         frame.paint(ui);
 

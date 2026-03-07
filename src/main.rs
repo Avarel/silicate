@@ -118,7 +118,24 @@ fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
         log::debug!("{:?}", adapter.get_info());
         log::debug!("{:?}", adapter.limits());
     }
-    cc.egui_ctx.set_theme(egui::Theme::Dark);
+
+    let default_dark_visuals = egui::Visuals::dark();
+
+    cc.egui_ctx.set_visuals_of(egui::Theme::Dark, egui::Visuals {
+        code_bg_color: egui::Color32::from_gray(32),
+        widgets: egui::style::Widgets {
+            active: egui::style::WidgetVisuals {
+                bg_fill: egui::Color32::from_gray(45),
+                ..default_dark_visuals.widgets.active
+            },
+            inactive: egui::style::WidgetVisuals {
+                bg_fill: egui::Color32::from_gray(35),
+                ..default_dark_visuals.widgets.inactive
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 }
 
 fn wgpu_config() -> eframe::egui_wgpu::WgpuConfiguration {
