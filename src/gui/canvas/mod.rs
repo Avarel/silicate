@@ -223,6 +223,14 @@ impl<'a> CanvasView<'a> {
             auto_bounds = false.into();
         }
 
+        if allow_drag {
+            let multi_touch = ui.input(|i| i.multi_touch());
+            if let Some(multi_touch) = multi_touch {
+                transform.translate_bounds(multi_touch.translation_delta);
+                auto_bounds = false.into();
+            }
+        }
+
         let image_size = image.as_ref().and_then(|image| image.size());
 
         let prepared = PreparedView {
@@ -341,6 +349,10 @@ impl<'a> CanvasView<'a> {
                 if zoom_factor != Vec2::splat(1.0) {
                     transform.zoom(zoom_factor, hover_pos);
                     auto_bounds = false.into();
+                }
+                let multi_touch = ui.input(|i| i.multi_touch());
+                if let Some(multi_touch) = multi_touch {
+                    transform.zoom(Vec2::splat(multi_touch.zoom_delta), multi_touch.center_pos);
                 }
             }
             if allow_scroll {
