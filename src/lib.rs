@@ -2,6 +2,10 @@ mod app;
 mod gui;
 mod window;
 
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 #[cfg(target_arch = "wasm32")]
 mod web;
 

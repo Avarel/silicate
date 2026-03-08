@@ -137,38 +137,26 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                 Grid::new("View Grid").show(ui, |ui| {
                     ui.label("Grid View");
                     ui.horizontal(|ui| {
-                        ui
-                            .selectable_value(
-                                &mut self.view_options.grid,
-                                false,
-                                "Disabled",
-                            )
+                        ui.selectable_value(&mut self.view_options.grid, false, "Disabled")
                             .changed();
-                        ui
-                            .selectable_value(
-                                &mut self.view_options.grid,
-                                true,
-                                "Enabled",
-                            )
+                        ui.selectable_value(&mut self.view_options.grid, true, "Enabled")
                             .changed();
                     });
                     ui.end_row();
                     ui.label("Crosshair");
                     ui.horizontal(|ui| {
-                        ui
-                            .selectable_value(
-                                &mut self.view_options.extended_crosshair,
-                                false,
-                                "Disabled",
-                            )
-                            .changed();
-                        ui
-                            .selectable_value(
-                                &mut self.view_options.extended_crosshair,
-                                true,
-                                "Enabled",
-                            )
-                            .changed();
+                        ui.selectable_value(
+                            &mut self.view_options.extended_crosshair,
+                            false,
+                            "Disabled",
+                        )
+                        .changed();
+                        ui.selectable_value(
+                            &mut self.view_options.extended_crosshair,
+                            true,
+                            "Enabled",
+                        )
+                        .changed();
                     });
                     ui.end_row();
                     ui.label("Sampling");
@@ -202,31 +190,17 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                         let mut theme = ui.ctx().options(|opt| opt.theme_preference);
                         let mut changed = false;
                         changed |= ui
-                            .selectable_value(
-                                &mut theme,
-                                egui::ThemePreference::System,
-                                "System",
-                            )
+                            .selectable_value(&mut theme, egui::ThemePreference::System, "System")
                             .changed();
                         changed |= ui
-                            .selectable_value(
-                                &mut theme,
-                                egui::ThemePreference::Light,
-                                "Light",
-                            )
+                            .selectable_value(&mut theme, egui::ThemePreference::Light, "Light")
                             .changed();
                         changed |= ui
-                            .selectable_value(
-                                &mut theme,
-                                egui::ThemePreference::Dark,
-                                "Dark",
-                            )
+                            .selectable_value(&mut theme, egui::ThemePreference::Dark, "Dark")
                             .changed();
 
                         if changed {
-                            self.event_sender
-                                .send(AppEvent::SetTheme(theme))
-                                .unwrap();
+                            self.event_sender.send(AppEvent::SetTheme(theme)).unwrap();
                         }
                     });
                 });
@@ -305,23 +279,70 @@ impl ViewerGui {
                 ui.available_height() / 2.0 - ui.text_style_height(&style::TextStyle::Button),
             ));
             ui.vertical_centered(|ui| {
-                Label::new("Drag and drop Procreate documents to view them.")
-                    .selectable(false)
-                    .ui(ui);
+                let width = (ui.available_width() - 50.0).max(0.0);
+                let height = ui.available_height().max(0.0);
 
-                if ui.button("Load Procreate File").clicked() {
-                    self.event_sender
-                        .send(AppEvent::LoadDialog(
-                            SurfaceIndex::main(),
-                            NodeIndex::root(),
-                        ))
-                        .ok();
-                }
+                let max_width = 300.0;
+                let max_height = 200.0;
 
-                #[cfg(target_arch = "wasm32")]
-                if ui.button("Load Demo File").clicked() {
-                    self.event_sender.send(AppEvent::LoadDemoFile).ok();
-                }
+                Area::new(ui.next_auto_id())
+                    .movable(false)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.set_width(width.min(max_width));
+                        ui.set_height(height.min(max_height));
+
+                        ui.horizontal(|ui| {
+                            Label::new(
+                                RichText::new("Silicate")
+                                    .heading()
+                                    .strong()
+                                    .color(ui.visuals().strong_text_color()),
+                            )
+                            .selectable(false)
+                            .ui(ui);
+
+                            let git_hash =
+                                crate::built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown hash");
+                            let pkg_version = crate::built_info::PKG_VERSION;
+                            let version_string = format!("v{pkg_version} ({git_hash})");
+                            Label::new(
+                                RichText::new(version_string)
+                                    .small()
+                                    .color(ui.visuals().strong_text_color()),
+                            )
+                            .selectable(false)
+                            .ui(ui);
+                        });
+
+                        Label::new("GPU-accelerated viewer for the Procreate file format.")
+                            .selectable(false)
+                            .ui(ui);
+                        ui.add_space(10.0);
+                        Label::new("Drag and drop Procreate documents to view them.")
+                            .selectable(false)
+                            .ui(ui);
+
+                        egui::warn_if_debug_build(ui);
+
+                        ui.separator();
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            if ui.button("Open File").clicked() {
+                                self.event_sender
+                                    .send(AppEvent::LoadDialog(
+                                        SurfaceIndex::main(),
+                                        NodeIndex::root(),
+                                    ))
+                                    .ok();
+                            }
+
+                            #[cfg(target_arch = "wasm32")]
+                            if ui.button("Load Demo File").clicked() {
+                                self.event_sender.send(AppEvent::LoadDemoFile).ok();
+                            }
+                        });
+                    });
+
             });
         } else {
             egui_dock::DockArea::new(&mut self.canvas_tree)

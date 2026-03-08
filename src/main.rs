@@ -11,6 +11,7 @@ fn main() -> eframe::Result {
     use clap::Parser;
     use std::path::PathBuf;
     const INITIAL_SIZE: [f32; 2] = [1200.0, 700.0];
+    const MINIMUM_SIZE: [f32; 2] = [800.0, 600.0];
 
     #[derive(Parser, Debug)]
     #[command(author, version, about)]
@@ -40,7 +41,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(INITIAL_SIZE)
-            .with_min_inner_size(INITIAL_SIZE)
+            .with_min_inner_size(MINIMUM_SIZE)
             .with_decorations(true)
             .with_resizable(true)
             .with_transparent(true)
