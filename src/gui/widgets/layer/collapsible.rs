@@ -5,7 +5,6 @@ pub struct LayerCollapsible<'a> {
     name: String,
     hidden: &'a mut bool,
     size_change_on_open: bool,
-    corner_radius: CornerRadius,
     has_mask: bool,
     blend_mode: Option<silica_gpu::BlendingMode>,
 }
@@ -17,7 +16,6 @@ impl<'a> LayerCollapsible<'a> {
             name: name.into(),
             hidden,
             size_change_on_open: true,
-            corner_radius: CornerRadius::same(super::CORNER_RADIUS),
             has_mask: false,
             blend_mode: None,
         }
@@ -25,11 +23,6 @@ impl<'a> LayerCollapsible<'a> {
 
     pub fn size_change(mut self, size_change: bool) -> Self {
         self.size_change_on_open = size_change;
-        self
-    }
-
-    pub fn corner_radius(mut self, corner_radius: CornerRadius) -> Self {
-        self.corner_radius = corner_radius;
         self
     }
 
@@ -73,7 +66,16 @@ impl<'a> LayerCollapsible<'a> {
 
         let mut control_width = 0.0;
         let mut frame = egui::Frame::new()
-            .corner_radius(self.corner_radius)
+            .corner_radius(if self.has_mask {
+                CornerRadius {
+                    nw: 0,
+                    ne: 0,
+                    sw: super::CORNER_RADIUS,
+                    se: super::CORNER_RADIUS,
+                }
+            } else {
+                CornerRadius::same(super::CORNER_RADIUS)
+            })
             .inner_margin(super::PADDING)
             .begin(ui);
         frame.content_ui.horizontal(|ui| {

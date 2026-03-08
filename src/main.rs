@@ -58,7 +58,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             app_creator_helper(cc);
-            Ok(Box::new(AppMultiplexer::new(args.files)))
+            let mut app = AppMultiplexer::new();
+            app.set_initial_files(args.files);
+            Ok(Box::new(app))
         }),
     )
 }
@@ -90,7 +92,7 @@ fn main() {
                 },
                 Box::new(|cc| {
                     app_creator_helper(cc);
-                    Ok(Box::new(AppMultiplexer::new(Vec::new())))
+                    Ok(Box::new(AppMultiplexer::new()))
                 }),
             )
             .await;

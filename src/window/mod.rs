@@ -11,13 +11,14 @@ use eframe::wgpu;
 use egui::{Vec2, load::SizedTexture};
 use egui_notify::Toasts;
 use silicate_compositor::tex::TextureExt;
-use tokio::runtime::Runtime;
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{Arc, mpsc::Sender},
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
 
 pub struct AppInstance {
     app: Arc<App>,
@@ -70,10 +71,11 @@ impl AppInstance {
         &mut self.compositors
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_files(&mut self, paths: Vec<PathBuf>) {
         for path in paths {
             self.event_sender
-                .send(AppEvent::LoadFilePath {
+                .send(AppEvent::LoadFile {
                     path,
                     surface_index: None,
                     node_index: None,
@@ -85,7 +87,7 @@ impl AppInstance {
     pub fn handle_user_event(
         &mut self,
         event: AppEvent,
-        rt: &Runtime,
+        rt: &super::UnifiedRuntime,
         ctx: &egui::Context,
         frame: &mut eframe::Frame,
     ) {
@@ -198,7 +200,7 @@ impl AppInstance {
                 self.toasts.add(toast);
             }
             #[cfg(not(target_arch = "wasm32"))]
-            AppEvent::LoadFilePath {
+            AppEvent::LoadFile {
                 path,
                 surface_index,
                 node_index,
@@ -218,7 +220,8 @@ impl AppInstance {
                         .unwrap();
                 }
             },
-            AppEvent::LoadFileBytes {
+            #[cfg(target_arch = "wasm32")]
+            AppEvent::LoadFile {
                 bytes,
                 surface_index,
                 node_index,
@@ -240,10 +243,7 @@ impl AppInstance {
             },
             AppEvent::LoadDialog(surface, node) => {
                 let dialog = Dialog::new(self.event_sender.clone()).load_dialog(surface, node);
-                #[cfg(not(target_arch = "wasm32"))]
                 rt.spawn(dialog);
-                #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(dialog);
             }
             AppEvent::SaveDialog(texture) => {
                 if let Some(eframe::egui_wgpu::RenderState { device, queue, .. }) =
@@ -254,10 +254,7 @@ impl AppInstance {
                         queue.clone(),
                         texture,
                     );
-                    #[cfg(not(target_arch = "wasm32"))]
                     rt.spawn(dialog);
-                    #[cfg(target_arch = "wasm32")]
-                    wasm_bindgen_futures::spawn_local(dialog);
                 }
             }
             AppEvent::NewView(surface, node, id) => {
@@ -274,11 +271,11 @@ impl AppInstance {
             AppEvent::LoadDemoFile => {
                 use crate::web::fetch_demo_file;
                 let event_sender = self.event_sender.clone();
-                wasm_bindgen_futures::spawn_local(async move {
+                rt.spawn(async move {
                     match fetch_demo_file().await {
                         Ok(bytes) => {
                             event_sender
-                                .send(AppEvent::LoadFileBytes {
+                                .send(AppEvent::LoadFile {
                                     bytes: Arc::from(bytes),
                                     surface_index: None,
                                     node_index: None,
@@ -294,10 +291,6 @@ impl AppInstance {
                         }
                     }
                 });
-            }
-            #[allow(unreachable_patterns)]
-            _ => {
-                log::error!("Received unhandled AppEvent: {:?}", event);
             }
         }
     }

@@ -72,16 +72,6 @@ impl LayersHierarchy<'_> {
 
             let collapsible = LayerCollapsible::new(id, layer_name, hidden)
                 .size_change(size_change)
-                .corner_radius(if has_mask {
-                    CornerRadius {
-                        nw: 0,
-                        ne: 0,
-                        sw: crate::gui::widgets::layer::CORNER_RADIUS,
-                        se: crate::gui::widgets::layer::CORNER_RADIUS,
-                    }
-                } else {
-                    CornerRadius::same(crate::gui::widgets::layer::CORNER_RADIUS)
-                })
                 .has_mask(has_mask)
                 .blend_mode(blend_mode)
                 .ui(ui, |ui| {

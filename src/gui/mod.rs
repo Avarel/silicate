@@ -342,7 +342,6 @@ impl ViewerGui {
                             }
                         });
                     });
-
             });
         } else {
             egui_dock::DockArea::new(&mut self.canvas_tree)
@@ -405,21 +404,41 @@ impl ViewerGui {
                 ui.input(|i| {
                     i.raw.dropped_files.iter().for_each(|file| {
                         if let Some(path) = &file.path {
+                            #[cfg(not(target_arch = "wasm32"))]
                             self.event_sender
-                                .send(AppEvent::LoadFilePath {
+                                .send(AppEvent::LoadFile {
                                     path: path.to_path_buf(),
                                     surface_index: None,
                                     node_index: None,
                                 })
                                 .ok();
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                self.event_sender
+                                    .send(AppEvent::Toast(egui_notify::Toast::error(
+                                        "File drag/drop is not supported on this platform.",
+                                    )))
+                                    .ok();
+                                let _ = path;
+                            }
                         } else if let Some(bytes) = &file.bytes {
+                            #[cfg(target_arch = "wasm32")]
                             self.event_sender
-                                .send(AppEvent::LoadFileBytes {
+                                .send(AppEvent::LoadFile {
                                     bytes: bytes.clone(),
                                     surface_index: None,
                                     node_index: None,
                                 })
                                 .ok();
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                self.event_sender
+                                    .send(AppEvent::Toast(egui_notify::Toast::error(
+                                        "File drag/drop with in-memory data is not supported on this platform.",
+                                    )))
+                                    .ok();
+                                let _ = bytes;
+                            }
                         }
                     });
                 })

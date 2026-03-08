@@ -82,7 +82,7 @@ impl Compositor {
     }
 
     pub fn set_background(&mut self, bg: Option<[f32; 4]>) {
-        let bg = bg.unwrap_or([1.0, 1.0, 1.0, 0.0]);
+        let bg = bg.unwrap_or([0.0; 4]);
         if self.buffers.background.data() != &bg {
             *self.buffers.background.data_mut() = bg;
             self.buffers.background.load_buffer(&self.queue);

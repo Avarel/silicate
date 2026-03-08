@@ -33,7 +33,7 @@ impl Dialog {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.event_sender
-                .send(AppEvent::LoadFilePath {
+                .send(AppEvent::LoadFile {
                     path: handle.path().to_path_buf(),
                     surface_index: Some(surface_index),
                     node_index: Some(node_index),
@@ -47,7 +47,7 @@ impl Dialog {
             let data = handle.read().await;
             log::info!("File read complete, loading file...");
             self.event_sender
-                .send(AppEvent::LoadFileBytes {
+                .send(AppEvent::LoadFile {
                     bytes: Arc::from(data),
                     surface_index: Some(surface_index),
                     node_index: Some(node_index),

@@ -10,15 +10,55 @@ mod built_info {
 mod web;
 
 use app::AppEvent;
-use std::{
-    path::PathBuf,
-    sync::mpsc::{Receiver, Sender},
-};
-use tokio::runtime::Runtime;
+use std::sync::mpsc::{Receiver, Sender};
 use window::AppInstance;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
+pub struct UnifiedRuntime {
+    // We use tokio on native and wasm_bindgen_futures on wasm
+    #[cfg(not(target_arch = "wasm32"))]
+    pub rt: tokio::runtime::Runtime,
+}
+
+impl UnifiedRuntime {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new() -> Self {
+        Self {
+            rt: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime creation successful"),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn spawn<F>(&self, future: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.rt.spawn(future);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + 'static,
+    {
+        wasm_bindgen_futures::spawn_local(future);
+    }
+}
+
 pub struct AppMultiplexer {
-    rt: Runtime,
+    rt: UnifiedRuntime,
+    #[cfg(not(target_arch = "wasm32"))]
     initial_files: Vec<PathBuf>,
     running: Option<AppInstance>,
     event_sender: Sender<AppEvent>,
@@ -26,27 +66,21 @@ pub struct AppMultiplexer {
 }
 
 impl AppMultiplexer {
-    pub fn new(initial_files: Vec<PathBuf>) -> Self {
+    pub fn new() -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel();
         Self {
-            rt: {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    tokio::runtime::Builder::new_multi_thread()
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    tokio::runtime::Builder::new_current_thread()
-                }
-            }
-            .enable_all()
-            .build()
-            .expect("tokio runtime creation successful"),
-            initial_files,
+            rt: UnifiedRuntime::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            initial_files: Vec::new(),
             running: None,
             event_sender,
             event_receiver,
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_initial_files(&mut self, initial_files: Vec<PathBuf>) {
+        self.initial_files = initial_files;
     }
 }
 
@@ -58,10 +92,13 @@ impl eframe::App for AppMultiplexer {
                 let device = wgpu_render_state.device.clone();
                 let queue = wgpu_render_state.queue.clone();
 
+                #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
                 let mut instance =
                     AppInstance::new_for_eframe(device, queue, ctx, &self.event_sender);
 
+                #[cfg(not(target_arch = "wasm32"))]
                 instance.load_files(std::mem::take(&mut self.initial_files));
+
                 self.running = Some(instance);
             }
         }

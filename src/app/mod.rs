@@ -14,11 +14,13 @@ use silicate_compositor::{
     pipeline::Pipeline,
     tex::TextureExt,
 };
-use std::sync::Arc;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    sync::{Arc, atomic::AtomicUsize, mpsc::Sender},
+    time::Duration,
+};
 #[cfg(not(target_arch = "wasm32"))]
-use std::{fs::OpenOptions, path::Path};
-use std::{sync::atomic::AtomicUsize, sync::mpsc::Sender, time::Duration};
+use std::{fs::OpenOptions, path::Path, path::PathBuf};
 
 pub enum AppEvent {
     NewInstance(InstanceKey, Instance, CompositorApp),
@@ -26,13 +28,10 @@ pub enum AppEvent {
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    LoadFilePath {
+    LoadFile {
+        #[cfg(not(target_arch = "wasm32"))]
         path: PathBuf,
-        surface_index: Option<SurfaceIndex>,
-        node_index: Option<NodeIndex>,
-    },
-    LoadFileBytes {
+        #[cfg(target_arch = "wasm32")]
         bytes: Arc<[u8]>,
         surface_index: Option<SurfaceIndex>,
         node_index: Option<NodeIndex>,
@@ -63,8 +62,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::RebindPreviews(arg0) => f.debug_tuple("RebindPreviews").field(arg0).finish(),
             AppEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
             AppEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
-            AppEvent::LoadFilePath { .. } => f.debug_tuple("LoadFilePath").field(&"...").finish(),
-            AppEvent::LoadFileBytes { .. } => f.debug_tuple("LoadFilebytes").field(&"...").finish(),
+            AppEvent::LoadFile { .. } => f.debug_tuple("LoadFilePath").field(&"...").finish(),
             AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
             AppEvent::SetTheme(theme) => f.debug_tuple("SetTheme").field(theme).finish(),
@@ -112,9 +110,9 @@ impl App {
         let open_file = || ProcreateFile::open(bytes, &self.device, &self.queue);
 
         #[cfg(not(target_arch = "wasm32"))]
-        let (file, metadata) = tokio::task::block_in_place(open_file).unwrap();
+        let (file, metadata) = tokio::task::block_in_place(open_file)?;
         #[cfg(target_arch = "wasm32")]
-        let (file, metadata) = open_file().unwrap();
+        let (file, metadata) = open_file()?;
 
         log::info!(
             "{id} Loaded Procreate document \"{}\" with {} layers",
