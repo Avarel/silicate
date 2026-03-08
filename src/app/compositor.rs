@@ -15,8 +15,8 @@ pub struct CompositorApp {
     pipeline: Pipeline,
     rx: Receiver<Arc<ProcreateFile>>,
     id: InstanceKey,
-    composite_layers: Vec<CompositeLayer>,
-    composite_chunks: Vec<ChunkTile>,
+    flat_layers: Vec<CompositeLayer>,
+    flat_chunks: Vec<ChunkTile>,
 }
 
 pub struct CompositorHandle {
@@ -37,7 +37,7 @@ impl CompositorHandle {
 impl CompositorApp {
     /// Transform tree structure of layers into a linear list of
     /// layers for rendering.
-    fn linearize_silica_layers(
+    fn flatten_layers(
         composite_layers: &mut Vec<CompositeLayer>,
         layers: &[SilicaHierarchy],
     ) {
@@ -73,7 +73,7 @@ impl CompositorApp {
         inner(layers, composite_layers, false);
     }
 
-    fn linearize_silica_chunks(
+    fn flatten_chunks(
         composite_layers: &mut Vec<ChunkTile>,
         layers: &[SilicaHierarchy],
         render_masks: bool,
@@ -157,12 +157,12 @@ impl CompositorApp {
             {
                 let layer = std::slice::from_ref(layer);
                 let mut composite_layers = Vec::new();
-                CompositorApp::linearize_silica_layers(&mut composite_layers, layer);
+                CompositorApp::flatten_layers(&mut composite_layers, layer);
 
                 target.load_layer_buffer(composite_layers.as_slice());
 
                 let mut composite_chunks = Vec::new();
-                CompositorApp::linearize_silica_chunks(&mut composite_chunks, layer, false);
+                CompositorApp::flatten_chunks(&mut composite_chunks, layer, false);
                 composite_chunks.sort_by_key(|v| (v.col, v.row));
                 target.load_chunk_buffer(composite_chunks.as_slice());
             }
@@ -208,8 +208,8 @@ impl CompositorApp {
             target,
             needs_to_load_chunks: AtomicBool::new(true),
             pipeline,
-            composite_layers: Vec::new(),
-            composite_chunks: Vec::new(),
+            flat_layers: Vec::new(),
+            flat_chunks: Vec::new(),
         };
 
         let handle = CompositorHandle {
@@ -249,9 +249,9 @@ impl CompositorApp {
     }
 
     fn render_inner(&mut self, file: &ProcreateFile, output_texture: &wgpu::Texture) {
-        let new_layer_config = file.layers.clone();
+        let layers = file.layers.clone();
         // TODO: add render by composite mode
-        // let new_layer_config = [SilicaHierarchy::Layer(file.composite.clone().unwrap())];
+        // let layers = [SilicaHierarchy::Layer(file.composite.clone().unwrap())];
 
         let background = (!file.background_hidden).then_some(file.background_color);
 
@@ -260,21 +260,21 @@ impl CompositorApp {
             .fetch_and(false, std::sync::atomic::Ordering::AcqRel);
 
         if reload_chunks {
-            Self::linearize_silica_chunks(&mut self.composite_chunks, &new_layer_config, true);
-            self.composite_chunks.sort_by_key(|v| (v.col, v.row));
+            Self::flatten_chunks(&mut self.flat_chunks, &layers, true);
+            self.flat_chunks.sort_by_key(|v| (v.col, v.row));
             self.target
-                .load_chunk_buffer(self.composite_chunks.as_slice());
+                .load_chunk_buffer(self.flat_chunks.as_slice());
 
             log::debug!(
                 "{} Linearized {} chunks",
                 self.id,
-                self.composite_chunks.len()
+                self.flat_chunks.len()
             );
         }
 
-        Self::linearize_silica_layers(&mut self.composite_layers, &new_layer_config);
+        Self::flatten_layers(&mut self.flat_layers, &layers);
         self.target
-            .load_layer_buffer(self.composite_layers.as_slice());
+            .load_layer_buffer(self.flat_layers.as_slice());
 
         self.target.set_background(background);
         self.target
