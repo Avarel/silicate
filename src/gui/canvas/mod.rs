@@ -129,7 +129,7 @@ impl<'a> CanvasView<'a> {
                 min_auto_bounds,
                 ..memory
             };
-            memory.clone().store(ui.ctx(), plot_id);
+            memory.store(ui.ctx(), plot_id);
         }
 
         let ViewMemory {

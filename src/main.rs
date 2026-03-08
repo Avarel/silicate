@@ -193,6 +193,7 @@ fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
 fn wgpu_config() -> eframe::egui_wgpu::WgpuConfiguration {
     eframe::egui_wgpu::WgpuConfiguration {
         wgpu_setup: eframe::egui_wgpu::WgpuSetupCreateNew {
+            power_preference: eframe::egui_wgpu::wgpu::PowerPreference::HighPerformance,
             native_adapter_selector: Some(Arc::new(wgpu_adapter_selector)),
             ..Default::default()
         }
