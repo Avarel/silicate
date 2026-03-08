@@ -55,7 +55,7 @@ impl eframe::App for AppMultiplexer {
                 let queue = wgpu_render_state.queue.clone();
 
                 let mut instance =
-                    AppInstance::new_for_eframe(device, queue, self.event_sender.clone());
+                    AppInstance::new_for_eframe(device, queue, ctx, &self.event_sender);
 
                 instance.load_files(std::mem::take(&mut self.initial_files));
                 self.running = Some(instance);
@@ -65,7 +65,7 @@ impl eframe::App for AppMultiplexer {
         // Process user events from the channel
         while let Ok(app_event) = self.event_receiver.try_recv() {
             if let Some(app) = self.running.as_mut() {
-                app.handle_user_event(app_event, &self.rt, frame);
+                app.handle_user_event(app_event, &self.rt, ctx, frame);
             }
         }
 

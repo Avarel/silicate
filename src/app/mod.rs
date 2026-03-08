@@ -5,7 +5,6 @@ pub mod instance;
 use compositor::CompositorApp;
 use eframe::egui_wgpu::wgpu;
 use egui_dock::{NodeIndex, SurfaceIndex};
-use egui_notify::Toast;
 use instance::{Instance, InstanceKey};
 use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
@@ -40,7 +39,8 @@ pub enum AppEvent {
     },
     LoadDialog(SurfaceIndex, NodeIndex),
     SaveDialog(wgpu::Texture),
-    Toast(Toast),
+    Toast(egui_notify::Toast),
+    SetTheme(egui::ThemePreference),
     #[cfg(target_arch = "wasm32")]
     LoadDemoFile,
 }
@@ -67,6 +67,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::LoadFileBytes { .. } => f.debug_tuple("LoadFilebytes").field(&"...").finish(),
             AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
+            AppEvent::SetTheme(theme) => f.debug_tuple("SetTheme").field(theme).finish(),
             #[cfg(target_arch = "wasm32")]
             AppEvent::LoadDemoFile => f.debug_tuple("LoadDemoFile").finish(),
         }

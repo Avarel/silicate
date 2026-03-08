@@ -39,11 +39,11 @@ struct ViewMemory {
 
 impl ViewMemory {
     pub fn load(ctx: &Context, id: Id) -> Option<Self> {
-        ctx.data_mut(|data| data.get_persisted(id))
+        ctx.data_mut(|data| data.get_temp(id))
     }
 
     pub fn store(self, ctx: &Context, id: Id) {
-        ctx.data_mut(|data| data.insert_persisted(id, self))
+        ctx.data_mut(|data| data.insert_temp(id, self))
     }
 }
 

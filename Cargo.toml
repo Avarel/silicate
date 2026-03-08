@@ -36,12 +36,15 @@ image = { version = "0.25", default-features = false, features = [
 egui = "0.33"
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
+    "persistence",
     "wgpu",
     "wayland",
     "x11",
 ] }
 egui_dock = "0.18"
 egui-notify = "0.21"
+
+serde = { version = "1.0", features = ["derive"] }
 
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Async runtime

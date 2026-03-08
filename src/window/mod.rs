@@ -1,9 +1,11 @@
 mod dialog;
+pub mod prefs;
 
 use crate::app::compositor::CompositorApp;
 use crate::app::instance::InstanceKey;
 use crate::app::{App, AppEvent};
 use crate::gui::{ViewOptions, ViewerGui};
+use crate::window::prefs::PersistedPreferences;
 use dialog::Dialog;
 use eframe::wgpu;
 use egui::{Vec2, load::SizedTexture};
@@ -30,13 +32,18 @@ impl AppInstance {
     pub fn new_for_eframe(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        event_sender: Sender<AppEvent>,
+        ctx: &egui::Context,
+        event_sender: &Sender<AppEvent>,
     ) -> Self {
         let app = Arc::new(App::new(
             device.clone(),
             queue.clone(),
             event_sender.clone(),
         ));
+
+        let preferences = PersistedPreferences::load(ctx).unwrap_or_default();
+
+        ctx.set_theme(preferences.theme);
 
         let viewer = ViewerGui {
             app: app.clone(),
@@ -45,7 +52,6 @@ impl AppInstance {
                 smooth: false,
                 grid: true,
                 extended_crosshair: false,
-                theme: egui::ThemePreference::System,
             },
             canvas_tree: egui_dock::DockState::new(Vec::new()),
             event_sender: event_sender.clone(),
@@ -55,7 +61,7 @@ impl AppInstance {
             app,
             viewer,
             toasts: Toasts::new().with_anchor(egui_notify::Anchor::BottomLeft),
-            event_sender,
+            event_sender: event_sender.clone(),
             compositors: HashMap::new(),
         }
     }
@@ -76,7 +82,13 @@ impl AppInstance {
         }
     }
 
-    pub fn handle_user_event(&mut self, event: AppEvent, rt: &Runtime, frame: &mut eframe::Frame) {
+    pub fn handle_user_event(
+        &mut self,
+        event: AppEvent,
+        rt: &Runtime,
+        ctx: &egui::Context,
+        frame: &mut eframe::Frame,
+    ) {
         #[cfg(target_arch = "wasm32")]
         // rt is unused on wasm, so we bind it to _ to avoid a warning.
         // On native, we use rt to spawn blocking tasks for file loading and saving.
@@ -253,6 +265,10 @@ impl AppInstance {
                     .canvas_tree
                     .set_focused_node_and_surface((surface, node));
                 self.viewer.canvas_tree.push_to_focused_leaf(id);
+            }
+            AppEvent::SetTheme(theme) => {
+                ctx.set_theme(theme);
+                PersistedPreferences { theme }.store(ctx);
             }
             #[cfg(target_arch = "wasm32")]
             AppEvent::LoadDemoFile => {

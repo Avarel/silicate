@@ -94,7 +94,6 @@ pub struct ViewOptions {
     pub extended_crosshair: bool,
     pub smooth: bool,
     pub grid: bool,
-    pub theme: egui::ThemePreference,
 }
 
 struct CanvasGui<'a> {
@@ -200,31 +199,34 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
                     ui.end_row();
                     ui.label("Theme");
                     ui.horizontal(|ui| {
+                        let mut theme = ui.ctx().options(|opt| opt.theme_preference);
                         let mut changed = false;
                         changed |= ui
                             .selectable_value(
-                                &mut self.view_options.theme,
+                                &mut theme,
                                 egui::ThemePreference::System,
                                 "System",
                             )
                             .changed();
                         changed |= ui
                             .selectable_value(
-                                &mut self.view_options.theme,
+                                &mut theme,
                                 egui::ThemePreference::Light,
                                 "Light",
                             )
                             .changed();
                         changed |= ui
                             .selectable_value(
-                                &mut self.view_options.theme,
+                                &mut theme,
                                 egui::ThemePreference::Dark,
                                 "Dark",
                             )
                             .changed();
 
                         if changed {
-                            ui.ctx().set_theme(self.view_options.theme);
+                            self.event_sender
+                                .send(AppEvent::SetTheme(theme))
+                                .unwrap();
                         }
                     });
                 });

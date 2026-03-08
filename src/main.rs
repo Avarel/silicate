@@ -112,6 +112,8 @@ fn main() {
 }
 
 fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
+    use egui::*;
+
     if let Some(eframe::egui_wgpu::RenderState { adapter, .. }) = cc.wgpu_render_state.as_ref() {
         log::debug!("{:?}", adapter.get_info());
         log::debug!("{:?}", adapter.limits());
@@ -119,38 +121,38 @@ fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
 
     let ctx = &cc.egui_ctx;
 
-    let default_style = egui::Style {
-        spacing: egui::style::Spacing {
-            button_padding: egui::vec2(8.0, 4.0),
+    let default_style = Style {
+        spacing: style::Spacing {
+            button_padding: vec2(8.0, 4.0),
             ..Default::default()
         },
         ..Default::default()
     };
 
-    ctx.set_style_of(egui::Theme::Dark, {
-        let default_visuals = egui::Visuals::dark();
+    ctx.set_style_of(Theme::Dark, {
+        let default_visuals = Visuals::dark();
         let default_style = default_style.clone();
-        egui::Style {
-            visuals: egui::Visuals {
-                code_bg_color: egui::Color32::from_gray(32),
-                widgets: egui::style::Widgets {
-                    active: egui::style::WidgetVisuals {
-                        bg_fill: egui::Color32::from_gray(45),
-                        bg_stroke: egui::Stroke::NONE,
+        Style {
+            visuals: Visuals {
+                code_bg_color: Color32::from_gray(32),
+                widgets: style::Widgets {
+                    active: style::WidgetVisuals {
+                        bg_fill: Color32::from_gray(45),
+                        bg_stroke: Stroke::NONE,
                         ..default_visuals.widgets.active
                     },
-                    inactive: egui::style::WidgetVisuals {
-                        bg_fill: egui::Color32::from_gray(35),
+                    inactive: style::WidgetVisuals {
+                        bg_fill: Color32::from_gray(35),
                         ..default_visuals.widgets.inactive
                     },
-                    hovered: egui::style::WidgetVisuals {
-                        bg_stroke: egui::Stroke::NONE,
+                    hovered: style::WidgetVisuals {
+                        bg_stroke: Stroke::NONE,
                         ..default_visuals.widgets.hovered
                     },
                     ..default_visuals.widgets
                 },
-                selection: egui::style::Selection {
-                    bg_fill: egui::Color32::from_rgb(48, 116, 243),
+                selection: style::Selection {
+                    bg_fill: Color32::from_rgb(48, 116, 243),
                     ..default_visuals.selection
                 },
                 ..default_visuals
@@ -159,25 +161,25 @@ fn app_creator_helper(cc: &eframe::CreationContext<'_>) {
         }
     });
 
-    ctx.set_style_of(egui::Theme::Light, {
-        let default_visuals = egui::Visuals::light();
+    ctx.set_style_of(Theme::Light, {
+        let default_visuals = Visuals::light();
         let default_style = default_style;
-       egui::Style {
-            visuals: egui::Visuals {
-                widgets: egui::style::Widgets {
-                    active: egui::style::WidgetVisuals {
-                        bg_stroke: egui::Stroke::NONE,
+       Style {
+            visuals: Visuals {
+                widgets: style::Widgets {
+                    active: style::WidgetVisuals {
+                        bg_stroke: Stroke::NONE,
                         ..default_visuals.widgets.active
                     },
-                    hovered: egui::style::WidgetVisuals {
-                        bg_stroke: egui::Stroke::NONE,
+                    hovered: style::WidgetVisuals {
+                        bg_stroke: Stroke::NONE,
                         ..default_visuals.widgets.hovered
                     },
                     ..default_visuals.widgets
                 },
-                selection: egui::style::Selection {
-                    bg_fill: egui::Color32::from_rgb(48, 116, 243),
-                    stroke: egui::Stroke::new(1.0, egui::Color32::WHITE),
+                selection: style::Selection {
+                    bg_fill: Color32::from_rgb(48, 116, 243),
+                    stroke: Stroke::new(1.0, Color32::WHITE),
                     ..default_visuals.selection
                 },
                 ..default_visuals
