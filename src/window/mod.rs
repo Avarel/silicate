@@ -257,7 +257,7 @@ impl AppInstance {
                     #[cfg(not(target_arch = "wasm32"))]
                     rt.spawn(dialog);
                     #[cfg(target_arch = "wasm32")]
-                    drop(dialog); // Saving not currently supported on wasm, so we just drop the future that would run the save dialog
+                    wasm_bindgen_futures::spawn_local(dialog);
                 }
             }
             AppEvent::NewView(surface, node, id) => {
@@ -272,7 +272,7 @@ impl AppInstance {
             }
             #[cfg(target_arch = "wasm32")]
             AppEvent::LoadDemoFile => {
-                use crate::web::demo::fetch_demo_file;
+                use crate::web::fetch_demo_file;
                 let event_sender = self.event_sender.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     match fetch_demo_file().await {

@@ -1,9 +1,8 @@
 use eframe::wgpu;
-
-use std::sync::mpsc::Sender;
-
 use egui_dock::{NodeIndex, SurfaceIndex};
 use egui_notify::Toast;
+use silicate_compositor::buffer::BufferDimensions;
+use std::sync::mpsc::Sender;
 
 use crate::app::AppEvent;
 
@@ -57,7 +56,7 @@ impl Dialog {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn save_dialog(
         self,
         device: wgpu::Device,
@@ -78,33 +77,53 @@ impl Dialog {
             return;
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use silicate_compositor::buffer::BufferDimensions;
+        let dim = BufferDimensions::from_extent(copied_texture.size());
+        let path = handle.path().to_path_buf();
 
-            let dim = BufferDimensions::from_extent(copied_texture.size());
-            let path = handle.path().to_path_buf();
+        let image = crate::app::App::export(&copied_texture, &device, &queue, dim)
+            .await
+            .unwrap();
 
-            let image = crate::app::App::export(&copied_texture, &device, &queue, dim)
-                .await
-                .unwrap();
+        log::info!("Saving the file to {}", path.display());
+        let save_result = tokio::task::spawn_blocking(move || image.save(path))
+            .await
+            .unwrap();
 
-            log::info!("Saving the file to {}", path.display());
-            let save_result = tokio::task::spawn_blocking(move || image.save(path))
-                .await
-                .unwrap();
-
-            if let Err(err) = save_result {
-                self.send_toast(Toast::error(format!(
-                    "File {} failed to export. Reason: {err}.",
-                    handle.file_name()
-                )));
-            } else {
-                self.send_toast(Toast::success(format!(
-                    "File {} successfully exported.",
-                    handle.file_name()
-                )));
-            }
+        if let Err(err) = save_result {
+            self.send_toast(Toast::error(format!(
+                "File {} failed to export. Reason: {err}.",
+                handle.file_name()
+            )));
+        } else {
+            self.send_toast(Toast::success(format!(
+                "File {} successfully exported.",
+                handle.file_name()
+            )));
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn save_dialog(
+        self,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        copied_texture: wgpu::Texture,
+    ) {
+        let dim = BufferDimensions::from_extent(copied_texture.size());
+
+        let image = crate::app::App::export(&copied_texture, &device, &queue, dim)
+            .await
+            .unwrap();
+
+        let output_format = image::ImageFormat::Png;
+        let mut writer = std::io::Cursor::new(Vec::new());
+        // image.save(path)
+        image
+            .write_to(&mut writer, output_format)
+            .expect("Save failure");
+
+        crate::web::save_blob_as_png(writer.into_inner().as_slice())
+            .await
+            .unwrap();
     }
 }

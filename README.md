@@ -14,7 +14,6 @@ Don't have a Procreate file? There is a `reference.procreate` file in the base d
 * Cutting-edge web viewer is available [here](https://avarel.github.io/silicate/).
 * The [web viewer](https://avarel.github.io/silicate/) only works on modern browsers that support WebGPU and WebAssembly.
   * It is also significantly slower than the native viewer due to the additional overhead of the web environment and single-threaded execution.
-  * **Unlike the native viewer, the web viewer does not support exporting for now.**
 * Compositing is driven by the UI thread, which means that the compositor will
 block the UI thread. This is not a problem for the native viewer, as the
 compositor runs on its own thread. **However, for the web viewer, this means
