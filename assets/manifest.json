@@ -1,6 +1,6 @@
 {
-  "name": "Silicate PWA",
-  "short_name": "silicate-pwa",
+  "name": "Silicate - Procreate File Viewer",
+  "short_name": "Silicate",
   "icons": [
     {
       "src": "./assets/icon-256.png",

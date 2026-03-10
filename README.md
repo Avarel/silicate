@@ -1,99 +1,179 @@
-# Silicate - Procreate File Renderer
+<div align="center">
+
+# Silicate
+
+### GPU-Accelerated Procreate File Viewer
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-2024-orange.svg?style=for-the-badge)](https://www.rust-lang.org/)
 
 <p align="center">
-  <img src="media/clean.png" width="400"/>
-  <img src="media/editor.png" width="400"/>
+  <img src="media/clean.png" width="400" alt="Silicate Clean View"/>
+  <img src="media/editor.png" width="400" alt="Silicate Editor View"/>
 </p>
 
-This is the repository for Silicate, a GPU-accelerated, cross-platform native/web viewer for [`.procreate` files](https://procreate.com/).
+**[🌐 Online Web Viewer](https://avarel.github.io/silicate/)** • **[📥 Download Native App](https://github.com/Avarel/silicate/releases)**
 
-Don't have a Procreate file? There is a `reference.procreate` file in the base directory for you to try.
+</div>
 
-## [Web Viewer](https://avarel.github.io/silicate/)
+## Overview
 
-* Cutting-edge web viewer is available [here](https://avarel.github.io/silicate/).
-* The [web viewer](https://avarel.github.io/silicate/) only works on modern browsers that support WebGPU and WebAssembly.
-  * It is also significantly slower than the native viewer due to the additional overhead of the web environment and single-threaded execution.
-* Compositing is driven by the UI thread, which means that the compositor will
-block the UI thread. This is not a problem for the native viewer, as the
-compositor runs on its own thread. **However, for the web viewer, this means
-that the UI can be unresponsive during compositing for large files.**
-* In addition, the web viewer cannot leverage multithreaded decoding of the
-Procreate file, which makes larger files take a longer time to load.
+Silicate is a high-performance, cross-platform viewer and renderer for [Procreate](https://procreate.com/) files (`.procreate`). Built with Rust and powered by WebGPU, it provides both native desktop applications and a web-based viewer for read access to your Procreate artwork. Useful for archiving and preserving your digital artworks.
 
-## [Native Viewer](https://github.com/Avarel/silicate/releases)
+> **Don't have a Procreate file?** Try the included `reference.procreate` file in the repository's base directory!
 
-* Stable native builds are available through the [Releases page](https://github.com/Avarel/silicate/releases).
-  * Same macOS note applies as above.
-* Cutting-edge native builds are available through the [CI pipeline](https://github.com/Avarel/silicate/actions/).
-  * Download the `release-{insert your OS here}` zip and unpack to obtain the binary.
-    * macOS users: You will need to unpack the zip and the dmg file to access
-      the binary. You might also need to go to System Preferences and allow the
-      application to run, since there is no code signing.
-    * Alternatively, you can remove the quarantine attribute with the following command:
-      `xattr -d com.apple.quarantine <file_path>`
+## Quick Start
 
+### 🌐 Web Viewer | [Launch](https://avarel.github.io/silicate/)
+
+The web viewer provides instant access without installation:
+- Requires a modern browser with WebAssembly and WebGPU support.
+- However, it is slower than the native viewer due to single-threaded execution.
+- The UI may be unresponsive during compositing.
+
+**Browser Compatibility:**
+- Chrome/Edge 113+
+- Firefox 121+ (with WebGPU enabled)
+- Safari 18+ (macOS Sonoma+)
+
+### 💻 Native Viewer | [Download](https://github.com/Avarel/silicate/releases)
+
+#### Stable Releases
+Download platform-specific binaries from the [Releases page](https://github.com/Avarel/silicate/releases):
+- 🪟 **Windows** - `.exe`
+- 🍎 **macOS** - `.dmg` package
+- 🐧 **Linux** - Binary
+
+#### Development Builds
+Get cutting-edge builds from the [CI pipeline](https://github.com/Avarel/silicate/actions/):
+1. Navigate to the latest successful workflow run
+2. Download `release-{your-os}` artifact
+3. Extract and run
+
+**macOS Users:**
+- Unpack the `.zip` or open the `.dmg` files
+- The app is not notarized, so you may need to allow it manually by either:
+  - Allow the app in `System Preferences` → `Security & Privacy`
+  - Remove quarantine with the Terminal `xattr -d com.apple.quarantine <file_path>`
 
 ## Features
-* Native desktop app for Windows, macOS, and Linux, and a [web viewer](https://avarel.github.io/silicate/) for modern browsers.
-  * Load and view multiple `.procreate` files at once.
-  * Drag and drop loading.
-  * Export `.procreate` files to `png`, `jpeg`, `tga`, `tiff`, `webp`, `bmp` formats.
-* Change layer settings and live-preview the final result.
-  * Supports blending modes, clipping masks, masks, opacity, hiding, and groups.
-* UI inspired by Procreate's own app.
-* GPU rendering, leveraging cross-platform `wgpu` integration.
-  * Rotate and flip the canvas at orthogonal angles and orientations.
-  * Rotate the view arbitrarily.
-  * Smooth or pixelated sampling in the viewer.
+- **Native Desktop Apps**: Windows, macOS, and Linux
+- **Web Viewer**: Modern browsers with WebGPU support
+- **Multi-file Support**: Load and view multiple `.procreate` files simultaneously
+- **Drag & Drop**: Intuitive file loading
+- **Real-time compositing**: Fast and accurate rendering of Procreate files
+  - Powered by `wgpu` for cross-platform performance
+  - Live preview of layer changes
+  - Supports blending modes, masks, opacity control
+- **Export**: Save your Procreate files as images with multiple formats
+- **Procreate-Inspired UI**: Familiar interface for Procreate users
 
-## Notes
+## Important Notes
 
-### Accuracy
-The renderer produces slightly different results from the reference render by
-Procreate's engine. The compositor produces accurate blending results except for
-`Saturation` and `Hue`, both of which resembles Photoshop's blending style instead
-of the style used by Procreate.
+### Rendering Accuracy
+The renderer produces **slightly different results** compared to Procreate's native engine:
+- `Saturation` and `Hue` blending modes follow Photoshop's style instead of Procreate's
 
-### Efficiency
-The compositor is relatively modular, but it is completely written from scratch
-with no reference to existing research. If you are willing to contribute
-improvements to the existing design or design a completely new compositor,
-feel free to do so.
+## 🛠️ Building from Source
+
+### Prerequisites
+- Latest stable Rust toolchain
+- For native builds: Platform-specific dependencies
+  - **Windows**: MSVC toolchain
+  - **macOS**: Xcode Command Line Tools
+  - **Linux**: `build-essential`
+
+## Build Commands
+
+### Native Builds
+```bash
+# Clone the repository
+git clone https://github.com/Avarel/silicate.git
+cd silicate
+
+# Build native release
+cargo build --release
+
+# Run native app
+cargo run --release
+```
+
+### Web Build
+```bash
+# Build for web (requires trunk)
+cargo install trunk
+trunk build --release
+```
 
 ## Procreate File Format
-All `.procreate` files are standard ZIP files with the following structure.
+All `.procreate` files are **standard ZIP archives** with the following structure:
+
 ```
-- {UUID} [Folder]
-  - Contains .chunk files, presumably the actual pixel canvas data for the document.
-- QuickLook [Folder]
-  - Thumbnail.png - Low-quality screenshot generated by Procreate.
-- video [Folder]
-  - segments [Folder]
-    - segment-X.mp4, where X is a number starting from 1.
-- Document.archive - NSKeyedArchive containing layer information along with other document information like canvas size.
+📦 filename.procreate (ZIP archive)
+├── 📁 {UUID}/
+│   └── 📄 {col}~{row}.chunk          # LZO-compressed RGBA tile data
+├── 📁 QuickLook/
+│   └── 🖼️ Thumbnail.png              # Low-quality preview
+├── 📁 video/
+│   └── 📁 segments/
+│       └── 🎬 segment-X.mp4          # Timelapse video segments
+└── 📄 Document.archive               # NSKeyedArchive with layer metadata
 ```
 
-### NS Keyed Archive
-This is Apple's format for serializing Objective-C/Swift instances. It is basically
-a giant dictionary containing 4 items:
-* `version` - Irrelevant
-* `archiver` - Irrelevant
-* `top` - Top-level structure of the instance.
-  * In this case, we are interested in the SilicaDocument instance.
-  * It contains a plethora of key-value pairs that will not be enumerated here.
-    However, the structure is interesting. The key is a simple string, and
-    the value is oftentimes an `id` index that points to an object in `objects`.
-  * This object in `objects` is the true value of that key.
-* `objects` - The universe of values used in the archive.
+### Component Details
 
-### Raster Canvas Data
-Each layer in a Procreate file has a `uuid` associated with it. It's raw RGBA data is located
-under `{uuid}/`. The folder contain chunks with the naming convention `{col}~{row}.chunk`,
-which are `tile_size * tile_size` raw RGBA data that has been compressed with LZO.
-Recombine these chunks together to obtain the raw layer data.
-* It is important to note that the raw layer data is **premultiplied** RGBA.
+#### Layer Data (`{UUID}/` folders)
+- Each layer has a unique UUID
+- Contains **chunked raster data** in `{col}~{row}.chunk` files
+- **Compression**: LZO or LZ4
+- **Format**: Premultiplied RGBA or Grayscale (masks)
+- **Tile Size**: `tile_size × tile_size` pixels per chunk
+- Chunks are recombined to reconstruct the full layer
 
-## Attribution
-* [Silica Viewer](https://git.sr.ht/~redstrate/silica-viewer) Base code for understanding the Procreate format.
-* [Prospect](https://github.com/jaromvogel/prospect) Another Procreate viewer, but only final composite. Supports timelapse playback.
+#### QuickLook
+- `Thumbnail.png`: Low-resolution preview generated by Procreate
+- Used for file browser previews on iOS/macOS
+
+#### Video Segments
+- Timelapse recording of the drawing process
+- Split into multiple MP4 segments
+- Not currently utilized by Silicate
+
+#### Document.archive (NSKeyedArchive)
+
+Apple's serialization format for Objective-C/Swift objects. Structure:
+
+| Component | Description |
+|-----------|-------------|
+| `version` | Archive format version (not used) |
+| `archiver` | Archiver identifier (not used) |
+| `top` | Root object reference (SilicaDocument) |
+| `objects` | Object pool containing all serialized values |
+
+**Key-Value Structure:**
+- Keys are simple strings
+- Values are often `id` indices pointing to objects in the `objects` array
+- Contains layer hierarchy, canvas size, document settings, etc.
+
+**Important Fields:**
+- Layer information (hierarchy, names, UUIDs)
+- Canvas dimensions
+- Document metadata
+- Layer properties (opacity, blend mode, visibility)
+
+## Acknowledgments & Attribution
+
+This project builds upon the work of others in the Procreate ecosystem:
+
+- **[Silica Viewer](https://git.sr.ht/~redstrate/silica-viewer)** by redstrate
+  - Provided foundational understanding of the Procreate file format
+  - Base code for NSKeyedArchive parsing
+
+- **[Prospect](https://github.com/jaromvogel/prospect)** by Jarom Vogel
+  - Alternative Procreate viewer focused on final composites
+  - Supports timelapse playback functionality
+
+Special thanks to the Rust community and the maintainers of:
+- `wgpu` - Cross-platform graphics API
+- `egui` - Immediate mode GUI framework
+- All other dependencies listed in `Cargo.toml`
