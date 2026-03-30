@@ -137,8 +137,8 @@ impl Pipeline {
                         &canvas_bind_group_layout,
                         &sampler_bind_group_layout,
                         &blending_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    ].map(Some),
+                    immediate_size: 0,
                 });
 
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -172,7 +172,7 @@ impl Pipeline {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
             })
         };
 

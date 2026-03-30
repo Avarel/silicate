@@ -4,7 +4,7 @@ pub mod instance;
 
 use compositor::CompositorApp;
 use eframe::egui_wgpu::wgpu;
-use egui_dock::{NodeIndex, SurfaceIndex};
+use egui_dock::{NodePath};
 use instance::{Instance, InstanceKey};
 use silica_gpu::{ProcreateFile, ProcreateFileAtlas, error::SilicaError};
 use silicate_compositor::{
@@ -24,7 +24,7 @@ use std::{fs::OpenOptions, path::Path, path::PathBuf};
 
 pub enum AppEvent {
     NewInstance(InstanceKey, Instance, CompositorApp),
-    NewView(SurfaceIndex, NodeIndex, InstanceKey),
+    NewView(NodePath, InstanceKey),
     RebindTexture(InstanceKey),
     RebindPreviews(InstanceKey),
     RemoveInstance(InstanceKey),
@@ -33,10 +33,9 @@ pub enum AppEvent {
         path: PathBuf,
         #[cfg(target_arch = "wasm32")]
         bytes: Arc<[u8]>,
-        surface_index: Option<SurfaceIndex>,
-        node_index: Option<NodeIndex>,
+        node_path: Option<NodePath>,
     },
-    LoadDialog(SurfaceIndex, NodeIndex),
+    LoadDialog(NodePath),
     SaveDialog(wgpu::Texture),
     Toast(egui_notify::Toast),
     SetTheme(egui::ThemePreference),
@@ -52,10 +51,9 @@ impl std::fmt::Debug for AppEvent {
                 .field(arg0)
                 .field(arg1)
                 .finish(),
-            AppEvent::NewView(surface_index, node_index, instance_key) => f
+            AppEvent::NewView(node_path, instance_key) => f
                 .debug_tuple("NewView")
-                .field(surface_index)
-                .field(node_index)
+                .field(node_path)
                 .field(instance_key)
                 .finish(),
             AppEvent::RebindTexture(arg0) => f.debug_tuple("RebindTexture").field(arg0).finish(),
@@ -63,7 +61,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::RemoveInstance(arg0) => f.debug_tuple("RemoveInstance").field(arg0).finish(),
             AppEvent::Toast(_) => f.debug_tuple("Toast").field(&"...").finish(),
             AppEvent::LoadFile { .. } => f.debug_tuple("LoadFilePath").field(&"...").finish(),
-            AppEvent::LoadDialog(_, _) => f.debug_tuple("LoadDialog").field(&"...").finish(),
+            AppEvent::LoadDialog(_) => f.debug_tuple("LoadDialog").field(&"...").finish(),
             AppEvent::SaveDialog(_) => f.debug_tuple("SaveDialog").field(&"...").finish(),
             AppEvent::SetTheme(theme) => f.debug_tuple("SetTheme").field(theme).finish(),
             #[cfg(target_arch = "wasm32")]

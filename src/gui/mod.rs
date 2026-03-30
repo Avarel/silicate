@@ -3,7 +3,8 @@ mod silicate;
 mod widgets;
 
 use egui::{Frame, *};
-use egui_dock::{NodeIndex, SurfaceIndex, tab_viewer::OnCloseResponse};
+use egui_dock::NodePath;
+use egui_dock::tab_viewer::OnCloseResponse;
 use std::collections::HashMap;
 use std::sync::{Arc, mpsc::Sender};
 
@@ -241,10 +242,8 @@ impl egui_dock::TabViewer for CanvasGui<'_> {
         OnCloseResponse::Close
     }
 
-    fn on_add(&mut self, surface: egui_dock::SurfaceIndex, node: egui_dock::NodeIndex) {
-        self.event_sender
-            .send(AppEvent::LoadDialog(surface, node))
-            .ok();
+    fn on_add(&mut self, node_path: egui_dock::NodePath) {
+        self.event_sender.send(AppEvent::LoadDialog(node_path)).ok();
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
@@ -329,10 +328,7 @@ impl ViewerGui {
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                             if ui.button("Open File").clicked() {
                                 self.event_sender
-                                    .send(AppEvent::LoadDialog(
-                                        SurfaceIndex::main(),
-                                        NodeIndex::root(),
-                                    ))
+                                    .send(AppEvent::LoadDialog(NodePath::MAIN_ROOT))
                                     .ok();
                             }
 
@@ -395,10 +391,10 @@ impl ViewerGui {
         }
     }
 
-    pub fn layout_gui(&mut self, context: &Context) {
+    pub fn layout_gui(&mut self, ui: &mut Ui) {
         CentralPanel::default()
-            .frame(Frame::NONE.fill(context.style().visuals.panel_fill))
-            .show(context, |ui| {
+            .frame(Frame::NONE.fill(ui.style().visuals.panel_fill))
+            .show_inside(ui, |ui| {
                 self.layout_view(ui);
 
                 ui.input(|i| {
@@ -408,8 +404,7 @@ impl ViewerGui {
                             self.event_sender
                                 .send(AppEvent::LoadFile {
                                     path: path.to_path_buf(),
-                                    surface_index: None,
-                                    node_index: None,
+                                    node_path: None,
                                 })
                                 .ok();
                             #[cfg(target_arch = "wasm32")]
@@ -426,8 +421,7 @@ impl ViewerGui {
                             self.event_sender
                                 .send(AppEvent::LoadFile {
                                     bytes: bytes.clone(),
-                                    surface_index: None,
-                                    node_index: None,
+                                    node_path: None,
                                 })
                                 .ok();
                             #[cfg(not(target_arch = "wasm32"))]

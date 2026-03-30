@@ -1,5 +1,5 @@
 use eframe::wgpu;
-use egui_dock::{NodeIndex, SurfaceIndex};
+use egui_dock::NodePath;
 use egui_notify::Toast;
 use silicate_compositor::buffer::BufferDimensions;
 use std::sync::mpsc::Sender;
@@ -19,7 +19,7 @@ impl Dialog {
         self.event_sender.send(AppEvent::Toast(toast)).ok();
     }
 
-    pub async fn load_dialog(self, surface_index: SurfaceIndex, node_index: NodeIndex) {
+    pub async fn load_dialog(self, node_path: NodePath) {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("All Files", &["*"])
             .add_filter("Procreate Files", &["procreate"])
@@ -35,8 +35,7 @@ impl Dialog {
             self.event_sender
                 .send(AppEvent::LoadFile {
                     path: handle.path().to_path_buf(),
-                    surface_index: Some(surface_index),
-                    node_index: Some(node_index),
+                    node_path: Some(node_path),
                 })
                 .unwrap();
         }
@@ -49,8 +48,7 @@ impl Dialog {
             self.event_sender
                 .send(AppEvent::LoadFile {
                     bytes: Arc::from(data),
-                    surface_index: Some(surface_index),
-                    node_index: Some(node_index),
+                    node_path: Some(node_path),
                 })
                 .unwrap();
         }

@@ -77,8 +77,7 @@ impl AppInstance {
             self.event_sender
                 .send(AppEvent::LoadFile {
                     path,
-                    surface_index: None,
-                    node_index: None,
+                    node_path: None,
                 })
                 .unwrap();
         }
@@ -202,8 +201,7 @@ impl AppInstance {
             #[cfg(not(target_arch = "wasm32"))]
             AppEvent::LoadFile {
                 path,
-                surface_index,
-                node_index,
+                node_path
             } => match self.app.load_file(&path) {
                 Err(err) => {
                     self.toasts
@@ -213,19 +211,14 @@ impl AppInstance {
                     self.toasts.success("Loaded file from drag/drop.");
                     self.event_sender
                         .send(AppEvent::NewView(
-                            surface_index.unwrap_or_else(egui_dock::SurfaceIndex::main),
-                            node_index.unwrap_or_else(egui_dock::NodeIndex::root),
+                            node_path.unwrap_or(egui_dock::NodePath::MAIN_ROOT),
                             key,
                         ))
                         .unwrap();
                 }
             },
             #[cfg(target_arch = "wasm32")]
-            AppEvent::LoadFile {
-                bytes,
-                surface_index,
-                node_index,
-            } => match self.app.load_bytes(&bytes) {
+            AppEvent::LoadFile { bytes, node_path } => match self.app.load_bytes(&bytes) {
                 Err(err) => {
                     self.toasts
                         .error(format!("File from drag/drop failed to load. Reason: {err}"));
@@ -234,15 +227,14 @@ impl AppInstance {
                     self.toasts.success("Loaded file from drag/drop.");
                     self.event_sender
                         .send(AppEvent::NewView(
-                            surface_index.unwrap_or_else(egui_dock::SurfaceIndex::main),
-                            node_index.unwrap_or_else(egui_dock::NodeIndex::root),
+                            node_path.unwrap_or(egui_dock::NodePath::MAIN_ROOT),
                             key,
                         ))
                         .unwrap();
                 }
             },
-            AppEvent::LoadDialog(surface, node) => {
-                let dialog = Dialog::new(self.event_sender.clone()).load_dialog(surface, node);
+            AppEvent::LoadDialog(node_path) => {
+                let dialog = Dialog::new(self.event_sender.clone()).load_dialog(node_path);
                 rt.spawn(dialog);
             }
             AppEvent::SaveDialog(texture) => {
@@ -257,10 +249,10 @@ impl AppInstance {
                     rt.spawn(dialog);
                 }
             }
-            AppEvent::NewView(surface, node, id) => {
+            AppEvent::NewView(node_path, id) => {
                 self.viewer
                     .canvas_tree
-                    .set_focused_node_and_surface((surface, node));
+                    .set_focused_node_and_surface(node_path);
                 self.viewer.canvas_tree.push_to_focused_leaf(id);
             }
             AppEvent::SetTheme(theme) => {
@@ -277,8 +269,7 @@ impl AppInstance {
                             event_sender
                                 .send(AppEvent::LoadFile {
                                     bytes: Arc::from(bytes),
-                                    surface_index: None,
-                                    node_index: None,
+                                    node_path: None,
                                 })
                                 .unwrap();
                         }
@@ -296,8 +287,8 @@ impl AppInstance {
     }
 
     /// Render the GUI using the viewer
-    pub fn render_gui(&mut self, ctx: &egui::Context) {
-        self.viewer.layout_gui(ctx);
-        self.toasts.show(ctx);
+    pub fn render_gui(&mut self, ui: &mut egui::Ui) {
+        self.viewer.layout_gui(ui);
+        self.toasts.show(ui.ctx());
     }
 }

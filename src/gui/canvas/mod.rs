@@ -43,7 +43,7 @@ impl ViewMemory {
     }
 
     pub fn store(self, ctx: &Context, id: Id) {
-        ctx.data_mut(|data| data.insert_temp(id, self))
+        ctx.data_mut(|data| data.insert_temp(id, self));
     }
 }
 
@@ -150,6 +150,7 @@ impl<'a> CanvasView<'a> {
                 round_to_pixels: None,
                 blur_width: 0.0,
                 brush: None,
+                angle: 0.0,
             });
         }
 

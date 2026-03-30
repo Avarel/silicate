@@ -85,7 +85,7 @@ impl AppMultiplexer {
 }
 
 impl eframe::App for AppMultiplexer {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Initialize the app instance if not already done
         if self.running.is_none() {
             if let Some(wgpu_render_state) = frame.wgpu_render_state() {
@@ -110,12 +110,15 @@ impl eframe::App for AppMultiplexer {
             }
         }
 
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         // Render the GUI
         if let Some(app) = self.running.as_mut() {
             for (_, (compositor, texture)) in app.compositors_mut() {
                 compositor.rendering_tick_blocking(texture);
             }
-            app.render_gui(ctx);
+            app.render_gui(ui);
         }
     }
 }

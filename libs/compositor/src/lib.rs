@@ -173,6 +173,7 @@ impl Compositor {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         // Finish and set the render pass's binding groups and data
